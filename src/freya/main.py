@@ -9,6 +9,7 @@ VOICE_FILE_COMMAND = "/voice-file"
 TALK_COMMAND = "/talk"
 LISTEN_COMMAND = "/listen"
 CONVERSATION_COMMAND = "/conversation"
+INTERRUPT_COMMAND = "/interrupt"
 
 
 def extract_complete_sentences(buffer):
@@ -192,10 +193,12 @@ def main():
     print("Push-to-talk: enabled")
     print("Automatic silence detection: enabled")
     print("Conversation mode: enabled")
+    print("Interruptible TTS: enabled")
     print()
     print("Use /talk for manual push-to-talk.")
     print("Use /listen for automatic silence detection.")
     print("Use /conversation for hands-free conversation.")
+    print("Use /interrupt to stop current speech playback.")
     print(
         "Use /voice-file <path> "
         "to transcribe an audio file."
@@ -218,6 +221,13 @@ def main():
                 break
 
             if not user_input:
+                continue
+
+            if user_input.lower() == INTERRUPT_COMMAND:
+                voice.interrupt()
+                print(
+                    "\nFreya: Speech playback interrupted.\n"
+                )
                 continue
 
             if user_input.lower() == CONVERSATION_COMMAND:
