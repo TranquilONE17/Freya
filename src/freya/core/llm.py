@@ -17,6 +17,13 @@ ALLOWED_MEMORY_TYPES = {
     "other",
 }
 
+ALLOWED_MEMORY_RELATIONSHIPS = {
+    "duplicate",
+    "complementary",
+    "conflict",
+    "uncertain",
+}
+
 
 def chat(messages):
     response = ollama.chat(
@@ -317,8 +324,185 @@ Original memory:
     if candidate is None:
         return None
 
-    # Migration must never allow the model to
-    # rewrite historical memory content.
     candidate["content"] = content
 
     return candidate
+
+
+def compare_memories(
+    memory_a,
+    memory_b,
+):
+    prompt = f"""
+You are Freya's memory relationship analyzer.
+
+Compare two existing long-term memories.
+
+This operation is READ-ONLY.
+
+You are NOT deciding whether anything should be deleted,
+merged, or changed.
+
+Classify the relationship as exactly one of:
+
+duplicate
+complementary
+conflict
+uncertain
+
+Definitions:
+
+duplicate:
+The two memories communicate essentially the same durable
+information. Wording or amount of detail may differ, but
+keeping both would be substantially redundant.
+
+complementary:
+The memories concern the same general subject but represent
+different facts that can both be true and are useful
+independently.
+
+conflict:
+The memories describe the same underlying property but give
+incompatible values, states, plans, or preferences.
+
+uncertain:
+There is not enough information to safely determine whether
+the memories are duplicate, complementary, or conflicting.
+
+Examples:
+
+Memory A:
+"User's gaming PC has an RTX 4090."
+
+Memory B:
+"User's gaming PC has 64 GB of RAM."
+
+Relationship:
+complementary
+
+Memory A:
+"User's gaming PC has an RTX 4090."
+
+Memory B:
+"User's gaming PC has an RTX 5090."
+
+Relationship:
+conflict
+
+Memory A:
+"User wants the media server installed in the server rack."
+
+Memory B:
+"User plans to move the media server into the same rack as
+Freya's AI hardware."
+
+Relationship:
+duplicate
+
+Also propose a semantic key ONLY when both memories describe
+the same underlying property.
+
+If they do not share one property, use null for
+suggested_key.
+
+Provide a short factual reason.
+
+Do not decide which memory to keep.
+Do not decide which memory is newer or more accurate unless
+that information is explicitly contained in the memories.
+Do not invent information.
+
+Return ONLY valid JSON in this format:
+
+{{
+    "relationship": "duplicate",
+    "reason": "Both memories describe the same media server location plan.",
+    "suggested_key": "media_server_location"
+}}
+
+Memory A:
+ID: {memory_a["id"]}
+Type: {memory_a["type"]}
+Key: {memory_a["key"]}
+Content: {memory_a["content"]}
+
+Memory B:
+ID: {memory_b["id"]}
+Type: {memory_b["type"]}
+Key: {memory_b["key"]}
+Content: {memory_b["content"]}
+"""
+
+    response = ollama.chat(
+        model=MODEL,
+        messages=[
+            {
+                "role": "user",
+                "content": prompt,
+            }
+        ],
+        format="json",
+    )
+
+    result = response[
+        "message"
+    ]["content"].strip()
+
+    try:
+        data = json.loads(
+            result
+        )
+    except json.JSONDecodeError:
+        return {
+            "relationship": "uncertain",
+            "reason": (
+                "The memory analyzer returned "
+                "an invalid response."
+            ),
+            "suggested_key": None,
+        }
+
+    relationship = str(
+        data.get(
+            "relationship",
+            "uncertain",
+        )
+    ).strip().lower()
+
+    if (
+        relationship
+        not in ALLOWED_MEMORY_RELATIONSHIPS
+    ):
+        relationship = "uncertain"
+
+    reason = str(
+        data.get(
+            "reason",
+            "",
+        )
+    ).strip()
+
+    if not reason:
+        reason = (
+            "No reliable explanation was "
+            "provided."
+        )
+
+    suggested_key = data.get(
+        "suggested_key"
+    )
+
+    if suggested_key is not None:
+        suggested_key = _normalize_key(
+            str(suggested_key)
+        )
+
+        if not suggested_key:
+            suggested_key = None
+
+    return {
+        "relationship": relationship,
+        "reason": reason,
+        "suggested_key": suggested_key,
+    }

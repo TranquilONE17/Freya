@@ -347,7 +347,7 @@ class MemoryManager:
             "updated_at": row[5],
         }
 
-    def get_memory_by_key(
+    def get_memories_by_key(
         self,
         memory_key,
     ):
@@ -363,24 +363,36 @@ class MemoryManager:
             FROM memories
             WHERE LOWER(memory_key) = LOWER(?)
             ORDER BY updated_at DESC, id ASC
-            LIMIT 1
             """,
             (memory_key,),
         )
 
-        row = cursor.fetchone()
+        rows = cursor.fetchall()
 
-        if row is None:
+        return [
+            {
+                "id": row[0],
+                "type": row[1],
+                "key": row[2],
+                "content": row[3],
+                "created_at": row[4],
+                "updated_at": row[5],
+            }
+            for row in rows
+        ]
+
+    def get_memory_by_key(
+        self,
+        memory_key,
+    ):
+        memories = self.get_memories_by_key(
+            memory_key
+        )
+
+        if not memories:
             return None
 
-        return {
-            "id": row[0],
-            "type": row[1],
-            "key": row[2],
-            "content": row[3],
-            "created_at": row[4],
-            "updated_at": row[5],
-        }
+        return memories[0]
 
     def get_all_memories(self):
         cursor = self.connection.execute(
@@ -462,6 +474,107 @@ class MemoryManager:
 
         return cursor.rowcount > 0
 
+    def resolve_duplicate(
+        self,
+        keep_id,
+        remove_id,
+        memory_type,
+        memory_key,
+    ):
+        if keep_id == remove_id:
+            return False
+
+        keep_memory = self.get_memory(
+            keep_id
+        )
+
+        remove_memory = self.get_memory(
+            remove_id
+        )
+
+        if (
+            keep_memory is None
+            or remove_memory is None
+        ):
+            return False
+
+        try:
+            self.connection.execute(
+                "BEGIN"
+            )
+
+            keep_memory = self.get_memory(
+                keep_id
+            )
+
+            remove_memory = self.get_memory(
+                remove_id
+            )
+
+            if (
+                keep_memory is None
+                or remove_memory is None
+            ):
+                self.connection.rollback()
+                return False
+
+            self._archive_memory(
+                keep_id,
+                "duplicate_resolution_keep",
+            )
+
+            self._archive_memory(
+                remove_id,
+                "duplicate_resolution_remove",
+            )
+
+            update_cursor = (
+                self.connection.execute(
+                    """
+                    UPDATE memories
+                    SET memory_type = ?,
+                        memory_key = ?,
+                        updated_at = CURRENT_TIMESTAMP
+                    WHERE id = ?
+                    """,
+                    (
+                        memory_type,
+                        memory_key,
+                        keep_id,
+                    ),
+                )
+            )
+
+            if update_cursor.rowcount != 1:
+                raise RuntimeError(
+                    "Could not update the "
+                    "kept memory."
+                )
+
+            delete_cursor = (
+                self.connection.execute(
+                    """
+                    DELETE FROM memories
+                    WHERE id = ?
+                    """,
+                    (remove_id,),
+                )
+            )
+
+            if delete_cursor.rowcount != 1:
+                raise RuntimeError(
+                    "Could not delete the "
+                    "duplicate memory."
+                )
+
+            self.connection.commit()
+
+        except Exception:
+            self.connection.rollback()
+            raise
+
+        return True
+
     def process_candidate(
         self,
         candidate,
@@ -470,11 +583,13 @@ class MemoryManager:
         memory_type = candidate["type"]
         content = candidate["content"]
 
-        existing = self.get_memory_by_key(
-            memory_key
+        existing_memories = (
+            self.get_memories_by_key(
+                memory_key
+            )
         )
 
-        if existing is None:
+        if not existing_memories:
             memory_id = self.add_memory(
                 content=content,
                 memory_type=memory_type,
@@ -486,14 +601,17 @@ class MemoryManager:
                 "memory_id": memory_id,
             }
 
-        if (
-            existing["content"].strip().lower()
-            == content.strip().lower()
-        ):
-            return {
-                "action": "skip",
-                "memory_id": existing["id"],
-            }
+        for existing in existing_memories:
+            if (
+                existing["content"].strip().lower()
+                == content.strip().lower()
+            ):
+                return {
+                    "action": "skip",
+                    "memory_id": existing["id"],
+                }
+
+        existing = existing_memories[0]
 
         self.update_memory(
             memory_id=existing["id"],

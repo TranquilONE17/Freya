@@ -2,6 +2,7 @@ from config import SYSTEM_PROMPT
 from core.llm import (
     chat,
     classify_legacy_memory,
+    compare_memories,
     evaluate_memory,
 )
 from memory.memory_manager import MemoryManager
@@ -101,6 +102,246 @@ class FreyaAssistant:
 
         self.memory.process_candidate(
             candidate
+        )
+
+    def _compare_memories(
+        self,
+        memory_id_a,
+        memory_id_b,
+    ):
+        if memory_id_a == memory_id_b:
+            return (
+                "Please provide two different "
+                "memory IDs."
+            )
+
+        memory_a = self.memory.get_memory(
+            memory_id_a
+        )
+
+        memory_b = self.memory.get_memory(
+            memory_id_b
+        )
+
+        if memory_a is None:
+            return (
+                f"I couldn't find memory "
+                f"{memory_id_a}."
+            )
+
+        if memory_b is None:
+            return (
+                f"I couldn't find memory "
+                f"{memory_id_b}."
+            )
+
+        result = compare_memories(
+            memory_a,
+            memory_b,
+        )
+
+        suggested_key = (
+            result["suggested_key"]
+            if result["suggested_key"]
+            else "none"
+        )
+
+        return (
+            f"Memory comparison: "
+            f"#{memory_id_a} vs "
+            f"#{memory_id_b}\n\n"
+            f"Memory #{memory_id_a}:\n"
+            f"[{memory_a['type']}] "
+            f"[{memory_a['key'] or 'unkeyed'}] "
+            f"{memory_a['content']}\n\n"
+            f"Memory #{memory_id_b}:\n"
+            f"[{memory_b['type']}] "
+            f"[{memory_b['key'] or 'unkeyed'}] "
+            f"{memory_b['content']}\n\n"
+            "Assessment: "
+            f"{result['relationship'].upper()}\n"
+            "Reason: "
+            f"{result['reason']}\n"
+            "Suggested semantic key: "
+            f"{suggested_key}\n\n"
+            "READ-ONLY ANALYSIS - "
+            "no memories have been changed."
+        )
+
+    def _resolve_duplicate(
+        self,
+        keep_id,
+        remove_id,
+    ):
+        if keep_id == remove_id:
+            return (
+                "Please provide two different "
+                "memory IDs."
+            )
+
+        keep_memory = self.memory.get_memory(
+            keep_id
+        )
+
+        remove_memory = self.memory.get_memory(
+            remove_id
+        )
+
+        if keep_memory is None:
+            return (
+                f"I couldn't find memory "
+                f"{keep_id}."
+            )
+
+        if remove_memory is None:
+            return (
+                f"I couldn't find memory "
+                f"{remove_id}."
+            )
+
+        comparison = compare_memories(
+            keep_memory,
+            remove_memory,
+        )
+
+        if (
+            comparison["relationship"]
+            != "duplicate"
+        ):
+            return (
+                "Duplicate resolution blocked.\n\n"
+                f"Freya classified memory "
+                f"#{keep_id} and memory "
+                f"#{remove_id} as "
+                f"{comparison['relationship'].upper()}.\n"
+                f"Reason: "
+                f"{comparison['reason']}\n\n"
+                "No memories have been changed."
+            )
+
+        memory_key = comparison[
+            "suggested_key"
+        ]
+
+        if not memory_key:
+            return (
+                "Duplicate resolution blocked.\n\n"
+                "Freya did not produce a valid "
+                "shared semantic key.\n\n"
+                "No memories have been changed."
+            )
+
+        keep_candidate = (
+            classify_legacy_memory(
+                keep_memory["content"]
+            )
+        )
+
+        remove_candidate = (
+            classify_legacy_memory(
+                remove_memory["content"]
+            )
+        )
+
+        if (
+            keep_candidate is None
+            or remove_candidate is None
+        ):
+            return (
+                "Duplicate resolution blocked.\n\n"
+                "Freya could not safely classify "
+                "both memories.\n\n"
+                "No memories have been changed."
+            )
+
+        if (
+            keep_candidate["key"]
+            != memory_key
+            or remove_candidate["key"]
+            != memory_key
+        ):
+            return (
+                "Duplicate resolution blocked.\n\n"
+                "The semantic-key checks did not "
+                "agree.\n"
+                f"Comparison key: "
+                f"{memory_key}\n"
+                f"Memory #{keep_id} key: "
+                f"{keep_candidate['key']}\n"
+                f"Memory #{remove_id} key: "
+                f"{remove_candidate['key']}\n\n"
+                "No memories have been changed."
+            )
+
+        if (
+            keep_candidate["type"]
+            == remove_candidate["type"]
+        ):
+            canonical_type = (
+                keep_candidate["type"]
+            )
+        elif (
+            keep_candidate["type"]
+            == "other"
+        ):
+            canonical_type = (
+                remove_candidate["type"]
+            )
+        elif (
+            remove_candidate["type"]
+            == "other"
+        ):
+            canonical_type = (
+                keep_candidate["type"]
+            )
+        else:
+            return (
+                "Duplicate resolution blocked.\n\n"
+                "The memories received different "
+                "non-generic memory types:\n"
+                f"Memory #{keep_id}: "
+                f"{keep_candidate['type']}\n"
+                f"Memory #{remove_id}: "
+                f"{remove_candidate['type']}\n\n"
+                "No memories have been changed."
+            )
+
+        resolved = (
+            self.memory.resolve_duplicate(
+                keep_id=keep_id,
+                remove_id=remove_id,
+                memory_type=canonical_type,
+                memory_key=memory_key,
+            )
+        )
+
+        if not resolved:
+            return (
+                "Duplicate resolution failed.\n\n"
+                "No confirmed database change "
+                "was completed."
+            )
+
+        surviving_memory = (
+            self.memory.get_memory(
+                keep_id
+            )
+        )
+
+        return (
+            "Duplicate resolution complete.\n\n"
+            f"Kept memory: #{keep_id}\n"
+            f"Removed duplicate: "
+            f"#{remove_id}\n"
+            f"Canonical type: "
+            f"{canonical_type}\n"
+            f"Canonical key: "
+            f"{memory_key}\n"
+            f"Content preserved from "
+            f"#{keep_id}:\n"
+            f"{surviving_memory['content']}\n\n"
+            "Both original states were archived "
+            "in memory history."
         )
 
     def _build_migration_plan(self):
@@ -416,9 +657,84 @@ class FreyaAssistant:
                 "/edit <ID> <text> - Edit a memory\n"
                 "/forget <ID> - Delete a memory\n"
                 "/memory-history <ID> - Show memory history\n"
+                "/memory-compare <ID1> <ID2> - Compare two memories\n"
+                "/memory-resolve-duplicate <KEEP_ID> <REMOVE_ID> - Resolve confirmed duplicates\n"
                 "/memory-migration-preview - Build and preview migration plan\n"
                 "/memory-migration-apply - Apply the saved safe migration plan\n"
                 "/memory-help - Show these commands"
+            )
+
+        if lower_input.startswith(
+            "/memory-resolve-duplicate "
+        ):
+            resolution_text = stripped_input[
+                len(
+                    "/memory-resolve-duplicate "
+                ):
+            ].strip()
+
+            parts = resolution_text.split()
+
+            if len(parts) != 2:
+                return (
+                    "Use "
+                    "/memory-resolve-duplicate "
+                    "<KEEP_ID> <REMOVE_ID>."
+                )
+
+            try:
+                keep_id = int(
+                    parts[0]
+                )
+
+                remove_id = int(
+                    parts[1]
+                )
+
+            except ValueError:
+                return (
+                    "Please provide two numeric "
+                    "memory IDs."
+                )
+
+            return self._resolve_duplicate(
+                keep_id,
+                remove_id,
+            )
+
+        if lower_input.startswith(
+            "/memory-compare "
+        ):
+            compare_text = stripped_input[
+                len("/memory-compare "):
+            ].strip()
+
+            parts = compare_text.split()
+
+            if len(parts) != 2:
+                return (
+                    "Use /memory-compare "
+                    "<ID1> <ID2>."
+                )
+
+            try:
+                memory_id_a = int(
+                    parts[0]
+                )
+
+                memory_id_b = int(
+                    parts[1]
+                )
+
+            except ValueError:
+                return (
+                    "Please provide two numeric "
+                    "memory IDs."
+                )
+
+            return self._compare_memories(
+                memory_id_a,
+                memory_id_b,
             )
 
         if lower_input == (
