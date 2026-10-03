@@ -1,6 +1,7 @@
 from config import SYSTEM_PROMPT
 from core.llm import (
     chat,
+    classify_legacy_memory,
     evaluate_memory,
 )
 from memory.memory_manager import MemoryManager
@@ -102,6 +103,189 @@ class FreyaAssistant:
             candidate
         )
 
+    def _migration_preview(self):
+        memories = (
+            self.memory.get_all_memories()
+        )
+
+        legacy_memories = []
+
+        for memory in memories:
+            (
+                memory_id,
+                memory_type,
+                memory_key,
+                content,
+                created_at,
+                updated_at,
+            ) = memory
+
+            if memory_key is None:
+                legacy_memories.append(
+                    {
+                        "id": memory_id,
+                        "type": memory_type,
+                        "key": memory_key,
+                        "content": content,
+                        "created_at": created_at,
+                        "updated_at": updated_at,
+                    }
+                )
+
+        if not legacy_memories:
+            return (
+                "No unkeyed legacy memories "
+                "were found."
+            )
+
+        proposals = []
+
+        for memory in legacy_memories:
+            candidate = (
+                classify_legacy_memory(
+                    memory["content"]
+                )
+            )
+
+            if candidate is None:
+                proposals.append(
+                    {
+                        "id": memory["id"],
+                        "current_type": (
+                            memory["type"]
+                        ),
+                        "current_key": None,
+                        "content": (
+                            memory["content"]
+                        ),
+                        "proposed_type": None,
+                        "proposed_key": None,
+                    }
+                )
+
+                continue
+
+            proposals.append(
+                {
+                    "id": memory["id"],
+                    "current_type": (
+                        memory["type"]
+                    ),
+                    "current_key": None,
+                    "content": (
+                        memory["content"]
+                    ),
+                    "proposed_type": (
+                        candidate["type"]
+                    ),
+                    "proposed_key": (
+                        candidate["key"]
+                    ),
+                }
+            )
+
+        key_groups = {}
+
+        for proposal in proposals:
+            key = proposal[
+                "proposed_key"
+            ]
+
+            if not key:
+                continue
+
+            key_groups.setdefault(
+                key,
+                [],
+            ).append(
+                proposal["id"]
+            )
+
+        duplicate_ids = set()
+
+        for ids in key_groups.values():
+            if len(ids) > 1:
+                duplicate_ids.update(
+                    ids
+                )
+
+        lines = [
+            "Legacy memory migration preview:",
+            "",
+            (
+                "PREVIEW ONLY - no memories "
+                "have been changed."
+            ),
+        ]
+
+        for proposal in proposals:
+            lines.append("")
+            lines.append(
+                f"Memory #{proposal['id']}"
+            )
+
+            lines.append(
+                "Current: "
+                f"[{proposal['current_type']}] "
+                "[unkeyed]"
+            )
+
+            if (
+                proposal["proposed_type"]
+                and proposal["proposed_key"]
+            ):
+                lines.append(
+                    "Proposed: "
+                    f"[{proposal['proposed_type']}] "
+                    f"[{proposal['proposed_key']}]"
+                )
+            else:
+                lines.append(
+                    "Proposed: "
+                    "[REVIEW REQUIRED]"
+                )
+
+            lines.append(
+                "Content: "
+                f"{proposal['content']}"
+            )
+
+            if proposal["id"] in duplicate_ids:
+                matching_ids = (
+                    key_groups[
+                        proposal[
+                            "proposed_key"
+                        ]
+                    ]
+                )
+
+                other_ids = [
+                    memory_id
+                    for memory_id
+                    in matching_ids
+                    if memory_id
+                    != proposal["id"]
+                ]
+
+                formatted_ids = ", ".join(
+                    f"#{memory_id}"
+                    for memory_id
+                    in other_ids
+                )
+
+                lines.append(
+                    "WARNING: Same proposed "
+                    "semantic key as "
+                    f"{formatted_ids}. "
+                    "Possible duplicate or "
+                    "conflict. Manual review "
+                    "required."
+                )
+
+        return "\n".join(
+            lines
+        )
+
     def _handle_memory_command(
         self,
         user_input,
@@ -117,7 +301,15 @@ class FreyaAssistant:
                 "/edit <ID> <text> - Edit a memory\n"
                 "/forget <ID> - Delete a memory\n"
                 "/memory-history <ID> - Show memory history\n"
+                "/memory-migration-preview - Preview legacy migration\n"
                 "/memory-help - Show these commands"
+            )
+
+        if lower_input == (
+            "/memory-migration-preview"
+        ):
+            return (
+                self._migration_preview()
             )
 
         if lower_input == "/memories":
