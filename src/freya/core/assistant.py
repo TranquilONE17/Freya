@@ -116,6 +116,7 @@ class FreyaAssistant:
                 "/remember <text> - Save a memory\n"
                 "/edit <ID> <text> - Edit a memory\n"
                 "/forget <ID> - Delete a memory\n"
+                "/memory-history <ID> - Show memory history\n"
                 "/memory-help - Show these commands"
             )
 
@@ -154,6 +155,75 @@ class FreyaAssistant:
                     f"{content} "
                     f"(created: {created_at}, "
                     f"updated: {updated_at})"
+                )
+
+            return "\n".join(lines)
+
+        if lower_input.startswith(
+            "/memory-history "
+        ):
+            memory_id_text = (
+                stripped_input[
+                    len("/memory-history "):
+                ].strip()
+            )
+
+            try:
+                memory_id = int(
+                    memory_id_text
+                )
+            except ValueError:
+                return (
+                    "Please provide a numeric "
+                    "memory ID."
+                )
+
+            history = (
+                self.memory.get_memory_history(
+                    memory_id
+                )
+            )
+
+            if not history:
+                return (
+                    f"Memory {memory_id} "
+                    "doesn't have any archived "
+                    "history yet."
+                )
+
+            lines = [
+                f"History for memory {memory_id}:"
+            ]
+
+            for (
+                history_id,
+                archived_memory_id,
+                action,
+                memory_type,
+                memory_key,
+                content,
+                original_created_at,
+                original_updated_at,
+                archived_at,
+            ) in history:
+
+                display_key = (
+                    memory_key
+                    if memory_key
+                    else "unkeyed"
+                )
+
+                lines.append(
+                    f"[History {history_id}] "
+                    f"[{action}] "
+                    f"[{memory_type}] "
+                    f"[{display_key}] "
+                    f"{content} "
+                    f"(original created: "
+                    f"{original_created_at}, "
+                    f"original updated: "
+                    f"{original_updated_at}, "
+                    f"archived: {archived_at})"
                 )
 
             return "\n".join(lines)
@@ -263,6 +333,7 @@ class FreyaAssistant:
                         memory_key=candidate[
                             "key"
                         ],
+                        action="manual_edit",
                     )
                 )
 
@@ -271,6 +342,7 @@ class FreyaAssistant:
                     self.memory.update_memory(
                         memory_id=memory_id,
                         content=new_content,
+                        action="manual_edit",
                     )
                 )
 
@@ -308,7 +380,8 @@ class FreyaAssistant:
 
             deleted = (
                 self.memory.delete_memory(
-                    memory_id
+                    memory_id,
+                    action="manual_delete",
                 )
             )
 

@@ -37,6 +37,22 @@ class MemoryManager:
             """
         )
 
+        self.connection.execute(
+            """
+            CREATE TABLE IF NOT EXISTS memory_history (
+                history_id INTEGER PRIMARY KEY AUTOINCREMENT,
+                memory_id INTEGER NOT NULL,
+                action TEXT NOT NULL,
+                memory_type TEXT,
+                memory_key TEXT,
+                content TEXT NOT NULL,
+                original_created_at TIMESTAMP,
+                original_updated_at TIMESTAMP,
+                archived_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+            """
+        )
+
         self._upgrade_database()
         self.connection.commit()
 
@@ -140,6 +156,44 @@ class MemoryManager:
 
         self.connection.commit()
 
+    def _archive_memory(
+        self,
+        memory_id,
+        action,
+    ):
+        memory = self.get_memory(
+            memory_id
+        )
+
+        if memory is None:
+            return False
+
+        self.connection.execute(
+            """
+            INSERT INTO memory_history (
+                memory_id,
+                action,
+                memory_type,
+                memory_key,
+                content,
+                original_created_at,
+                original_updated_at
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                memory["id"],
+                action,
+                memory["type"],
+                memory["key"],
+                memory["content"],
+                memory["created_at"],
+                memory["updated_at"],
+            ),
+        )
+
+        return True
+
     def add_memory(
         self,
         content,
@@ -197,6 +251,7 @@ class MemoryManager:
         content,
         memory_type=None,
         memory_key=None,
+        action="update",
     ):
         existing = self.get_memory(
             memory_id
@@ -215,26 +270,40 @@ class MemoryManager:
             content
         )
 
-        cursor = self.connection.execute(
-            """
-            UPDATE memories
-            SET memory_type = ?,
-                memory_key = ?,
-                content = ?,
-                embedding = ?,
-                updated_at = CURRENT_TIMESTAMP
-            WHERE id = ?
-            """,
-            (
-                memory_type,
-                memory_key,
-                content,
-                json.dumps(embedding),
-                memory_id,
-            ),
-        )
+        try:
+            self.connection.execute(
+                "BEGIN"
+            )
 
-        self.connection.commit()
+            self._archive_memory(
+                memory_id,
+                action,
+            )
+
+            cursor = self.connection.execute(
+                """
+                UPDATE memories
+                SET memory_type = ?,
+                    memory_key = ?,
+                    content = ?,
+                    embedding = ?,
+                    updated_at = CURRENT_TIMESTAMP
+                WHERE id = ?
+                """,
+                (
+                    memory_type,
+                    memory_key,
+                    content,
+                    json.dumps(embedding),
+                    memory_id,
+                ),
+            )
+
+            self.connection.commit()
+
+        except Exception:
+            self.connection.rollback()
+            raise
 
         return cursor.rowcount > 0
 
@@ -320,16 +389,66 @@ class MemoryManager:
 
         return cursor.fetchall()
 
-    def delete_memory(self, memory_id):
+    def get_memory_history(
+        self,
+        memory_id,
+    ):
         cursor = self.connection.execute(
             """
-            DELETE FROM memories
-            WHERE id = ?
+            SELECT
+                history_id,
+                memory_id,
+                action,
+                memory_type,
+                memory_key,
+                content,
+                original_created_at,
+                original_updated_at,
+                archived_at
+            FROM memory_history
+            WHERE memory_id = ?
+            ORDER BY history_id ASC
             """,
             (memory_id,),
         )
 
-        self.connection.commit()
+        return cursor.fetchall()
+
+    def delete_memory(
+        self,
+        memory_id,
+        action="delete",
+    ):
+        existing = self.get_memory(
+            memory_id
+        )
+
+        if existing is None:
+            return False
+
+        try:
+            self.connection.execute(
+                "BEGIN"
+            )
+
+            self._archive_memory(
+                memory_id,
+                action,
+            )
+
+            cursor = self.connection.execute(
+                """
+                DELETE FROM memories
+                WHERE id = ?
+                """,
+                (memory_id,),
+            )
+
+            self.connection.commit()
+
+        except Exception:
+            self.connection.rollback()
+            raise
 
         return cursor.rowcount > 0
 
@@ -371,6 +490,7 @@ class MemoryManager:
             content=content,
             memory_type=memory_type,
             memory_key=memory_key,
+            action="automatic_update",
         )
 
         return {
