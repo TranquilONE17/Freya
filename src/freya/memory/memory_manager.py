@@ -51,6 +51,7 @@ class MemoryManager:
             self.connection.execute(
                 "ALTER TABLE memories ADD COLUMN embedding TEXT"
             )
+
             self.connection.commit()
 
     def _create_embedding(self, text):
@@ -88,6 +89,18 @@ class MemoryManager:
         self.connection.commit()
 
     def add_memory(self, content):
+        existing = self.connection.execute(
+            """
+            SELECT id
+            FROM memories
+            WHERE LOWER(content) = LOWER(?)
+            """,
+            (content,),
+        ).fetchone()
+
+        if existing:
+            return existing[0]
+
         embedding = self._create_embedding(content)
 
         cursor = self.connection.execute(
