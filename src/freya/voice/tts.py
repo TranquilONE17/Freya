@@ -1,5 +1,7 @@
+import queue
 import re
 import tempfile
+import threading
 from pathlib import Path
 
 import numpy as np
@@ -20,12 +22,23 @@ class FreyaVoice:
         self.speed = VOICE_SPEED
         self.pipeline = None
 
+        self._speech_queue = queue.Queue()
+        self._shutdown_event = threading.Event()
+        self._worker = None
+
         if self.enabled:
             print("Loading Freya voice engine...")
             self.pipeline = KPipeline(
                 lang_code="a",
                 repo_id="hexgrad/Kokoro-82M",
             )
+
+            self._worker = threading.Thread(
+                target=self._speech_worker,
+                name="FreyaVoiceWorker",
+                daemon=True,
+            )
+            self._worker.start()
 
     def _split_into_chunks(self, text):
         text = text.strip()
@@ -88,11 +101,36 @@ class FreyaVoice:
             )
         except Exception as exc:
             print(
-                f"[Voice playback error: {exc}]"
+                f"\n[Voice playback error: {exc}]"
             )
 
+    def _speech_worker(self):
+        while True:
+            item = self._speech_queue.get()
+
+            try:
+                if item is None:
+                    return
+
+                audio = self._generate_audio(
+                    item
+                )
+
+                self._play_audio(
+                    audio
+                )
+            except Exception as exc:
+                print(
+                    f"\n[Voice worker error: {exc}]"
+                )
+            finally:
+                self._speech_queue.task_done()
+
     def speak(self, text):
-        if not self.enabled:
+        if (
+            not self.enabled
+            or self._shutdown_event.is_set()
+        ):
             return
 
         chunks = self._split_into_chunks(
@@ -100,10 +138,28 @@ class FreyaVoice:
         )
 
         for chunk in chunks:
-            audio = self._generate_audio(
+            self._speech_queue.put(
                 chunk
             )
 
-            self._play_audio(
-                audio
-            )
+    def wait_until_done(self):
+        if not self.enabled:
+            return
+
+        self._speech_queue.join()
+
+    def shutdown(self):
+        if (
+            not self.enabled
+            or self._shutdown_event.is_set()
+        ):
+            return
+
+        self._shutdown_event.set()
+
+        self._speech_queue.put(
+            None
+        )
+
+        if self._worker is not None:
+            self._worker.join()
