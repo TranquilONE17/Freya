@@ -102,9 +102,10 @@ class FreyaSTT:
         print("Recording stopped.")
         return temp_path
 
-    def record_until_silence(self):
+    def record_until_silence(self, wait_for_enter=True):
         print()
-        input("Press ENTER when you're ready to talk...")
+        if wait_for_enter:
+            input("Press ENTER when you're ready to talk...")
 
         print("Listening... Start speaking.")
 
