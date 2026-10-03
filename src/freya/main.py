@@ -6,6 +6,7 @@ from voice.tts import FreyaVoice
 
 
 VOICE_FILE_COMMAND = "/voice-file"
+TALK_COMMAND = "/talk"
 
 
 def extract_complete_sentences(buffer):
@@ -98,7 +99,9 @@ def main():
     print("Streaming: enabled")
     print("Async voice: enabled")
     print("Voice-file input: enabled")
+    print("Push-to-talk: enabled")
     print()
+    print("Use /talk for microphone input.")
     print(
         "Use /voice-file <path> "
         "to transcribe an audio file."
@@ -121,6 +124,51 @@ def main():
                 break
 
             if not user_input:
+                continue
+
+            if user_input.lower() == TALK_COMMAND:
+                try:
+                    if stt is None:
+                        stt = FreyaSTT()
+
+                    audio_path = stt.record_push_to_talk()
+
+                    transcript, info = stt.transcribe(
+                        audio_path
+                    )
+
+                except Exception as exc:
+                    print(
+                        "\nMicrophone error: "
+                        f"{exc}\n"
+                    )
+                    continue
+
+                transcript = transcript.strip()
+
+                if not transcript:
+                    print(
+                        "\nNo speech was "
+                        "detected from the microphone.\n"
+                    )
+                    continue
+
+                print()
+                print(
+                    "You (voice): "
+                    f"{transcript}"
+                )
+                print(
+                    "Detected language: "
+                    f"{info.language}"
+                )
+
+                stream_freya_response(
+                    freya,
+                    voice,
+                    transcript,
+                )
+
                 continue
 
             if user_input.lower().startswith(
