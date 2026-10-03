@@ -1,23 +1,11 @@
-import ollama
-
-
-MODEL = "gpt-oss:20b"
+from core.assistant import FreyaAssistant
 
 
 def main():
+    freya = FreyaAssistant()
+
     print("Freya online.")
     print("Type 'exit' to quit.\n")
-
-    messages = [
-        {
-            "role": "system",
-            "content": (
-                "You are Freya, a locally hosted personal AI assistant. "
-                "Your name is Freya. "
-                "Be helpful, conversational, capable, and concise."
-            ),
-        }
-    ]
 
     while True:
         user_input = input("You: ").strip()
@@ -29,26 +17,7 @@ def main():
         if not user_input:
             continue
 
-        messages.append(
-            {
-                "role": "user",
-                "content": user_input,
-            }
-        )
-
-        response = ollama.chat(
-            model=MODEL,
-            messages=messages,
-        )
-
-        reply = response["message"]["content"]
-
-        messages.append(
-            {
-                "role": "assistant",
-                "content": reply,
-            }
-        )
+        reply = freya.respond(user_input)
 
         print(f"\nFreya: {reply}\n")
 
