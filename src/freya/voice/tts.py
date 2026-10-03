@@ -1,11 +1,9 @@
 import queue
 import re
-import tempfile
 import threading
-from pathlib import Path
 
 import numpy as np
-import soundfile as sf
+import sounddevice as sd
 from kokoro import KPipeline
 
 
@@ -24,6 +22,8 @@ class FreyaVoice:
 
         self._speech_queue = queue.Queue()
         self._shutdown_event = threading.Event()
+        self._interrupt_event = threading.Event()
+        self._speaking_event = threading.Event()
         self._worker = None
 
         if self.enabled:
@@ -70,6 +70,9 @@ class FreyaVoice:
         audio_parts = []
 
         for _, _, audio in generator:
+            if self._interrupt_event.is_set():
+                return None
+
             audio_parts.append(audio)
 
         if not audio_parts:
@@ -81,28 +84,50 @@ class FreyaVoice:
         if audio is None:
             return
 
-        temp_path = (
-            Path(tempfile.gettempdir())
-            / "freya_tts.wav"
-        )
-
-        sf.write(
-            temp_path,
-            audio,
-            SAMPLE_RATE,
-        )
+        self._speaking_event.set()
 
         try:
-            import winsound
-
-            winsound.PlaySound(
-                str(temp_path),
-                winsound.SND_FILENAME,
+            sd.play(
+                audio,
+                SAMPLE_RATE,
+                blocking=False,
             )
+
+            while True:
+                if self._interrupt_event.is_set():
+                    sd.stop()
+                    return
+
+                stream = sd.get_stream()
+
+                if stream is None or not stream.active:
+                    return
+
+                self._interrupt_event.wait(0.02)
+
         except Exception as exc:
             print(
                 f"\n[Voice playback error: {exc}]"
             )
+
+        finally:
+            self._speaking_event.clear()
+
+    def _discard_queued_speech(self):
+        while True:
+            try:
+                item = self._speech_queue.get_nowait()
+            except queue.Empty:
+                break
+
+            if item is None:
+                # Preserve the shutdown sentinel if one was queued.
+                self._speech_queue.put(None)
+
+            self._speech_queue.task_done()
+
+            if item is None:
+                break
 
     def _speech_worker(self):
         while True:
@@ -112,19 +137,37 @@ class FreyaVoice:
                 if item is None:
                     return
 
+                # An interrupt applies to the speech that existed at the
+                # moment interrupt() was called. New speech may proceed.
+                if self._interrupt_event.is_set():
+                    continue
+
                 audio = self._generate_audio(
                     item
                 )
 
+                if self._interrupt_event.is_set():
+                    continue
+
                 self._play_audio(
                     audio
                 )
+
             except Exception as exc:
                 print(
                     f"\n[Voice worker error: {exc}]"
                 )
+
             finally:
                 self._speech_queue.task_done()
+
+                # Once the interrupted item and its old queue are gone,
+                # allow future speak() calls to start a fresh utterance.
+                if (
+                    self._interrupt_event.is_set()
+                    and self._speech_queue.empty()
+                ):
+                    self._interrupt_event.clear()
 
     def speak(self, text):
         if (
@@ -132,6 +175,15 @@ class FreyaVoice:
             or self._shutdown_event.is_set()
         ):
             return
+
+        # If a previous interrupt has fully drained, make sure new speech
+        # is allowed immediately.
+        if (
+            self._interrupt_event.is_set()
+            and not self._speaking_event.is_set()
+            and self._speech_queue.empty()
+        ):
+            self._interrupt_event.clear()
 
         chunks = self._split_into_chunks(
             text
@@ -141,6 +193,17 @@ class FreyaVoice:
             self._speech_queue.put(
                 chunk
             )
+
+    def interrupt(self):
+        if not self.enabled:
+            return
+
+        self._interrupt_event.set()
+        sd.stop()
+        self._discard_queued_speech()
+
+    def is_speaking(self):
+        return self._speaking_event.is_set()
 
     def wait_until_done(self):
         if not self.enabled:
@@ -156,6 +219,7 @@ class FreyaVoice:
             return
 
         self._shutdown_event.set()
+        self.interrupt()
 
         self._speech_queue.put(
             None
