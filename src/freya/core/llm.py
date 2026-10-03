@@ -34,6 +34,26 @@ def chat(messages):
     return response["message"]["content"]
 
 
+def chat_stream(messages):
+    stream = ollama.chat(
+        model=MODEL,
+        messages=messages,
+        stream=True,
+    )
+
+    for chunk in stream:
+        content = chunk.get(
+            "message",
+            {},
+        ).get(
+            "content",
+            "",
+        )
+
+        if content:
+            yield content
+
+
 def _normalize_key(memory_key):
     memory_key = memory_key.strip().lower()
 
