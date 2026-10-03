@@ -1,5 +1,5 @@
 from config import SYSTEM_PROMPT
-from core.llm import chat
+from core.llm import chat, evaluate_memory
 from memory.memory_manager import MemoryManager
 
 
@@ -67,6 +67,11 @@ class FreyaAssistant:
             }
         )
 
+        memory = evaluate_memory(user_input)
+
+        if memory:
+            self.memory.add_memory(memory)
+
         return reply
 
     def _handle_memory_command(self, user_input):
@@ -99,12 +104,18 @@ class FreyaAssistant:
             return "\n".join(lines)
 
         if lower_input.startswith("/remember "):
-            memory = stripped_input[len("/remember "):].strip()
+            memory = stripped_input[
+                len("/remember "):
+            ].strip()
 
             if not memory:
-                return "Tell me what you'd like me to remember."
+                return (
+                    "Tell me what you'd like me to remember."
+                )
 
-            memory_id = self.memory.add_memory(memory)
+            memory_id = self.memory.add_memory(
+                memory
+            )
 
             return (
                 f"I'll remember that. "
@@ -118,6 +129,7 @@ class FreyaAssistant:
 
             try:
                 memory_id = int(memory_id_text)
+
             except ValueError:
                 return (
                     "Please provide the numeric memory ID. "
@@ -138,7 +150,9 @@ class FreyaAssistant:
             )
 
         if lower_input.startswith("remember "):
-            memory = stripped_input[len("remember "):].strip()
+            memory = stripped_input[
+                len("remember "):
+            ].strip()
 
             if memory:
                 memory_id = self.memory.add_memory(
