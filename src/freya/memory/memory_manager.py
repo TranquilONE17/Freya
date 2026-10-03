@@ -51,7 +51,6 @@ class MemoryManager:
             self.connection.execute(
                 "ALTER TABLE memories ADD COLUMN embedding TEXT"
             )
-
             self.connection.commit()
 
     def _create_embedding(self, text):
@@ -91,7 +90,7 @@ class MemoryManager:
     def add_memory(self, content):
         embedding = self._create_embedding(content)
 
-        self.connection.execute(
+        cursor = self.connection.execute(
             """
             INSERT INTO memories (content, embedding)
             VALUES (?, ?)
@@ -103,6 +102,32 @@ class MemoryManager:
         )
 
         self.connection.commit()
+
+        return cursor.lastrowid
+
+    def get_all_memories(self):
+        cursor = self.connection.execute(
+            """
+            SELECT id, content, created_at
+            FROM memories
+            ORDER BY id ASC
+            """
+        )
+
+        return cursor.fetchall()
+
+    def delete_memory(self, memory_id):
+        cursor = self.connection.execute(
+            """
+            DELETE FROM memories
+            WHERE id = ?
+            """,
+            (memory_id,),
+        )
+
+        self.connection.commit()
+
+        return cursor.rowcount > 0
 
     def search_memories(
         self,
