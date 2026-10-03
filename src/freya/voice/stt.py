@@ -1,5 +1,6 @@
 from pathlib import Path
 import tempfile
+import time
 
 import numpy as np
 import sounddevice as sd
@@ -14,6 +15,14 @@ WHISPER_COMPUTE_TYPE = "float16"
 MICROPHONE_DEVICE = 1
 MICROPHONE_SAMPLE_RATE = 44100
 MICROPHONE_CHANNELS = 1
+
+# Automatic end-of-speech detection.
+VAD_BLOCK_DURATION = 0.05
+VAD_START_THRESHOLD = 0.012
+VAD_STOP_THRESHOLD = 0.009
+VAD_SILENCE_SECONDS = 1.25
+VAD_MAX_WAIT_SECONDS = 10.0
+VAD_MAX_RECORD_SECONDS = 60.0
 
 
 class FreyaSTT:
@@ -91,5 +100,128 @@ class FreyaSTT:
         )
 
         print("Recording stopped.")
+        return temp_path
+
+    def record_until_silence(self):
+        print()
+        input("Press ENTER when you're ready to talk...")
+
+        print("Listening... Start speaking.")
+
+        blocksize = int(
+            MICROPHONE_SAMPLE_RATE
+            * VAD_BLOCK_DURATION
+        )
+
+        frames = []
+        speech_started = False
+        silence_duration = 0.0
+        wait_started = time.monotonic()
+        speech_started_at = None
+
+        with sd.InputStream(
+            device=MICROPHONE_DEVICE,
+            samplerate=MICROPHONE_SAMPLE_RATE,
+            channels=MICROPHONE_CHANNELS,
+            dtype="float32",
+            blocksize=blocksize,
+        ) as stream:
+            while True:
+                audio_block, overflowed = stream.read(
+                    blocksize
+                )
+
+                if overflowed:
+                    print(
+                        "Microphone warning: "
+                        "input overflow."
+                    )
+
+                level = float(
+                    np.sqrt(
+                        np.mean(
+                            np.square(audio_block)
+                        )
+                    )
+                )
+
+                if not speech_started:
+                    if level >= VAD_START_THRESHOLD:
+                        speech_started = True
+                        speech_started_at = (
+                            time.monotonic()
+                        )
+                        frames.append(
+                            audio_block.copy()
+                        )
+                        print(
+                            "Speech detected..."
+                        )
+
+                    elif (
+                        time.monotonic()
+                        - wait_started
+                        >= VAD_MAX_WAIT_SECONDS
+                    ):
+                        raise RuntimeError(
+                            "No speech was detected."
+                        )
+
+                    continue
+
+                frames.append(
+                    audio_block.copy()
+                )
+
+                if level < VAD_STOP_THRESHOLD:
+                    silence_duration += (
+                        VAD_BLOCK_DURATION
+                    )
+                else:
+                    silence_duration = 0.0
+
+                if (
+                    silence_duration
+                    >= VAD_SILENCE_SECONDS
+                ):
+                    print(
+                        "Silence detected. "
+                        "Recording stopped."
+                    )
+                    break
+
+                if (
+                    speech_started_at is not None
+                    and time.monotonic()
+                    - speech_started_at
+                    >= VAD_MAX_RECORD_SECONDS
+                ):
+                    print(
+                        "Maximum recording time "
+                        "reached."
+                    )
+                    break
+
+        if not frames:
+            raise RuntimeError(
+                "No microphone audio was captured."
+            )
+
+        audio = np.concatenate(
+            frames,
+            axis=0,
+        )
+
+        temp_path = (
+            Path(tempfile.gettempdir())
+            / "freya_microphone_vad.wav"
+        )
+
+        sf.write(
+            temp_path,
+            audio,
+            MICROPHONE_SAMPLE_RATE,
+        )
+
         return temp_path
 
