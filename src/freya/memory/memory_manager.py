@@ -19,15 +19,20 @@ class MemoryManager:
     def __init__(self):
         DATA_DIR.mkdir(exist_ok=True)
 
-        self.connection = sqlite3.connect(DATABASE_PATH)
+        self.connection = sqlite3.connect(
+            DATABASE_PATH
+        )
 
         self.connection.execute(
             """
             CREATE TABLE IF NOT EXISTS memories (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
+                memory_type TEXT DEFAULT 'other',
+                memory_key TEXT,
                 content TEXT NOT NULL,
                 embedding TEXT,
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
             """
         )
@@ -49,10 +54,55 @@ class MemoryManager:
 
         if "embedding" not in columns:
             self.connection.execute(
-                "ALTER TABLE memories ADD COLUMN embedding TEXT"
+                """
+                ALTER TABLE memories
+                ADD COLUMN embedding TEXT
+                """
             )
 
-            self.connection.commit()
+        if "memory_type" not in columns:
+            self.connection.execute(
+                """
+                ALTER TABLE memories
+                ADD COLUMN memory_type TEXT
+                DEFAULT 'other'
+                """
+            )
+
+        if "memory_key" not in columns:
+            self.connection.execute(
+                """
+                ALTER TABLE memories
+                ADD COLUMN memory_key TEXT
+                """
+            )
+
+        if "updated_at" not in columns:
+            self.connection.execute(
+                """
+                ALTER TABLE memories
+                ADD COLUMN updated_at TIMESTAMP
+                """
+            )
+
+        self.connection.execute(
+            """
+            UPDATE memories
+            SET memory_type = 'other'
+            WHERE memory_type IS NULL
+               OR TRIM(memory_type) = ''
+            """
+        )
+
+        self.connection.execute(
+            """
+            UPDATE memories
+            SET updated_at = created_at
+            WHERE updated_at IS NULL
+            """
+        )
+
+        self.connection.commit()
 
     def _create_embedding(self, text):
         response = ollama.embed(
@@ -72,7 +122,9 @@ class MemoryManager:
         )
 
         for memory_id, content in cursor.fetchall():
-            embedding = self._create_embedding(content)
+            embedding = self._create_embedding(
+                content
+            )
 
             self.connection.execute(
                 """
@@ -88,7 +140,12 @@ class MemoryManager:
 
         self.connection.commit()
 
-    def add_memory(self, content):
+    def add_memory(
+        self,
+        content,
+        memory_type="other",
+        memory_key=None,
+    ):
         existing = self.connection.execute(
             """
             SELECT id
@@ -101,14 +158,30 @@ class MemoryManager:
         if existing:
             return existing[0]
 
-        embedding = self._create_embedding(content)
+        embedding = self._create_embedding(
+            content
+        )
 
         cursor = self.connection.execute(
             """
-            INSERT INTO memories (content, embedding)
-            VALUES (?, ?)
+            INSERT INTO memories (
+                memory_type,
+                memory_key,
+                content,
+                embedding,
+                updated_at
+            )
+            VALUES (
+                ?,
+                ?,
+                ?,
+                ?,
+                CURRENT_TIMESTAMP
+            )
             """,
             (
+                memory_type,
+                memory_key,
                 content,
                 json.dumps(embedding),
             ),
@@ -118,10 +191,128 @@ class MemoryManager:
 
         return cursor.lastrowid
 
+    def update_memory(
+        self,
+        memory_id,
+        content,
+        memory_type=None,
+        memory_key=None,
+    ):
+        existing = self.get_memory(
+            memory_id
+        )
+
+        if existing is None:
+            return False
+
+        if memory_type is None:
+            memory_type = existing["type"]
+
+        if memory_key is None:
+            memory_key = existing["key"]
+
+        embedding = self._create_embedding(
+            content
+        )
+
+        cursor = self.connection.execute(
+            """
+            UPDATE memories
+            SET memory_type = ?,
+                memory_key = ?,
+                content = ?,
+                embedding = ?,
+                updated_at = CURRENT_TIMESTAMP
+            WHERE id = ?
+            """,
+            (
+                memory_type,
+                memory_key,
+                content,
+                json.dumps(embedding),
+                memory_id,
+            ),
+        )
+
+        self.connection.commit()
+
+        return cursor.rowcount > 0
+
+    def get_memory(self, memory_id):
+        cursor = self.connection.execute(
+            """
+            SELECT
+                id,
+                memory_type,
+                memory_key,
+                content,
+                created_at,
+                updated_at
+            FROM memories
+            WHERE id = ?
+            """,
+            (memory_id,),
+        )
+
+        row = cursor.fetchone()
+
+        if row is None:
+            return None
+
+        return {
+            "id": row[0],
+            "type": row[1],
+            "key": row[2],
+            "content": row[3],
+            "created_at": row[4],
+            "updated_at": row[5],
+        }
+
+    def get_memory_by_key(
+        self,
+        memory_key,
+    ):
+        cursor = self.connection.execute(
+            """
+            SELECT
+                id,
+                memory_type,
+                memory_key,
+                content,
+                created_at,
+                updated_at
+            FROM memories
+            WHERE LOWER(memory_key) = LOWER(?)
+            ORDER BY updated_at DESC, id ASC
+            LIMIT 1
+            """,
+            (memory_key,),
+        )
+
+        row = cursor.fetchone()
+
+        if row is None:
+            return None
+
+        return {
+            "id": row[0],
+            "type": row[1],
+            "key": row[2],
+            "content": row[3],
+            "created_at": row[4],
+            "updated_at": row[5],
+        }
+
     def get_all_memories(self):
         cursor = self.connection.execute(
             """
-            SELECT id, content, created_at
+            SELECT
+                id,
+                memory_type,
+                memory_key,
+                content,
+                created_at,
+                updated_at
             FROM memories
             ORDER BY id ASC
             """
@@ -142,17 +333,69 @@ class MemoryManager:
 
         return cursor.rowcount > 0
 
+    def process_candidate(
+        self,
+        candidate,
+    ):
+        memory_key = candidate["key"]
+        memory_type = candidate["type"]
+        content = candidate["content"]
+
+        existing = self.get_memory_by_key(
+            memory_key
+        )
+
+        if existing is None:
+            memory_id = self.add_memory(
+                content=content,
+                memory_type=memory_type,
+                memory_key=memory_key,
+            )
+
+            return {
+                "action": "add",
+                "memory_id": memory_id,
+            }
+
+        if (
+            existing["content"].strip().lower()
+            == content.strip().lower()
+        ):
+            return {
+                "action": "skip",
+                "memory_id": existing["id"],
+            }
+
+        self.update_memory(
+            memory_id=existing["id"],
+            content=content,
+            memory_type=memory_type,
+            memory_key=memory_key,
+        )
+
+        return {
+            "action": "update",
+            "memory_id": existing["id"],
+        }
+
     def search_memories(
         self,
         query,
         limit=DEFAULT_MEMORY_LIMIT,
         threshold=DEFAULT_SIMILARITY_THRESHOLD,
     ):
-        query_embedding = self._create_embedding(query)
+        query_embedding = self._create_embedding(
+            query
+        )
 
         cursor = self.connection.execute(
             """
-            SELECT content, embedding
+            SELECT
+                id,
+                memory_type,
+                memory_key,
+                content,
+                embedding
             FROM memories
             WHERE embedding IS NOT NULL
             """
@@ -160,7 +403,14 @@ class MemoryManager:
 
         scored_memories = []
 
-        for content, embedding_json in cursor.fetchall():
+        for (
+            memory_id,
+            memory_type,
+            memory_key,
+            content,
+            embedding_json,
+        ) in cursor.fetchall():
+
             memory_embedding = json.loads(
                 embedding_json
             )
@@ -174,6 +424,9 @@ class MemoryManager:
                 scored_memories.append(
                     (
                         similarity,
+                        memory_id,
+                        memory_type,
+                        memory_key,
                         content,
                     )
                 )
@@ -184,8 +437,20 @@ class MemoryManager:
         )
 
         return [
-            memory
-            for _, memory in scored_memories[:limit]
+            {
+                "id": memory_id,
+                "type": memory_type,
+                "key": memory_key,
+                "content": content,
+                "similarity": similarity,
+            }
+            for (
+                similarity,
+                memory_id,
+                memory_type,
+                memory_key,
+                content,
+            ) in scored_memories[:limit]
         ]
 
     @staticmethod

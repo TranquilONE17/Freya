@@ -1,5 +1,8 @@
 from config import SYSTEM_PROMPT
-from core.llm import chat, evaluate_memory
+from core.llm import (
+    chat,
+    evaluate_memory,
+)
 from memory.memory_manager import MemoryManager
 
 
@@ -15,22 +18,31 @@ class FreyaAssistant:
         ]
 
     def respond(self, user_input):
-        command_response = self._handle_memory_command(
-            user_input
+        command_response = (
+            self._handle_memory_command(
+                user_input
+            )
         )
 
         if command_response is not None:
             return command_response
 
-        relevant_memories = self.memory.search_memories(
-            user_input
+        relevant_memories = (
+            self.memory.search_memories(
+                user_input
+            )
         )
 
-        messages_for_model = self.messages.copy()
+        messages_for_model = (
+            self.messages.copy()
+        )
 
         if relevant_memories:
             memory_text = "\n".join(
-                f"- {memory}"
+                (
+                    f"- [{memory['type']}] "
+                    f"{memory['content']}"
+                )
                 for memory in relevant_memories
             )
 
@@ -51,7 +63,9 @@ class FreyaAssistant:
             }
         )
 
-        reply = chat(messages_for_model)
+        reply = chat(
+            messages_for_model
+        )
 
         self.messages.append(
             {
@@ -67,14 +81,31 @@ class FreyaAssistant:
             }
         )
 
-        memory = evaluate_memory(user_input)
-
-        if memory:
-            self.memory.add_memory(memory)
+        self._process_automatic_memory(
+            user_input
+        )
 
         return reply
 
-    def _handle_memory_command(self, user_input):
+    def _process_automatic_memory(
+        self,
+        user_input,
+    ):
+        candidate = evaluate_memory(
+            user_input
+        )
+
+        if candidate is None:
+            return
+
+        self.memory.process_candidate(
+            candidate
+        )
+
+    def _handle_memory_command(
+        self,
+        user_input,
+    ):
         stripped_input = user_input.strip()
         lower_input = stripped_input.lower()
 
@@ -83,84 +114,248 @@ class FreyaAssistant:
                 "Memory commands:\n"
                 "/memories - Show saved memories\n"
                 "/remember <text> - Save a memory\n"
+                "/edit <ID> <text> - Edit a memory\n"
                 "/forget <ID> - Delete a memory\n"
                 "/memory-help - Show these commands"
             )
 
         if lower_input == "/memories":
-            memories = self.memory.get_all_memories()
+            memories = (
+                self.memory.get_all_memories()
+            )
 
             if not memories:
-                return "I don't have any saved memories yet."
+                return (
+                    "I don't have any saved "
+                    "memories yet."
+                )
 
             lines = ["Saved memories:"]
 
-            for memory_id, content, created_at in memories:
+            for (
+                memory_id,
+                memory_type,
+                memory_key,
+                content,
+                created_at,
+                updated_at,
+            ) in memories:
+
+                display_key = (
+                    memory_key
+                    if memory_key
+                    else "unkeyed"
+                )
+
                 lines.append(
-                    f"[{memory_id}] {content} "
-                    f"({created_at})"
+                    f"[{memory_id}] "
+                    f"[{memory_type}] "
+                    f"[{display_key}] "
+                    f"{content} "
+                    f"(created: {created_at}, "
+                    f"updated: {updated_at})"
                 )
 
             return "\n".join(lines)
 
-        if lower_input.startswith("/remember "):
+        if lower_input.startswith(
+            "/remember "
+        ):
             memory = stripped_input[
                 len("/remember "):
             ].strip()
 
             if not memory:
                 return (
-                    "Tell me what you'd like me to remember."
+                    "Tell me what you'd like "
+                    "me to remember."
                 )
 
-            memory_id = self.memory.add_memory(
+            candidate = evaluate_memory(
                 memory
+            )
+
+            if candidate is None:
+                memory_id = (
+                    self.memory.add_memory(
+                        content=memory,
+                    )
+                )
+
+                return (
+                    f"I'll remember that. "
+                    f"Memory ID: {memory_id}"
+                )
+
+            result = (
+                self.memory.process_candidate(
+                    candidate
+                )
             )
 
             return (
                 f"I'll remember that. "
-                f"Memory ID: {memory_id}"
+                f"Memory ID: "
+                f"{result['memory_id']}"
             )
 
-        if lower_input.startswith("/forget "):
-            memory_id_text = stripped_input[
-                len("/forget "):
+        if lower_input.startswith(
+            "/edit "
+        ):
+            edit_text = stripped_input[
+                len("/edit "):
             ].strip()
 
+            parts = edit_text.split(
+                maxsplit=1
+            )
+
+            if len(parts) != 2:
+                return (
+                    "Use /edit <ID> "
+                    "<new memory text>."
+                )
+
             try:
-                memory_id = int(memory_id_text)
+                memory_id = int(
+                    parts[0]
+                )
+            except ValueError:
+                return (
+                    "Please provide a numeric "
+                    "memory ID."
+                )
+
+            new_content = parts[1].strip()
+
+            if not new_content:
+                return (
+                    "Please provide the new "
+                    "memory text."
+                )
+
+            existing = (
+                self.memory.get_memory(
+                    memory_id
+                )
+            )
+
+            if existing is None:
+                return (
+                    f"I couldn't find memory "
+                    f"{memory_id}."
+                )
+
+            candidate = evaluate_memory(
+                new_content
+            )
+
+            if candidate:
+                updated = (
+                    self.memory.update_memory(
+                        memory_id=memory_id,
+                        content=candidate[
+                            "content"
+                        ],
+                        memory_type=candidate[
+                            "type"
+                        ],
+                        memory_key=candidate[
+                            "key"
+                        ],
+                    )
+                )
+
+            else:
+                updated = (
+                    self.memory.update_memory(
+                        memory_id=memory_id,
+                        content=new_content,
+                    )
+                )
+
+            if updated:
+                return (
+                    f"Memory {memory_id} "
+                    "has been updated."
+                )
+
+            return (
+                f"I couldn't update memory "
+                f"{memory_id}."
+            )
+
+        if lower_input.startswith(
+            "/forget "
+        ):
+            memory_id_text = (
+                stripped_input[
+                    len("/forget "):
+                ].strip()
+            )
+
+            try:
+                memory_id = int(
+                    memory_id_text
+                )
 
             except ValueError:
                 return (
-                    "Please provide the numeric memory ID. "
-                    "Use /memories to see the IDs."
+                    "Please provide the numeric "
+                    "memory ID. Use /memories "
+                    "to see the IDs."
                 )
 
-            deleted = self.memory.delete_memory(
-                memory_id
+            deleted = (
+                self.memory.delete_memory(
+                    memory_id
+                )
             )
 
             if deleted:
                 return (
-                    f"Memory {memory_id} has been deleted."
+                    f"Memory {memory_id} "
+                    "has been deleted."
                 )
 
             return (
-                f"I couldn't find memory {memory_id}."
+                f"I couldn't find memory "
+                f"{memory_id}."
             )
 
-        if lower_input.startswith("remember "):
+        if lower_input.startswith(
+            "remember "
+        ):
             memory = stripped_input[
                 len("remember "):
             ].strip()
 
             if memory:
-                memory_id = self.memory.add_memory(
+                candidate = evaluate_memory(
                     memory
                 )
 
+                if candidate:
+                    result = (
+                        self.memory.process_candidate(
+                            candidate
+                        )
+                    )
+
+                    return (
+                        "I'll remember that. "
+                        f"Memory ID: "
+                        f"{result['memory_id']}"
+                    )
+
+                memory_id = (
+                    self.memory.add_memory(
+                        content=memory
+                    )
+                )
+
                 return (
-                    f"I'll remember that. "
+                    "I'll remember that. "
                     f"Memory ID: {memory_id}"
                 )
 
