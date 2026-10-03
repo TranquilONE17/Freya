@@ -8,6 +8,7 @@ from voice.tts import FreyaVoice
 VOICE_FILE_COMMAND = "/voice-file"
 TALK_COMMAND = "/talk"
 LISTEN_COMMAND = "/listen"
+CONVERSATION_COMMAND = "/conversation"
 
 
 def extract_complete_sentences(buffer):
@@ -90,6 +91,94 @@ def get_voice_file_path(command):
     return path.strip('"')
 
 
+
+def run_conversation_mode(
+    freya,
+    voice,
+    stt,
+):
+    print()
+    print("Conversation mode started.")
+    print(
+        "Say 'Freya stop conversation' "
+        "to return to keyboard mode."
+    )
+    print(
+        "If no speech is detected for 10 seconds, "
+        "conversation mode will also end."
+    )
+
+    while True:
+        try:
+            audio_path = stt.record_until_silence(
+                wait_for_enter=False
+            )
+
+            transcript, info = stt.transcribe(
+                audio_path
+            )
+
+        except RuntimeError as exc:
+            if "No speech was detected" in str(exc):
+                print(
+                    "\nNo speech detected. "
+                    "Leaving conversation mode.\n"
+                )
+                return
+
+            raise
+
+        transcript = transcript.strip()
+
+        if not transcript:
+            print(
+                "\nNo speech was detected "
+                "in that recording.\n"
+            )
+            continue
+
+        print()
+        print(
+            "You (voice): "
+            f"{transcript}"
+        )
+        print(
+            "Detected language: "
+            f"{info.language}"
+        )
+
+        normalized = (
+            transcript.lower()
+            .strip()
+            .rstrip(".!?")
+        )
+
+        if normalized in {
+            "freya stop conversation",
+            "freya stop listening",
+            "stop conversation",
+            "exit conversation",
+        }:
+            print(
+                "\nFreya: Conversation mode ended.\n"
+            )
+            voice.speak(
+                "Conversation mode ended."
+            )
+            voice.wait_until_done()
+            return
+
+        stream_freya_response(
+            freya,
+            voice,
+            transcript,
+        )
+
+        # Important for v1: do not reopen the microphone
+        # until Freya has finished speaking. This prevents
+        # her own TTS audio from being treated as user speech.
+        voice.wait_until_done()
+
 def main():
     freya = FreyaAssistant()
     voice = FreyaVoice()
@@ -102,9 +191,11 @@ def main():
     print("Voice-file input: enabled")
     print("Push-to-talk: enabled")
     print("Automatic silence detection: enabled")
+    print("Conversation mode: enabled")
     print()
     print("Use /talk for manual push-to-talk.")
     print("Use /listen for automatic silence detection.")
+    print("Use /conversation for hands-free conversation.")
     print(
         "Use /voice-file <path> "
         "to transcribe an audio file."
@@ -127,6 +218,25 @@ def main():
                 break
 
             if not user_input:
+                continue
+
+            if user_input.lower() == CONVERSATION_COMMAND:
+                try:
+                    if stt is None:
+                        stt = FreyaSTT()
+
+                    run_conversation_mode(
+                        freya,
+                        voice,
+                        stt,
+                    )
+
+                except Exception as exc:
+                    print(
+                        "\nConversation mode error: "
+                        f"{exc}\n"
+                    )
+
                 continue
 
             if user_input.lower() == LISTEN_COMMAND:
