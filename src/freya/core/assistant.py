@@ -103,7 +103,7 @@ class FreyaAssistant:
             candidate
         )
 
-    def _migration_preview(self):
+    def _build_migration_plan(self):
         memories = (
             self.memory.get_all_memories()
         )
@@ -127,16 +127,13 @@ class FreyaAssistant:
                         "type": memory_type,
                         "key": memory_key,
                         "content": content,
-                        "created_at": created_at,
-                        "updated_at": updated_at,
                     }
                 )
 
         if not legacy_memories:
-            return (
-                "No unkeyed legacy memories "
-                "were found."
-            )
+            self.memory.clear_migration_plan()
+
+            return []
 
         proposals = []
 
@@ -160,6 +157,10 @@ class FreyaAssistant:
                         ),
                         "proposed_type": None,
                         "proposed_key": None,
+                        "blocked": True,
+                        "block_reason": (
+                            "Classification failed."
+                        ),
                     }
                 )
 
@@ -181,6 +182,8 @@ class FreyaAssistant:
                     "proposed_key": (
                         candidate["key"]
                     ),
+                    "blocked": False,
+                    "block_reason": None,
                 }
             )
 
@@ -201,13 +204,60 @@ class FreyaAssistant:
                 proposal["id"]
             )
 
-        duplicate_ids = set()
+        for proposal in proposals:
+            key = proposal[
+                "proposed_key"
+            ]
 
-        for ids in key_groups.values():
-            if len(ids) > 1:
-                duplicate_ids.update(
-                    ids
+            if not key:
+                continue
+
+            matching_ids = (
+                key_groups.get(
+                    key,
+                    [],
                 )
+            )
+
+            if len(matching_ids) > 1:
+                other_ids = [
+                    memory_id
+                    for memory_id
+                    in matching_ids
+                    if memory_id
+                    != proposal["id"]
+                ]
+
+                formatted_ids = ", ".join(
+                    f"#{memory_id}"
+                    for memory_id
+                    in other_ids
+                )
+
+                proposal["blocked"] = True
+                proposal["block_reason"] = (
+                    "Same proposed semantic "
+                    "key as "
+                    f"{formatted_ids}. "
+                    "Possible duplicate or "
+                    "conflict."
+                )
+
+        self.memory.save_migration_plan(
+            proposals
+        )
+
+        return proposals
+
+    def _format_migration_plan(
+        self,
+        proposals,
+    ):
+        if not proposals:
+            return (
+                "No unkeyed legacy memories "
+                "were found."
+            )
 
         lines = [
             "Legacy memory migration preview:",
@@ -215,6 +265,11 @@ class FreyaAssistant:
             (
                 "PREVIEW ONLY - no memories "
                 "have been changed."
+            ),
+            (
+                "This exact plan has been saved "
+                "and can be applied with "
+                "/memory-migration-apply."
             ),
         ]
 
@@ -250,37 +305,97 @@ class FreyaAssistant:
                 f"{proposal['content']}"
             )
 
-            if proposal["id"] in duplicate_ids:
-                matching_ids = (
-                    key_groups[
-                        proposal[
-                            "proposed_key"
-                        ]
-                    ]
-                )
-
-                other_ids = [
-                    memory_id
-                    for memory_id
-                    in matching_ids
-                    if memory_id
-                    != proposal["id"]
-                ]
-
-                formatted_ids = ", ".join(
-                    f"#{memory_id}"
-                    for memory_id
-                    in other_ids
-                )
-
+            if proposal["blocked"]:
                 lines.append(
-                    "WARNING: Same proposed "
-                    "semantic key as "
-                    f"{formatted_ids}. "
-                    "Possible duplicate or "
-                    "conflict. Manual review "
-                    "required."
+                    "BLOCKED: "
+                    f"{proposal['block_reason']} "
+                    "This memory will NOT be "
+                    "changed automatically."
                 )
+            else:
+                lines.append(
+                    "Status: READY TO APPLY"
+                )
+
+        return "\n".join(
+            lines
+        )
+
+    def _migration_preview(self):
+        proposals = (
+            self._build_migration_plan()
+        )
+
+        return self._format_migration_plan(
+            proposals
+        )
+
+    def _migration_apply(self):
+        plan = (
+            self.memory.get_migration_plan()
+        )
+
+        if not plan:
+            return (
+                "There is no saved migration "
+                "plan to apply. Run "
+                "/memory-migration-preview "
+                "first."
+            )
+
+        result = (
+            self.memory.apply_migration_plan()
+        )
+
+        lines = [
+            "Legacy migration finished."
+        ]
+
+        if result["applied"]:
+            applied_ids = ", ".join(
+                f"#{memory_id}"
+                for memory_id
+                in result["applied"]
+            )
+
+            lines.append(
+                "Migrated: "
+                f"{applied_ids}"
+            )
+        else:
+            lines.append(
+                "Migrated: none"
+            )
+
+        if result["blocked"]:
+            blocked_ids = ", ".join(
+                f"#{memory_id}"
+                for memory_id
+                in result["blocked"]
+            )
+
+            lines.append(
+                "Blocked and unchanged: "
+                f"{blocked_ids}"
+            )
+
+        if result["stale"]:
+            stale_ids = ", ".join(
+                f"#{memory_id}"
+                for memory_id
+                in result["stale"]
+            )
+
+            lines.append(
+                "Skipped because the memory "
+                "changed after preview: "
+                f"{stale_ids}"
+            )
+
+        lines.append(
+            "The saved migration plan has "
+            "now been cleared."
+        )
 
         return "\n".join(
             lines
@@ -301,7 +416,8 @@ class FreyaAssistant:
                 "/edit <ID> <text> - Edit a memory\n"
                 "/forget <ID> - Delete a memory\n"
                 "/memory-history <ID> - Show memory history\n"
-                "/memory-migration-preview - Preview legacy migration\n"
+                "/memory-migration-preview - Build and preview migration plan\n"
+                "/memory-migration-apply - Apply the saved safe migration plan\n"
                 "/memory-help - Show these commands"
             )
 
@@ -310,6 +426,13 @@ class FreyaAssistant:
         ):
             return (
                 self._migration_preview()
+            )
+
+        if lower_input == (
+            "/memory-migration-apply"
+        ):
+            return (
+                self._migration_apply()
             )
 
         if lower_input == "/memories":

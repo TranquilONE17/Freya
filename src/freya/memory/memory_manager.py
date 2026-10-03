@@ -53,6 +53,22 @@ class MemoryManager:
             """
         )
 
+        self.connection.execute(
+            """
+            CREATE TABLE IF NOT EXISTS migration_plan (
+                memory_id INTEGER PRIMARY KEY,
+                original_type TEXT,
+                original_key TEXT,
+                original_content TEXT NOT NULL,
+                proposed_type TEXT,
+                proposed_key TEXT,
+                blocked INTEGER NOT NULL DEFAULT 0,
+                block_reason TEXT,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+            """
+        )
+
         self._upgrade_database()
         self.connection.commit()
 
@@ -225,13 +241,7 @@ class MemoryManager:
                 embedding,
                 updated_at
             )
-            VALUES (
-                ?,
-                ?,
-                ?,
-                ?,
-                CURRENT_TIMESTAMP
-            )
+            VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP)
             """,
             (
                 memory_type,
@@ -496,6 +506,194 @@ class MemoryManager:
         return {
             "action": "update",
             "memory_id": existing["id"],
+        }
+
+    def save_migration_plan(
+        self,
+        proposals,
+    ):
+        try:
+            self.connection.execute(
+                "BEGIN"
+            )
+
+            self.connection.execute(
+                "DELETE FROM migration_plan"
+            )
+
+            for proposal in proposals:
+                self.connection.execute(
+                    """
+                    INSERT INTO migration_plan (
+                        memory_id,
+                        original_type,
+                        original_key,
+                        original_content,
+                        proposed_type,
+                        proposed_key,
+                        blocked,
+                        block_reason
+                    )
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        proposal["id"],
+                        proposal["current_type"],
+                        proposal["current_key"],
+                        proposal["content"],
+                        proposal["proposed_type"],
+                        proposal["proposed_key"],
+                        1 if proposal["blocked"] else 0,
+                        proposal["block_reason"],
+                    ),
+                )
+
+            self.connection.commit()
+
+        except Exception:
+            self.connection.rollback()
+            raise
+
+    def get_migration_plan(self):
+        cursor = self.connection.execute(
+            """
+            SELECT
+                memory_id,
+                original_type,
+                original_key,
+                original_content,
+                proposed_type,
+                proposed_key,
+                blocked,
+                block_reason,
+                created_at
+            FROM migration_plan
+            ORDER BY memory_id ASC
+            """
+        )
+
+        rows = cursor.fetchall()
+
+        return [
+            {
+                "id": row[0],
+                "current_type": row[1],
+                "current_key": row[2],
+                "content": row[3],
+                "proposed_type": row[4],
+                "proposed_key": row[5],
+                "blocked": bool(row[6]),
+                "block_reason": row[7],
+                "created_at": row[8],
+            }
+            for row in rows
+        ]
+
+    def clear_migration_plan(self):
+        self.connection.execute(
+            "DELETE FROM migration_plan"
+        )
+
+        self.connection.commit()
+
+    def apply_migration_plan(self):
+        plan = self.get_migration_plan()
+
+        if not plan:
+            return {
+                "applied": [],
+                "blocked": [],
+                "stale": [],
+            }
+
+        applied = []
+        blocked = []
+        stale = []
+
+        try:
+            self.connection.execute(
+                "BEGIN"
+            )
+
+            for proposal in plan:
+                memory_id = proposal["id"]
+
+                if proposal["blocked"]:
+                    blocked.append(
+                        memory_id
+                    )
+                    continue
+
+                if (
+                    not proposal["proposed_type"]
+                    or not proposal["proposed_key"]
+                ):
+                    blocked.append(
+                        memory_id
+                    )
+                    continue
+
+                current = self.get_memory(
+                    memory_id
+                )
+
+                if current is None:
+                    stale.append(
+                        memory_id
+                    )
+                    continue
+
+                if (
+                    current["type"]
+                    != proposal["current_type"]
+                    or current["key"]
+                    != proposal["current_key"]
+                    or current["content"]
+                    != proposal["content"]
+                ):
+                    stale.append(
+                        memory_id
+                    )
+                    continue
+
+                self._archive_memory(
+                    memory_id,
+                    "legacy_migration",
+                )
+
+                self.connection.execute(
+                    """
+                    UPDATE memories
+                    SET memory_type = ?,
+                        memory_key = ?,
+                        updated_at = CURRENT_TIMESTAMP
+                    WHERE id = ?
+                    """,
+                    (
+                        proposal["proposed_type"],
+                        proposal["proposed_key"],
+                        memory_id,
+                    ),
+                )
+
+                applied.append(
+                    memory_id
+                )
+
+            self.connection.execute(
+                "DELETE FROM migration_plan"
+            )
+
+            self.connection.commit()
+
+        except Exception:
+            self.connection.rollback()
+            raise
+
+        return {
+            "applied": applied,
+            "blocked": blocked,
+            "stale": stale,
         }
 
     def search_memories(
