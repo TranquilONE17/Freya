@@ -41,6 +41,44 @@ def _normalize_key(memory_key):
     return memory_key
 
 
+def _parse_memory_result(result):
+    try:
+        data = json.loads(result)
+    except json.JSONDecodeError:
+        return None
+
+    if not data.get("remember"):
+        return None
+
+    content = str(
+        data.get("content", "")
+    ).strip()
+
+    memory_type = str(
+        data.get("type", "other")
+    ).strip().lower()
+
+    memory_key = str(
+        data.get("key", "")
+    ).strip()
+
+    if memory_type not in ALLOWED_MEMORY_TYPES:
+        memory_type = "other"
+
+    memory_key = _normalize_key(
+        memory_key
+    )
+
+    if not content or not memory_key:
+        return None
+
+    return {
+        "type": memory_type,
+        "key": memory_key,
+        "content": content,
+    }
+
+
 def evaluate_memory(user_input):
     prompt = f"""
 You are the long-term memory extractor for a personal AI assistant
@@ -158,40 +196,129 @@ User message:
         format="json",
     )
 
-    result = response["message"]["content"].strip()
+    result = response[
+        "message"
+    ]["content"].strip()
 
-    try:
-        data = json.loads(result)
-    except json.JSONDecodeError:
-        return None
-
-    if not data.get("remember"):
-        return None
-
-    content = str(
-        data.get("content", "")
-    ).strip()
-
-    memory_type = str(
-        data.get("type", "other")
-    ).strip().lower()
-
-    memory_key = str(
-        data.get("key", "")
-    ).strip()
-
-    if memory_type not in ALLOWED_MEMORY_TYPES:
-        memory_type = "other"
-
-    memory_key = _normalize_key(
-        memory_key
+    return _parse_memory_result(
+        result
     )
 
-    if not content or not memory_key:
+
+def classify_legacy_memory(content):
+    prompt = f"""
+You are analyzing an OLD long-term memory from Freya's
+memory database.
+
+This memory was created before semantic memory types and
+semantic memory keys existed.
+
+Your job is ONLY to classify the existing memory.
+
+Do not add new facts.
+Do not change the meaning.
+Do not infer details that are not present.
+Do not decide whether to delete anything.
+Do not decide whether to merge anything.
+
+Classify the memory as exactly one of:
+
+preference
+person
+goal
+project
+hardware
+plan
+fact
+other
+
+Also assign a stable semantic key.
+
+The key describes WHAT PROPERTY the memory represents,
+not its current value.
+
+Examples:
+
+Memory:
+"my favorite color is blue"
+
+type: preference
+key: favorite_color
+
+Memory:
+"my gaming PC has an RTX 4090"
+
+type: hardware
+key: gaming_pc_gpu
+
+Memory:
+"I want the media server installed in the server rack"
+
+type: plan
+key: media_server_location
+
+Memory:
+"User plans to eventually move their media server into the
+same rack as Freya's AI hardware."
+
+type: plan
+key: media_server_location
+
+Memory:
+"User wants Freya's voice system to eventually run completely
+locally."
+
+type: goal
+key: freya_voice_local_goal
+
+Keys must:
+- Be lowercase
+- Use underscores
+- Be concise
+- Describe the underlying property
+- NOT contain the current value when avoidable
+
+Return ONLY valid JSON in this exact general form:
+
+{{
+    "remember": true,
+    "type": "preference",
+    "key": "favorite_color",
+    "content": "the exact original memory"
+}}
+
+IMPORTANT:
+The content field must contain the EXACT original memory text.
+Do not rewrite it.
+
+Original memory:
+{content}
+"""
+
+    response = ollama.chat(
+        model=MODEL,
+        messages=[
+            {
+                "role": "user",
+                "content": prompt,
+            }
+        ],
+        format="json",
+    )
+
+    result = response[
+        "message"
+    ]["content"].strip()
+
+    candidate = _parse_memory_result(
+        result
+    )
+
+    if candidate is None:
         return None
 
-    return {
-        "type": memory_type,
-        "key": memory_key,
-        "content": content,
-    }
+    # Migration must never allow the model to
+    # rewrite historical memory content.
+    candidate["content"] = content
+
+    return candidate
