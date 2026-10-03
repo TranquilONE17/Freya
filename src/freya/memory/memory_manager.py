@@ -411,6 +411,45 @@ class MemoryManager:
 
         return cursor.fetchall()
 
+    def get_history_entry(
+        self,
+        history_id,
+    ):
+        cursor = self.connection.execute(
+            """
+            SELECT
+                history_id,
+                memory_id,
+                action,
+                memory_type,
+                memory_key,
+                content,
+                original_created_at,
+                original_updated_at,
+                archived_at
+            FROM memory_history
+            WHERE history_id = ?
+            """,
+            (history_id,),
+        )
+
+        row = cursor.fetchone()
+
+        if row is None:
+            return None
+
+        return {
+            "history_id": row[0],
+            "memory_id": row[1],
+            "action": row[2],
+            "type": row[3],
+            "key": row[4],
+            "content": row[5],
+            "original_created_at": row[6],
+            "original_updated_at": row[7],
+            "archived_at": row[8],
+        }
+
     def get_memory_history(
         self,
         memory_id,
@@ -518,6 +557,28 @@ class MemoryManager:
                 self.connection.rollback()
                 return False
 
+            collision = self.connection.execute(
+                """
+                SELECT id
+                FROM memories
+                WHERE memory_key IS NOT NULL
+                  AND LOWER(memory_key) = LOWER(?)
+                  AND id NOT IN (?, ?)
+                LIMIT 1
+                """,
+                (
+                    memory_key,
+                    keep_id,
+                    remove_id,
+                ),
+            ).fetchone()
+
+            if collision is not None:
+                raise RuntimeError(
+                    "Another live memory already "
+                    "uses the canonical key."
+                )
+
             self._archive_memory(
                 keep_id,
                 "duplicate_resolution_keep",
@@ -574,6 +635,186 @@ class MemoryManager:
             raise
 
         return True
+
+    def restore_memory(
+        self,
+        memory_id,
+        history_id,
+    ):
+        current = self.get_memory(
+            memory_id
+        )
+
+        if current is None:
+            return {
+                "success": False,
+                "reason": "memory_not_found",
+            }
+
+        history = self.get_history_entry(
+            history_id
+        )
+
+        if history is None:
+            return {
+                "success": False,
+                "reason": "history_not_found",
+            }
+
+        if history["memory_id"] != memory_id:
+            return {
+                "success": False,
+                "reason": "history_mismatch",
+            }
+
+        restored_key = history["key"]
+
+        if restored_key:
+            collision = self.connection.execute(
+                """
+                SELECT id
+                FROM memories
+                WHERE memory_key IS NOT NULL
+                  AND LOWER(memory_key) = LOWER(?)
+                  AND id != ?
+                LIMIT 1
+                """,
+                (
+                    restored_key,
+                    memory_id,
+                ),
+            ).fetchone()
+
+            if collision is not None:
+                return {
+                    "success": False,
+                    "reason": "key_collision",
+                    "collision_id": collision[0],
+                }
+
+        restored_embedding = (
+            self._create_embedding(
+                history["content"]
+            )
+        )
+
+        try:
+            self.connection.execute(
+                "BEGIN"
+            )
+
+            current = self.get_memory(
+                memory_id
+            )
+
+            history = self.get_history_entry(
+                history_id
+            )
+
+            if current is None:
+                raise RuntimeError(
+                    "Memory disappeared before "
+                    "restore."
+                )
+
+            if history is None:
+                raise RuntimeError(
+                    "History entry disappeared "
+                    "before restore."
+                )
+
+            if (
+                history["memory_id"]
+                != memory_id
+            ):
+                raise RuntimeError(
+                    "History ownership changed "
+                    "before restore."
+                )
+
+            restored_key = history["key"]
+
+            if restored_key:
+                collision = (
+                    self.connection.execute(
+                        """
+                        SELECT id
+                        FROM memories
+                        WHERE memory_key IS NOT NULL
+                          AND LOWER(memory_key) = LOWER(?)
+                          AND id != ?
+                        LIMIT 1
+                        """,
+                        (
+                            restored_key,
+                            memory_id,
+                        ),
+                    ).fetchone()
+                )
+
+                if collision is not None:
+                    raise RuntimeError(
+                        "A semantic-key collision "
+                        "appeared before restore."
+                    )
+
+            archived = self._archive_memory(
+                memory_id,
+                "restore_checkpoint",
+            )
+
+            if not archived:
+                raise RuntimeError(
+                    "Could not archive the "
+                    "current memory."
+                )
+
+            cursor = self.connection.execute(
+                """
+                UPDATE memories
+                SET memory_type = ?,
+                    memory_key = ?,
+                    content = ?,
+                    embedding = ?,
+                    updated_at = CURRENT_TIMESTAMP
+                WHERE id = ?
+                """,
+                (
+                    history["type"],
+                    history["key"],
+                    history["content"],
+                    json.dumps(
+                        restored_embedding
+                    ),
+                    memory_id,
+                ),
+            )
+
+            if cursor.rowcount != 1:
+                raise RuntimeError(
+                    "Could not restore memory."
+                )
+
+            self.connection.commit()
+
+        except Exception as error:
+            self.connection.rollback()
+
+            return {
+                "success": False,
+                "reason": "transaction_failed",
+                "error": str(error),
+            }
+
+        restored = self.get_memory(
+            memory_id
+        )
+
+        return {
+            "success": True,
+            "memory": restored,
+            "source_history_id": history_id,
+        }
 
     def process_candidate(
         self,

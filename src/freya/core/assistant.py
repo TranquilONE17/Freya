@@ -306,14 +306,23 @@ class FreyaAssistant:
                 "No memories have been changed."
             )
 
-        resolved = (
-            self.memory.resolve_duplicate(
-                keep_id=keep_id,
-                remove_id=remove_id,
-                memory_type=canonical_type,
-                memory_key=memory_key,
+        try:
+            resolved = (
+                self.memory.resolve_duplicate(
+                    keep_id=keep_id,
+                    remove_id=remove_id,
+                    memory_type=canonical_type,
+                    memory_key=memory_key,
+                )
             )
-        )
+
+        except Exception as error:
+            return (
+                "Duplicate resolution blocked.\n\n"
+                f"{error}\n\n"
+                "No partial resolution was "
+                "committed."
+            )
 
         if not resolved:
             return (
@@ -342,6 +351,118 @@ class FreyaAssistant:
             f"{surviving_memory['content']}\n\n"
             "Both original states were archived "
             "in memory history."
+        )
+
+    def _restore_memory(
+        self,
+        memory_id,
+        history_id,
+    ):
+        current = self.memory.get_memory(
+            memory_id
+        )
+
+        if current is None:
+            return (
+                f"I couldn't find live memory "
+                f"{memory_id}."
+            )
+
+        history = (
+            self.memory.get_history_entry(
+                history_id
+            )
+        )
+
+        if history is None:
+            return (
+                f"I couldn't find history entry "
+                f"{history_id}."
+            )
+
+        if history["memory_id"] != memory_id:
+            return (
+                "Memory restore blocked.\n\n"
+                f"History #{history_id} belongs "
+                f"to memory "
+                f"#{history['memory_id']}, not "
+                f"memory #{memory_id}.\n\n"
+                "No memories have been changed."
+            )
+
+        result = self.memory.restore_memory(
+            memory_id=memory_id,
+            history_id=history_id,
+        )
+
+        if not result["success"]:
+            reason = result["reason"]
+
+            if reason == "key_collision":
+                return (
+                    "Memory restore blocked.\n\n"
+                    "The historical semantic key "
+                    "is already used by live "
+                    f"memory "
+                    f"#{result['collision_id']}.\n\n"
+                    "No memories have been "
+                    "changed."
+                )
+
+            if reason == "memory_not_found":
+                return (
+                    "Memory restore blocked "
+                    "because the live memory no "
+                    "longer exists."
+                )
+
+            if reason == "history_not_found":
+                return (
+                    "Memory restore blocked "
+                    "because the history entry no "
+                    "longer exists."
+                )
+
+            if reason == "history_mismatch":
+                return (
+                    "Memory restore blocked "
+                    "because the history entry "
+                    "does not belong to that "
+                    "memory."
+                )
+
+            if reason == "transaction_failed":
+                return (
+                    "Memory restore failed and "
+                    "was rolled back.\n\n"
+                    f"Reason: "
+                    f"{result.get('error', 'unknown error')}\n\n"
+                    "No partial restore was "
+                    "committed."
+                )
+
+            return (
+                "Memory restore failed safely. "
+                "No changes were committed."
+            )
+
+        restored = result["memory"]
+
+        return (
+            "Memory restore complete.\n\n"
+            f"Restored memory: "
+            f"#{memory_id}\n"
+            f"Source history: "
+            f"#{history_id}\n"
+            f"Type: "
+            f"{restored['type']}\n"
+            f"Key: "
+            f"{restored['key'] or 'unkeyed'}\n"
+            f"Content: "
+            f"{restored['content']}\n\n"
+            "The previous live state was "
+            "archived as a restore checkpoint, "
+            "so this restore can be reversed."
         )
 
     def _build_migration_plan(self):
@@ -657,11 +778,47 @@ class FreyaAssistant:
                 "/edit <ID> <text> - Edit a memory\n"
                 "/forget <ID> - Delete a memory\n"
                 "/memory-history <ID> - Show memory history\n"
+                "/memory-restore <MEMORY_ID> <HISTORY_ID> - Restore a historical version\n"
                 "/memory-compare <ID1> <ID2> - Compare two memories\n"
                 "/memory-resolve-duplicate <KEEP_ID> <REMOVE_ID> - Resolve confirmed duplicates\n"
                 "/memory-migration-preview - Build and preview migration plan\n"
                 "/memory-migration-apply - Apply the saved safe migration plan\n"
                 "/memory-help - Show these commands"
+            )
+
+        if lower_input.startswith(
+            "/memory-restore "
+        ):
+            restore_text = stripped_input[
+                len("/memory-restore "):
+            ].strip()
+
+            parts = restore_text.split()
+
+            if len(parts) != 2:
+                return (
+                    "Use /memory-restore "
+                    "<MEMORY_ID> <HISTORY_ID>."
+                )
+
+            try:
+                memory_id = int(
+                    parts[0]
+                )
+
+                history_id = int(
+                    parts[1]
+                )
+
+            except ValueError:
+                return (
+                    "Please provide two numeric "
+                    "IDs."
+                )
+
+            return self._restore_memory(
+                memory_id,
+                history_id,
             )
 
         if lower_input.startswith(
