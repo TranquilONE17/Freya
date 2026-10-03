@@ -1,5 +1,6 @@
-from pathlib import Path
+import re
 import tempfile
+from pathlib import Path
 
 import numpy as np
 import soundfile as sf
@@ -26,6 +27,23 @@ class FreyaVoice:
                 repo_id="hexgrad/Kokoro-82M",
             )
 
+    def _split_into_chunks(self, text):
+        text = text.strip()
+
+        if not text:
+            return []
+
+        chunks = re.split(
+            r"(?<=[.!?])\s+",
+            text,
+        )
+
+        return [
+            chunk.strip()
+            for chunk in chunks
+            if chunk.strip()
+        ]
+
     def _generate_audio(self, text):
         if not self.enabled or not text.strip():
             return None
@@ -46,9 +64,7 @@ class FreyaVoice:
 
         return np.concatenate(audio_parts)
 
-    def speak(self, text):
-        audio = self._generate_audio(text)
-
+    def _play_audio(self, audio):
         if audio is None:
             return
 
@@ -73,4 +89,21 @@ class FreyaVoice:
         except Exception as exc:
             print(
                 f"[Voice playback error: {exc}]"
+            )
+
+    def speak(self, text):
+        if not self.enabled:
+            return
+
+        chunks = self._split_into_chunks(
+            text
+        )
+
+        for chunk in chunks:
+            audio = self._generate_audio(
+                chunk
+            )
+
+            self._play_audio(
+                audio
             )
