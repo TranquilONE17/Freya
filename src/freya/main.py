@@ -1,13 +1,17 @@
 import re
 
 from core.assistant import FreyaAssistant
+from voice.stt import FreyaSTT
 from voice.tts import FreyaVoice
+
+
+VOICE_FILE_COMMAND = "/voice-file"
 
 
 def extract_complete_sentences(buffer):
     sentences = []
     sentence_end = re.compile(
-        r"(.+?[.!?]+)(?:\\s+|$)",
+        r"(.+?[.!?]+)(?:\s+|$)",
         re.DOTALL,
     )
 
@@ -29,14 +33,76 @@ def extract_complete_sentences(buffer):
     return sentences, buffer
 
 
+def stream_freya_response(
+    freya,
+    voice,
+    user_input,
+):
+    print(
+        "\nFreya: ",
+        end="",
+        flush=True,
+    )
+
+    speech_buffer = ""
+
+    for chunk in freya.respond_stream(
+        user_input
+    ):
+        print(
+            chunk,
+            end="",
+            flush=True,
+        )
+
+        speech_buffer += chunk
+
+        sentences, speech_buffer = (
+            extract_complete_sentences(
+                speech_buffer
+            )
+        )
+
+        for sentence in sentences:
+            voice.speak(
+                sentence
+            )
+
+    remaining_text = (
+        speech_buffer.strip()
+    )
+
+    if remaining_text:
+        voice.speak(
+            remaining_text
+        )
+
+    print("\n")
+
+
+def get_voice_file_path(command):
+    path = command[
+        len(VOICE_FILE_COMMAND):
+    ].strip()
+
+    return path.strip('"')
+
+
 def main():
     freya = FreyaAssistant()
     voice = FreyaVoice()
+    stt = None
 
     print("Freya online.")
     print("Voice: enabled")
     print("Streaming: enabled")
     print("Async voice: enabled")
+    print("Voice-file input: enabled")
+    print()
+    print(
+        "Use /voice-file <path> "
+        "to transcribe an audio file."
+    )
     print("Type 'exit' to quit.\n")
 
     try:
@@ -57,46 +123,70 @@ def main():
             if not user_input:
                 continue
 
-            print(
-                "\nFreya: ",
-                end="",
-                flush=True,
-            )
-
-            speech_buffer = ""
-
-            for chunk in freya.respond_stream(
-                user_input
+            if user_input.lower().startswith(
+                VOICE_FILE_COMMAND
             ):
+                audio_path = get_voice_file_path(
+                    user_input
+                )
+
+                if not audio_path:
+                    print(
+                        "\nUsage: "
+                        "/voice-file "
+                        "<audio file path>\n"
+                    )
+                    continue
+
+                try:
+                    if stt is None:
+                        stt = FreyaSTT()
+
+                    transcript, info = (
+                        stt.transcribe(
+                            audio_path
+                        )
+                    )
+                except Exception as exc:
+                    print(
+                        "\nVoice-file error: "
+                        f"{exc}\n"
+                    )
+                    continue
+
+                transcript = transcript.strip()
+
+                if not transcript:
+                    print(
+                        "\nNo speech was "
+                        "detected in that "
+                        "audio file.\n"
+                    )
+                    continue
+
+                print()
                 print(
-                    chunk,
-                    end="",
-                    flush=True,
+                    "You (voice): "
+                    f"{transcript}"
+                )
+                print(
+                    "Detected language: "
+                    f"{info.language}"
                 )
 
-                speech_buffer += chunk
-
-                sentences, speech_buffer = (
-                    extract_complete_sentences(
-                        speech_buffer
-                    )
+                stream_freya_response(
+                    freya,
+                    voice,
+                    transcript,
                 )
 
-                for sentence in sentences:
-                    voice.speak(
-                        sentence
-                    )
+                continue
 
-            remaining_text = (
-                speech_buffer.strip()
+            stream_freya_response(
+                freya,
+                voice,
+                user_input,
             )
-
-            if remaining_text:
-                voice.speak(
-                    remaining_text
-                )
-
-            print("\n")
 
     except KeyboardInterrupt:
         print(
