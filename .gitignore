@@ -1,0 +1,60 @@
+# Python virtual environment
+.venv/
+venv/
+env/
+
+# Python cache / compiled files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Environment variables / secrets
+.env
+.env.*
+!.env.example
+
+# Logs
+*.log
+logs/
+
+# Testing / coverage
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Type checking / linting
+.mypy_cache/
+.ruff_cache/
+
+# VS Code local settings
+.vscode/
+
+# Operating system files
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Databases / local memory
+*.db
+*.sqlite
+*.sqlite3
+
+# AI models / large model files
+models/
+*.gguf
+*.safetensors
+*.bin
+*.pt
+*.pth
+*.onnx
+
+# Temporary files
+tmp/
+temp/
+*.tmp
+
+# Credentials / keys
+*.key
+*.pem
+credentials.json
+secrets.json
