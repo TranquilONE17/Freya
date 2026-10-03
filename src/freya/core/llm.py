@@ -506,3 +506,166 @@ Content: {memory_b["content"]}
         "reason": reason,
         "suggested_key": suggested_key,
     }
+
+def rerank_memory_candidates(
+    query,
+    candidates,
+    max_results=3,
+):
+    if not candidates:
+        return {
+            "relevant_ids": [],
+            "reason": "No candidate memories were provided.",
+        }
+
+    candidate_lines = []
+
+    for memory in candidates:
+        candidate_lines.append(
+            "\n".join(
+                [
+                    f"ID: {memory['id']}",
+                    f"Type: {memory['type']}",
+                    f"Key: {memory['key']}",
+                    (
+                        "Similarity: "
+                        f"{memory['similarity']:.4f}"
+                    ),
+                    f"Content: {memory['content']}",
+                ]
+            )
+        )
+
+    candidates_text = "\n\n".join(
+        candidate_lines
+    )
+
+    prompt = f"""
+You are Freya's long-term memory relevance reranker.
+
+Your job is READ-ONLY.
+
+Given the user's current message and a small set of candidate
+long-term memories, select ONLY the memories that are genuinely
+useful for understanding or answering the current message.
+
+Important rules:
+
+- Semantic similarity alone is NOT enough.
+- A shared word alone is NOT enough.
+- Do not select a memory merely because both texts mention words
+  such as "blue", "vehicle", "favorite", "computer", or "music".
+- Select a memory when its actual durable fact, preference, plan,
+  goal, hardware detail, person detail, or project detail is
+  relevant to what the user is asking or saying.
+- General-knowledge questions usually need no personal memories.
+- Personal questions may need one or more memories.
+- Recognize paraphrases and related concepts. For example,
+  "Which Star Wars vehicle do I like?" can be answered by a
+  memory saying the user's favorite spaceship is the
+  Millennium Falcon.
+- Reject memories about a different property even when they share
+  vocabulary. For example, a user's favorite color is not relevant
+  to the color of a test vehicle.
+- It is valid to select no memories.
+- Do not invent facts.
+- Do not modify memories.
+- Return at most {max_results} memory IDs.
+- IDs must come only from the supplied candidates.
+
+Return ONLY valid JSON in this form:
+
+{{
+    "relevant_ids": [1],
+    "reason": "Memory 1 directly answers the user's question."
+}}
+
+If none are relevant:
+
+{{
+    "relevant_ids": [],
+    "reason": "None of the candidate memories are relevant."
+}}
+
+User message:
+{query}
+
+Candidate memories:
+{candidates_text}
+"""
+
+    response = ollama.chat(
+        model=MODEL,
+        messages=[
+            {
+                "role": "user",
+                "content": prompt,
+            }
+        ],
+        format="json",
+    )
+
+    result = response[
+        "message"
+    ]["content"].strip()
+
+    try:
+        data = json.loads(result)
+    except json.JSONDecodeError:
+        return {
+            "relevant_ids": [],
+            "reason": (
+                "The relevance reranker returned "
+                "invalid JSON."
+            ),
+        }
+
+    allowed_ids = {
+        memory["id"]
+        for memory in candidates
+    }
+
+    raw_ids = data.get(
+        "relevant_ids",
+        [],
+    )
+
+    if not isinstance(raw_ids, list):
+        raw_ids = []
+
+    relevant_ids = []
+
+    for raw_id in raw_ids:
+        try:
+            memory_id = int(raw_id)
+        except (TypeError, ValueError):
+            continue
+
+        if (
+            memory_id in allowed_ids
+            and memory_id not in relevant_ids
+        ):
+            relevant_ids.append(
+                memory_id
+            )
+
+        if len(relevant_ids) >= max_results:
+            break
+
+    reason = str(
+        data.get(
+            "reason",
+            "",
+        )
+    ).strip()
+
+    if not reason:
+        reason = (
+            "No explanation was provided."
+        )
+
+    return {
+        "relevant_ids": relevant_ids,
+        "reason": reason,
+    }
+

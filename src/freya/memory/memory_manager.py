@@ -1055,6 +1055,18 @@ class MemoryManager:
             "stale": stale,
         }
 
+    def search_memory_candidates(
+        self,
+        query,
+        limit=5,
+        threshold=DEFAULT_SIMILARITY_THRESHOLD,
+    ):
+        return self.search_memories(
+            query=query,
+            limit=limit,
+            threshold=threshold,
+        )
+
     def search_memories(
         self,
         query,

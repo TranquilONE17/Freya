@@ -4,6 +4,7 @@ from core.llm import (
     classify_legacy_memory,
     compare_memories,
     evaluate_memory,
+    rerank_memory_candidates,
 )
 from memory.memory_manager import MemoryManager
 
@@ -29,11 +30,36 @@ class FreyaAssistant:
         if command_response is not None:
             return command_response
 
-        relevant_memories = (
-            self.memory.search_memories(
-                user_input
+        memory_candidates = (
+            self.memory.search_memory_candidates(
+                user_input,
+                limit=5,
             )
         )
+
+        relevant_memories = []
+
+        if memory_candidates:
+            rerank_result = (
+                rerank_memory_candidates(
+                    query=user_input,
+                    candidates=memory_candidates,
+                    max_results=3,
+                )
+            )
+
+            relevant_ids = set(
+                rerank_result.get(
+                    "relevant_ids",
+                    [],
+                )
+            )
+
+            relevant_memories = [
+                memory
+                for memory in memory_candidates
+                if memory["id"] in relevant_ids
+            ][:3]
 
         messages_for_model = (
             self.messages.copy()
@@ -103,6 +129,217 @@ class FreyaAssistant:
         self.memory.process_candidate(
             candidate
         )
+
+    def _memory_search_diagnostic(
+        self,
+        query,
+    ):
+        results = self.memory.search_memories(
+            query
+        )
+
+        if not results:
+            return (
+                "Memory search results for:\n"
+                f'"{query}"\n\n'
+                "No memories met the current "
+                "similarity threshold.\n\n"
+                "READ-ONLY DIAGNOSTIC - "
+                "no memories have been changed."
+            )
+
+        lines = [
+            "Memory search results for:",
+            f'"{query}"',
+            "",
+        ]
+
+        for memory in results:
+            lines.append(
+                f"#{memory['id']} "
+                f"[{memory['type']}] "
+                f"[{memory['key'] or 'unkeyed'}]"
+            )
+            lines.append(
+                "Similarity: "
+                f"{memory['similarity']:.4f}"
+            )
+            lines.append(
+                "Content: "
+                f"{memory['content']}"
+            )
+            lines.append("")
+
+        lines.append(
+            "READ-ONLY DIAGNOSTIC - "
+            "no memories have been changed."
+        )
+
+        return "\n".join(lines)
+
+    def _memory_llm_rerank_diagnostic(
+        self,
+        query,
+    ):
+        candidates = (
+            self.memory.search_memory_candidates(
+                query,
+                limit=5,
+            )
+        )
+
+        if not candidates:
+            return (
+                "LLM memory rerank results for:\n"
+                f'"{query}"\n\n'
+                "No embedding candidates met the "
+                "current similarity threshold.\n\n"
+                "READ-ONLY DIAGNOSTIC - "
+                "normal retrieval has not changed."
+            )
+
+        result = rerank_memory_candidates(
+            query=query,
+            candidates=candidates,
+            max_results=3,
+        )
+
+        relevant_ids = set(
+            result["relevant_ids"]
+        )
+
+        lines = [
+            "LLM memory rerank results for:",
+            f'"{query}"',
+            "",
+        ]
+
+        for memory in candidates:
+            decision = (
+                "KEEP"
+                if memory["id"] in relevant_ids
+                else "REJECT"
+            )
+
+            lines.append(
+                f"#{memory['id']} "
+                f"[{memory['type']}] "
+                f"[{memory['key'] or 'unkeyed'}]"
+            )
+            lines.append(
+                "Similarity: "
+                f"{memory['similarity']:.4f}"
+            )
+            lines.append(
+                f"Decision: {decision}"
+            )
+            lines.append(
+                "Content: "
+                f"{memory['content']}"
+            )
+            lines.append("")
+
+        lines.append(
+            "Reranker reason: "
+            f"{result['reason']}"
+        )
+        lines.append("")
+        lines.append(
+            "READ-ONLY DIAGNOSTIC - "
+            "normal conversation retrieval has "
+            "NOT been changed."
+        )
+
+        return "\n".join(lines)
+
+    def _memory_rerank_diagnostic(
+        self,
+        query,
+    ):
+        candidates = self.memory.search_memory_candidates(
+            query,
+            limit=5,
+        )
+
+        if not candidates:
+            return (
+                "Memory rerank results for:\n"
+                f'"{query}"\n\n'
+                "No embedding candidates met the "
+                "current similarity threshold.\n\n"
+                "READ-ONLY DIAGNOSTIC - "
+                "normal retrieval has not changed."
+            )
+
+        personal_terms = {
+            "my", "mine", "i", "me",
+            "we", "our", "ours",
+        }
+
+        def words(text):
+            cleaned = "".join(
+                char.lower() if char.isalnum() else " "
+                for char in text
+            )
+            return set(cleaned.split())
+
+        query_words = words(query)
+        asks_personal = bool(query_words & personal_terms)
+
+        lines = [
+            "Memory rerank results for:",
+            f'"{query}"',
+            "",
+            "Query intent: "
+            + ("PERSONAL" if asks_personal else "GENERAL/UNCERTAIN"),
+            "",
+        ]
+
+        for memory in candidates:
+            key_words = words(
+                (memory["key"] or "").replace("_", " ")
+            )
+            content_words = words(memory["content"])
+            overlap = query_words & (key_words | content_words)
+
+            if not asks_personal:
+                decision = "REJECT"
+                reason = (
+                    "No clear personal-memory signal "
+                    "in the query."
+                )
+            elif overlap:
+                decision = "KEEP"
+                reason = (
+                    "Personal query with direct "
+                    "key/content overlap: "
+                    + ", ".join(sorted(overlap))
+                )
+            else:
+                decision = "REVIEW"
+                reason = (
+                    "Semantically similar, but no "
+                    "direct key/content overlap."
+                )
+
+            lines.append(
+                f"#{memory['id']} "
+                f"[{memory['type']}] "
+                f"[{memory['key'] or 'unkeyed'}]"
+            )
+            lines.append(
+                f"Similarity: {memory['similarity']:.4f}"
+            )
+            lines.append(f"Decision: {decision}")
+            lines.append(f"Reason: {reason}")
+            lines.append(f"Content: {memory['content']}")
+            lines.append("")
+
+        lines.append(
+            "READ-ONLY DIAGNOSTIC - "
+            "normal conversation retrieval has NOT been changed."
+        )
+        return "\n".join(lines)
 
     def _compare_memories(
         self,
@@ -778,12 +1015,67 @@ class FreyaAssistant:
                 "/edit <ID> <text> - Edit a memory\n"
                 "/forget <ID> - Delete a memory\n"
                 "/memory-history <ID> - Show memory history\n"
+                "/memory-search <query> - Show raw semantic retrieval results\n"
+                "/memory-rerank <query> - Preview relevance filtering\n"
+                "/memory-llm-rerank <query> - Preview LLM relevance filtering\n"
                 "/memory-restore <MEMORY_ID> <HISTORY_ID> - Restore a historical version\n"
                 "/memory-compare <ID1> <ID2> - Compare two memories\n"
                 "/memory-resolve-duplicate <KEEP_ID> <REMOVE_ID> - Resolve confirmed duplicates\n"
                 "/memory-migration-preview - Build and preview migration plan\n"
                 "/memory-migration-apply - Apply the saved safe migration plan\n"
                 "/memory-help - Show these commands"
+            )
+
+        if lower_input.startswith(
+            "/memory-llm-rerank "
+        ):
+            query = stripped_input[
+                len("/memory-llm-rerank "):
+            ].strip()
+
+            if not query:
+                return (
+                    "Use /memory-llm-rerank "
+                    "<query>."
+                )
+
+            return (
+                self._memory_llm_rerank_diagnostic(
+                    query
+                )
+            )
+
+        if lower_input.startswith(
+            "/memory-rerank "
+        ):
+            query = stripped_input[
+                len("/memory-rerank "):
+            ].strip()
+
+            if not query:
+                return "Use /memory-rerank <query>."
+
+            return self._memory_rerank_diagnostic(
+                query
+            )
+
+        if lower_input.startswith(
+            "/memory-search "
+        ):
+            query = stripped_input[
+                len("/memory-search "):
+            ].strip()
+
+            if not query:
+                return (
+                    "Use /memory-search "
+                    "<query>."
+                )
+
+            return (
+                self._memory_search_diagnostic(
+                    query
+                )
             )
 
         if lower_input.startswith(
