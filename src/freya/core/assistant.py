@@ -1,6 +1,7 @@
 from config import SYSTEM_PROMPT
 from core.llm import (
     chat,
+    chat_stream,
     classify_legacy_memory,
     compare_memories,
     evaluate_memory,
@@ -114,6 +115,111 @@ class FreyaAssistant:
         )
 
         return reply
+
+    def respond_stream(self, user_input):
+        command_response = (
+            self._handle_memory_command(
+                user_input
+            )
+        )
+
+        if command_response is not None:
+            yield command_response
+            return
+
+        memory_candidates = (
+            self.memory.search_memory_candidates(
+                user_input,
+                limit=5,
+            )
+        )
+
+        relevant_memories = []
+
+        if memory_candidates:
+            rerank_result = (
+                rerank_memory_candidates(
+                    query=user_input,
+                    candidates=memory_candidates,
+                    max_results=3,
+                )
+            )
+
+            relevant_ids = set(
+                rerank_result.get(
+                    "relevant_ids",
+                    [],
+                )
+            )
+
+            relevant_memories = [
+                memory
+                for memory in memory_candidates
+                if memory["id"] in relevant_ids
+            ][:3]
+
+        messages_for_model = (
+            self.messages.copy()
+        )
+
+        if relevant_memories:
+            memory_text = "\n".join(
+                (
+                    f"- [{memory['type']}] "
+                    f"{memory['content']}"
+                )
+                for memory in relevant_memories
+            )
+
+            messages_for_model.append(
+                {
+                    "role": "system",
+                    "content": (
+                        "Relevant long-term memories:\n"
+                        f"{memory_text}"
+                    ),
+                }
+            )
+
+        messages_for_model.append(
+            {
+                "role": "user",
+                "content": user_input,
+            }
+        )
+
+        reply_parts = []
+
+        for chunk in chat_stream(
+            messages_for_model
+        ):
+            reply_parts.append(chunk)
+            yield chunk
+
+        reply = "".join(
+            reply_parts
+        ).strip()
+
+        if not reply:
+            return
+
+        self.messages.append(
+            {
+                "role": "user",
+                "content": user_input,
+            }
+        )
+
+        self.messages.append(
+            {
+                "role": "assistant",
+                "content": reply,
+            }
+        )
+
+        self._process_automatic_memory(
+            user_input
+        )
 
     def _process_automatic_memory(
         self,

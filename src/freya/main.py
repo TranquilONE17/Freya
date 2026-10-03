@@ -1,5 +1,32 @@
+import re
+
 from core.assistant import FreyaAssistant
 from voice.tts import FreyaVoice
+
+
+def extract_complete_sentences(buffer):
+    sentences = []
+    sentence_end = re.compile(
+        r"(.+?[.!?]+)(?:\\s+|$)",
+        re.DOTALL,
+    )
+
+    while True:
+        match = sentence_end.match(buffer)
+
+        if match is None:
+            break
+
+        sentence = match.group(1).strip()
+
+        if sentence:
+            sentences.append(sentence)
+
+        buffer = buffer[
+            match.end():
+        ]
+
+    return sentences, buffer
 
 
 def main():
@@ -8,12 +35,16 @@ def main():
 
     print("Freya online.")
     print("Voice: enabled")
+    print("Streaming: enabled")
     print("Type 'exit' to quit.\n")
 
     while True:
         user_input = input("You: ").strip()
 
-        if user_input.lower() in {"exit", "quit"}:
+        if user_input.lower() in {
+            "exit",
+            "quit",
+        }:
             print("Freya: Goodbye.")
             voice.speak("Goodbye.")
             break
@@ -21,11 +52,40 @@ def main():
         if not user_input:
             continue
 
-        reply = freya.respond(user_input)
+        print("\nFreya: ", end="", flush=True)
 
-        print(f"\nFreya: {reply}\n")
+        speech_buffer = ""
 
-        voice.speak(reply)
+        for chunk in freya.respond_stream(
+            user_input
+        ):
+            print(
+                chunk,
+                end="",
+                flush=True,
+            )
+
+            speech_buffer += chunk
+
+            sentences, speech_buffer = (
+                extract_complete_sentences(
+                    speech_buffer
+                )
+            )
+
+            for sentence in sentences:
+                voice.speak(sentence)
+
+        remaining_text = (
+            speech_buffer.strip()
+        )
+
+        if remaining_text:
+            voice.speak(
+                remaining_text
+            )
+
+        print("\n")
 
 
 if __name__ == "__main__":
