@@ -7,23 +7,10 @@ class FreyaAssistant:
     def __init__(self):
         self.memory = MemoryManager()
 
-        memories = self.memory.get_memories()
-
-        memory_text = "\n".join(
-            f"- {memory}" for memory in memories
-        )
-
-        if not memory_text:
-            memory_text = "No saved memories yet."
-
         self.messages = [
             {
                 "role": "system",
-                "content": (
-                    f"{SYSTEM_PROMPT}\n\n"
-                    "Long-term memories:\n"
-                    f"{memory_text}"
-                ),
+                "content": SYSTEM_PROMPT,
             }
         ]
 
@@ -34,9 +21,38 @@ class FreyaAssistant:
             if memory:
                 self.memory.add_memory(memory)
 
-                self.messages[0]["content"] += f"\n- {memory}"
-
                 return f"I'll remember that: {memory}"
+
+        relevant_memories = self.memory.search_memories(
+            user_input
+        )
+
+        messages_for_model = self.messages.copy()
+
+        if relevant_memories:
+            memory_text = "\n".join(
+                f"- {memory}"
+                for memory in relevant_memories
+            )
+
+            messages_for_model.append(
+                {
+                    "role": "system",
+                    "content": (
+                        "Relevant long-term memories:\n"
+                        f"{memory_text}"
+                    ),
+                }
+            )
+
+        messages_for_model.append(
+            {
+                "role": "user",
+                "content": user_input,
+            }
+        )
+
+        reply = chat(messages_for_model)
 
         self.messages.append(
             {
@@ -44,8 +60,6 @@ class FreyaAssistant:
                 "content": user_input,
             }
         )
-
-        reply = chat(self.messages)
 
         self.messages.append(
             {
