@@ -1,6 +1,7 @@
 import re
 
 from core.assistant import FreyaAssistant
+from image.image_generator import FreyaImageGenerator
 from voice.stt import FreyaSTT
 from voice.tts import FreyaVoice
 
@@ -10,6 +11,7 @@ TALK_COMMAND = "/talk"
 LISTEN_COMMAND = "/listen"
 CONVERSATION_COMMAND = "/conversation"
 INTERRUPT_COMMAND = "/interrupt"
+IMAGE_COMMAND = "/image"
 
 
 def extract_complete_sentences(buffer):
@@ -91,6 +93,84 @@ def get_voice_file_path(command):
 
     return path.strip('"')
 
+
+def get_image_prompt(command):
+    return command[
+        len(IMAGE_COMMAND):
+    ].strip()
+
+
+def run_image_generation(
+    image_generator,
+    prompt,
+):
+    if not prompt:
+        print(
+            "\nUsage: /image <description>\n"
+        )
+        return
+
+    print()
+    print("Freya: Generating image...")
+    print(f"Prompt: {prompt}")
+    print()
+
+    try:
+        result = image_generator.generate(
+            prompt
+        )
+
+    except Exception as exc:
+        print(
+            "Freya: Image generation failed."
+        )
+        print(
+            f"Error: {exc}\n"
+        )
+        return
+
+    print(
+        "Freya: Image generated successfully."
+    )
+    print(
+        f"Seed: {result['seed']}"
+    )
+
+    for image in result["images"]:
+        filename = image.get(
+            "filename",
+            "Unknown",
+        )
+
+        subfolder = image.get(
+            "subfolder",
+            "",
+        )
+
+        image_type = image.get(
+            "type",
+            "output",
+        )
+
+        print(
+            f"Output: {filename}"
+        )
+
+        if subfolder:
+            print(
+                f"Subfolder: {subfolder}"
+            )
+
+        print(
+            f"Type: {image_type}"
+        )
+
+    for url in result["image_urls"]:
+        print(
+            f"Image URL: {url}"
+        )
+
+    print()
 
 
 def run_conversation_mode(
@@ -180,10 +260,12 @@ def run_conversation_mode(
         # her own TTS audio from being treated as user speech.
         voice.wait_until_done()
 
+
 def main():
     freya = FreyaAssistant()
     voice = FreyaVoice()
     stt = None
+    image_generator = FreyaImageGenerator()
 
     print("Freya online.")
     print("Voice: enabled")
@@ -194,6 +276,7 @@ def main():
     print("Automatic silence detection: enabled")
     print("Conversation mode: enabled")
     print("Interruptible TTS: enabled")
+    print("Image generation: enabled")
     print()
     print("Use /talk for manual push-to-talk.")
     print("Use /listen for automatic silence detection.")
@@ -202,6 +285,10 @@ def main():
     print(
         "Use /voice-file <path> "
         "to transcribe an audio file."
+    )
+    print(
+        "Use /image <description> "
+        "to generate an image."
     )
     print("Type 'exit' to quit.\n")
 
@@ -228,6 +315,26 @@ def main():
                 print(
                     "\nFreya: Speech playback interrupted.\n"
                 )
+                continue
+
+            if user_input.lower() == IMAGE_COMMAND:
+                print(
+                    "\nUsage: /image <description>\n"
+                )
+                continue
+
+            if user_input.lower().startswith(
+                IMAGE_COMMAND + " "
+            ):
+                prompt = get_image_prompt(
+                    user_input
+                )
+
+                run_image_generation(
+                    image_generator,
+                    prompt,
+                )
+
                 continue
 
             if user_input.lower() == CONVERSATION_COMMAND:
@@ -365,6 +472,7 @@ def main():
                             audio_path
                         )
                     )
+
                 except Exception as exc:
                     print(
                         "\nVoice-file error: "
