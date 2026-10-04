@@ -1,7 +1,9 @@
 import re
 
 from core.assistant import FreyaAssistant
+from gpu.resource_manager import GPUResourceManager
 from image.image_generator import FreyaImageGenerator
+from tools.tool_router import FreyaToolRouter
 from voice.stt import FreyaSTT
 from voice.tts import FreyaVoice
 
@@ -102,6 +104,7 @@ def get_image_prompt(command):
 
 def run_image_generation(
     image_generator,
+    gpu_manager,
     prompt,
 ):
     if not prompt:
@@ -111,8 +114,27 @@ def run_image_generation(
         return
 
     print()
-    print("Freya: Generating image...")
+    print("Freya: Preparing GPU for image generation...")
     print(f"Prompt: {prompt}")
+    print()
+
+    try:
+        # Release Ollama's LLM and embedding models before
+        # ComfyUI loads the much larger image model.
+        gpu_manager.unload_all_ollama_models()
+
+    except Exception as exc:
+        print(
+            "Freya: Could not release Ollama GPU resources."
+        )
+        print(
+            f"Error: {exc}\n"
+        )
+        return
+
+    print(
+        "Freya: GPU ready. Generating image..."
+    )
     print()
 
     try:
@@ -128,6 +150,22 @@ def run_image_generation(
             f"Error: {exc}\n"
         )
         return
+
+    finally:
+        # Whether generation succeeds or fails, ask ComfyUI
+        # to release its models so the GPU is available for
+        # Freya's next LLM request.
+        try:
+            gpu_manager.free_comfyui_memory()
+
+        except Exception as exc:
+            print(
+                "GPU Manager warning: "
+                "ComfyUI memory cleanup failed."
+            )
+            print(
+                f"Cleanup error: {exc}"
+            )
 
     print(
         "Freya: Image generated successfully."
@@ -173,10 +211,62 @@ def run_image_generation(
     print()
 
 
+def handle_tool_request(
+    tool_router,
+    image_generator,
+    gpu_manager,
+    user_input,
+):
+    tool_request = tool_router.route(
+        user_input
+    )
+
+    if tool_request is None:
+        return False
+
+    if tool_request.tool == "image":
+        run_image_generation(
+            image_generator,
+            gpu_manager,
+            tool_request.prompt,
+        )
+        return True
+
+    return False
+
+
+def handle_normal_input(
+    freya,
+    voice,
+    tool_router,
+    image_generator,
+    gpu_manager,
+    user_input,
+):
+    tool_was_used = handle_tool_request(
+        tool_router,
+        image_generator,
+        gpu_manager,
+        user_input,
+    )
+
+    if tool_was_used:
+        return
+
+    stream_freya_response(
+        freya,
+        voice,
+        user_input,
+    )
+
+
 def run_conversation_mode(
     freya,
     voice,
     stt,
+    tool_router,
+    image_generator,
+    gpu_manager,
 ):
     print()
     print("Conversation mode started.")
@@ -249,9 +339,12 @@ def run_conversation_mode(
             voice.wait_until_done()
             return
 
-        stream_freya_response(
+        handle_normal_input(
             freya,
             voice,
+            tool_router,
+            image_generator,
+            gpu_manager,
             transcript,
         )
 
@@ -265,7 +358,10 @@ def main():
     freya = FreyaAssistant()
     voice = FreyaVoice()
     stt = None
+
     image_generator = FreyaImageGenerator()
+    tool_router = FreyaToolRouter()
+    gpu_manager = GPUResourceManager()
 
     print("Freya online.")
     print("Voice: enabled")
@@ -277,6 +373,8 @@ def main():
     print("Conversation mode: enabled")
     print("Interruptible TTS: enabled")
     print("Image generation: enabled")
+    print("Natural-language tool routing: enabled")
+    print("GPU resource manager: enabled")
     print()
     print("Use /talk for manual push-to-talk.")
     print("Use /listen for automatic silence detection.")
@@ -289,6 +387,10 @@ def main():
     print(
         "Use /image <description> "
         "to generate an image."
+    )
+    print(
+        "Or ask Freya naturally to "
+        "create an image."
     )
     print("Type 'exit' to quit.\n")
 
@@ -332,6 +434,7 @@ def main():
 
                 run_image_generation(
                     image_generator,
+                    gpu_manager,
                     prompt,
                 )
 
@@ -346,6 +449,9 @@ def main():
                         freya,
                         voice,
                         stt,
+                        tool_router,
+                        image_generator,
+                        gpu_manager,
                     )
 
                 except Exception as exc:
@@ -395,9 +501,12 @@ def main():
                     f"{info.language}"
                 )
 
-                stream_freya_response(
+                handle_normal_input(
                     freya,
                     voice,
+                    tool_router,
+                    image_generator,
+                    gpu_manager,
                     transcript,
                 )
 
@@ -440,9 +549,12 @@ def main():
                     f"{info.language}"
                 )
 
-                stream_freya_response(
+                handle_normal_input(
                     freya,
                     voice,
+                    tool_router,
+                    image_generator,
+                    gpu_manager,
                     transcript,
                 )
 
@@ -500,17 +612,23 @@ def main():
                     f"{info.language}"
                 )
 
-                stream_freya_response(
+                handle_normal_input(
                     freya,
                     voice,
+                    tool_router,
+                    image_generator,
+                    gpu_manager,
                     transcript,
                 )
 
                 continue
 
-            stream_freya_response(
+            handle_normal_input(
                 freya,
                 voice,
+                tool_router,
+                image_generator,
+                gpu_manager,
                 user_input,
             )
 
