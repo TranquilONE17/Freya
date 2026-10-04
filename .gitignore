@@ -58,3 +58,9 @@ temp/
 *.pem
 credentials.json
 secrets.json
+# Local development/test files
+barge_in_stage2_stt_backup.patch
+barge_in_stage2_stt_backup.py
+src/freya/mic_level_test.py
+barge_in_stage2_main_backup.patch
+barge_in_stage2_main_backup.py
