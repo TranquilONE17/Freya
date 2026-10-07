@@ -170,6 +170,12 @@ def build_local_control_plane(
     )
     seed_alpha_policy(
         policy,
+        "alpha-system-sensors",
+        LOCAL_OWNER.actor,
+        ["system.sensors"],
+    )
+    seed_alpha_policy(
+        policy,
         "alpha-model-runtime",
         LOCAL_OWNER.actor,
         OLLAMA_CAPABILITIES,

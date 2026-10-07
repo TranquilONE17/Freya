@@ -400,6 +400,7 @@ def test_local_control_plane_runs_system_tools(tmp_path, fake_ollama):
         "system.cpu",
         "system.memory",
         "system.hardware",
+        "system.sensors",
         "llm.chat",
         "llm.chat_stream",
         "llm.embed",
