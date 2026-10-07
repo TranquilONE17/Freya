@@ -1,8 +1,8 @@
 from dataclasses import dataclass
 from typing import Any, Optional
 
-from tools.tool_registry import (
-    ToolExecutionResult,
+from freya.core.capabilities import (
+    CapabilityExecutionResult,
 )
 
 
@@ -30,7 +30,7 @@ class SafeToolExecutionResult:
 class SafeToolExecutor:
     """
     Safety layer between Freya's tool selector
-    and the ToolRegistry.
+    and the CapabilityRegistry.
 
     Stage 2B policy:
 
@@ -147,6 +147,24 @@ class SafeToolExecutor:
                 ),
             )
 
+        if not self.registry.is_available(
+            tool.name
+        ):
+            return SafeToolExecutionResult(
+                requested=True,
+                executed=False,
+                blocked=True,
+                tool_name=tool.name,
+                error=(
+                    "Selected tool is not "
+                    "currently available."
+                ),
+                reason=(
+                    "Capability or its provider "
+                    "is not available."
+                ),
+            )
+
         registry_result = (
             self.registry.execute(
                 tool.name
@@ -159,10 +177,10 @@ class SafeToolExecutor:
 
     @staticmethod
     def _convert_result(
-        registry_result: ToolExecutionResult,
+        registry_result: CapabilityExecutionResult,
     ) -> SafeToolExecutionResult:
         """
-        Convert a ToolRegistry result into the
+        Convert a CapabilityRegistry result into the
         executor's standardized result.
         """
 
@@ -172,7 +190,7 @@ class SafeToolExecutor:
                 executed=True,
                 blocked=False,
                 tool_name=(
-                    registry_result.tool_name
+                    registry_result.capability_name
                 ),
                 result=(
                     registry_result.result
@@ -187,7 +205,7 @@ class SafeToolExecutor:
             executed=True,
             blocked=False,
             tool_name=(
-                registry_result.tool_name
+                registry_result.capability_name
             ),
             error=(
                 registry_result.error

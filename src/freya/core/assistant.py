@@ -1,5 +1,5 @@
-from config import SYSTEM_PROMPT
-from core.llm import (
+from freya.config import SYSTEM_PROMPT
+from freya.core.llm import (
     chat,
     chat_stream,
     classify_legacy_memory,
@@ -7,7 +7,7 @@ from core.llm import (
     evaluate_memory,
     rerank_memory_candidates,
 )
-from memory.memory_manager import MemoryManager
+from freya.memory.memory_manager import MemoryManager
 
 
 class FreyaAssistant:

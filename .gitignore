@@ -8,6 +8,11 @@ __pycache__/
 *.py[cod]
 *$py.class
 
+# Build artifacts
+*.egg-info/
+build/
+dist/
+
 # Environment variables / secrets
 .env
 .env.*
@@ -36,6 +41,8 @@ desktop.ini
 
 # Databases / local memory
 *.db
+*.db-wal
+*.db-shm
 *.sqlite
 *.sqlite3
 

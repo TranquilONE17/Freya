@@ -1,9 +1,16 @@
 from typing import Dict, List, Optional
 
-from core.capabilities.capability import (
+from freya.core.capabilities.capability import (
     CapabilityDefinition,
     CapabilityExecutionResult,
     CapabilityStatus,
+)
+from freya.core.providers.provider import (
+    ProviderHealth,
+    ProviderState,
+)
+from freya.core.providers.registry import (
+    ProviderRegistry,
 )
 
 
@@ -22,12 +29,28 @@ class CapabilityRegistry:
         - behind an API
 
     Freya Core should not need to know the difference.
+
+    When a ProviderRegistry is supplied, a capability is
+    only available while its provider is registered there,
+    running, and healthy. Availability is derived from the
+    provider on every query rather than copied, so the two
+    registries cannot disagree.
     """
 
-    def __init__(self):
+    def __init__(
+        self,
+        providers: Optional[ProviderRegistry] = None,
+    ):
+        self._providers = providers
+
         self._capabilities: Dict[
             str,
             CapabilityDefinition,
+        ] = {}
+
+        self._aliases: Dict[
+            str,
+            str,
         ] = {}
 
     @staticmethod
@@ -36,12 +59,31 @@ class CapabilityRegistry:
     ) -> str:
         return name.strip().lower()
 
+    def _resolve_name(
+        self,
+        name: str,
+    ) -> Optional[str]:
+        name = self._normalize_name(name)
+
+        if name in self._capabilities:
+            return name
+
+        return self._aliases.get(name)
+
     def register(
         self,
         capability: CapabilityDefinition,
+        replace: bool = False,
     ) -> None:
         """
-        Register or replace a capability.
+        Register a capability.
+
+        A name that is already registered is rejected
+        unless replace=True, so one provider cannot
+        silently take over another's capability.
+
+        Registration is all-or-nothing: when the name or
+        any alias conflicts, the registry is unchanged.
         """
 
         name = self._normalize_name(
@@ -53,51 +95,116 @@ class CapabilityRegistry:
                 "Capability name cannot be empty."
             )
 
+        if (
+            name in self._capabilities
+            and not replace
+        ):
+            raise ValueError(
+                "Capability is already registered: "
+                f"{name}"
+            )
+
+        if self._aliases.get(name) is not None:
+            raise ValueError(
+                "Capability name conflicts with "
+                "a registered alias: "
+                f"{name}"
+            )
+
+        aliases = []
+
+        for alias in capability.aliases:
+            alias = self._normalize_name(alias)
+
+            if (
+                not alias
+                or alias == name
+                or alias in aliases
+            ):
+                continue
+
+            if alias in self._capabilities:
+                raise ValueError(
+                    "Capability alias conflicts with "
+                    "a registered capability: "
+                    f"{alias}"
+                )
+
+            if self._aliases.get(alias, name) != name:
+                raise ValueError(
+                    "Capability alias is already "
+                    f"registered: {alias}"
+                )
+
+            aliases.append(alias)
+
+        self._remove_aliases(name)
+
         capability.name = name
+        capability.aliases = aliases
 
         self._capabilities[name] = capability
+
+        for alias in aliases:
+            self._aliases[alias] = name
+
+    def _remove_aliases(
+        self,
+        name: str,
+    ) -> None:
+        for alias in [
+            alias
+            for alias, target
+            in self._aliases.items()
+            if target == name
+        ]:
+            del self._aliases[alias]
 
     def unregister(
         self,
         name: str,
     ) -> bool:
         """
-        Remove a capability from the registry.
+        Remove a capability, and its aliases, from the
+        registry.
         """
 
-        name = self._normalize_name(name)
+        name = self._resolve_name(name)
 
-        return (
-            self._capabilities.pop(
-                name,
-                None,
-            )
-            is not None
-        )
+        if name is None:
+            return False
+
+        del self._capabilities[name]
+
+        self._remove_aliases(name)
+
+        return True
 
     def exists(
         self,
         name: str,
     ) -> bool:
         """
-        Return True when a capability is registered.
+        Return True when a capability is registered
+        under this name or alias.
         """
 
-        name = self._normalize_name(name)
-
-        return name in self._capabilities
+        return self._resolve_name(name) is not None
 
     def get(
         self,
         name: str,
     ) -> Optional[CapabilityDefinition]:
         """
-        Retrieve a capability definition.
+        Retrieve a capability definition by name or alias.
         """
 
-        name = self._normalize_name(name)
+        name = self._resolve_name(name)
 
-        return self._capabilities.get(name)
+        if name is None:
+            return None
+
+        return self._capabilities[name]
 
     def list_capabilities(
         self,
@@ -128,22 +235,106 @@ class CapabilityRegistry:
 
         return True
 
-    def is_available(
+    def _effective_status(
+        self,
+        capability: CapabilityDefinition,
+    ) -> CapabilityStatus:
+        """
+        Combine the capability's own status with the
+        state and health of its provider.
+        """
+
+        if (
+            capability.status
+            != CapabilityStatus.AVAILABLE
+            or self._providers is None
+        ):
+            return capability.status
+
+        provider = self._providers.get(
+            capability.provider
+        )
+
+        if (
+            provider is None
+            or provider.state
+            != ProviderState.RUNNING
+        ):
+            return CapabilityStatus.UNAVAILABLE
+
+        if (
+            provider.health
+            == ProviderHealth.HEALTHY
+        ):
+            return CapabilityStatus.AVAILABLE
+
+        if (
+            provider.health
+            == ProviderHealth.DEGRADED
+        ):
+            return CapabilityStatus.DEGRADED
+
+        return CapabilityStatus.UNAVAILABLE
+
+    def _unavailable_reason(
+        self,
+        capability: CapabilityDefinition,
+    ) -> str:
+        if (
+            capability.status
+            != CapabilityStatus.AVAILABLE
+            or self._providers is None
+        ):
+            return (
+                "Current status: "
+                f"{capability.status.value}"
+            )
+
+        provider = self._providers.get(
+            capability.provider
+        )
+
+        if provider is None:
+            return (
+                "Provider is not registered: "
+                f"{capability.provider}"
+            )
+
+        return (
+            f"Provider {provider.provider_id} is "
+            f"{provider.state.value} with health "
+            f"{provider.health.value}."
+        )
+
+    def get_status(
         self,
         name: str,
-    ) -> bool:
+    ) -> Optional[CapabilityStatus]:
         """
-        Return True only when a capability exists and
-        is currently marked AVAILABLE.
+        Return the capability's effective status, taking
+        its provider into account.
         """
 
         capability = self.get(name)
 
         if capability is None:
-            return False
+            return None
+
+        return self._effective_status(
+            capability
+        )
+
+    def is_available(
+        self,
+        name: str,
+    ) -> bool:
+        """
+        Return True only when a capability exists, is
+        marked AVAILABLE, and its provider is usable.
+        """
 
         return (
-            capability.status
+            self.get_status(name)
             == CapabilityStatus.AVAILABLE
         )
 
@@ -175,7 +366,7 @@ class CapabilityRegistry:
             )
 
         if (
-            capability.status
+            self._effective_status(capability)
             != CapabilityStatus.AVAILABLE
         ):
             return CapabilityExecutionResult(
@@ -184,8 +375,9 @@ class CapabilityRegistry:
                 provider=capability.provider,
                 error=(
                     "Capability is not available. "
-                    f"Current status: "
-                    f"{capability.status.value}"
+                    + self._unavailable_reason(
+                        capability
+                    )
                 ),
             )
 
@@ -242,7 +434,18 @@ class CapabilityRegistry:
                         capability.category
                     ),
                     "status": (
-                        capability.status.value
+                        self._effective_status(
+                            capability
+                        ).value
+                    ),
+                    "requires_gpu": (
+                        capability.requires_gpu
+                    ),
+                    "destructive": (
+                        capability.destructive
+                    ),
+                    "aliases": list(
+                        capability.aliases
                     ),
                     "optional_dependencies": list(
                         capability.optional_dependencies

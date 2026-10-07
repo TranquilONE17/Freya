@@ -1,6 +1,6 @@
 from typing import Dict, List, Optional
 
-from core.providers.provider import (
+from freya.core.providers.provider import (
     ProviderDefinition,
     ProviderHealth,
     ProviderOperationResult,

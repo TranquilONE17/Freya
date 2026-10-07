@@ -1,0 +1,38 @@
+[project]
+name = "freya"
+version = "0.1.0"
+description = "Local-first, modular, multi-user agentic AI platform."
+readme = "README.md"
+# kokoro (via misaki) does not support Python 3.13 yet.
+requires-python = ">=3.12,<3.13"
+dependencies = [
+    "faster-whisper>=1.2",
+    "kokoro>=0.9.4",
+    "numpy>=2.0",
+    "ollama>=0.6",
+    "sounddevice>=0.5",
+    "soundfile>=0.13",
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=8",
+]
+
+[project.scripts]
+freya = "freya.main:main"
+
+[build-system]
+requires = ["setuptools>=77"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+"freya.image" = ["workflows/*.json"]
+
+# voice/stt_test.py and voice/tts_test.py are manual scripts, so only collect
+# from tests/.
+[tool.pytest.ini_options]
+testpaths = ["tests"]

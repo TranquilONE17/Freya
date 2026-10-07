@@ -3,9 +3,21 @@ import platform
 import shutil
 import subprocess
 
-from tools.tool_registry import (
-    ToolDefinition,
+from freya.core.capabilities import (
+    CapabilityDefinition,
 )
+from freya.core.providers import (
+    ProviderDefinition,
+)
+
+
+SYSTEM_TOOLS_PROVIDER = "system-tools-local"
+
+SYSTEM_TOOL_CAPABILITIES = [
+    "system.info",
+    "system.disk",
+    "system.gpu",
+]
 
 
 def _bytes_to_gb(value):
@@ -170,13 +182,14 @@ def register_system_tools(
     """
 
     registry.register(
-        ToolDefinition(
+        CapabilityDefinition(
             name="system.info",
             description=(
                 "Returns basic information about "
                 "Freya's host computer and "
                 "operating system."
             ),
+            provider=SYSTEM_TOOLS_PROVIDER,
             handler=get_system_info,
             category="system",
             aliases=[
@@ -187,13 +200,14 @@ def register_system_tools(
     )
 
     registry.register(
-        ToolDefinition(
+        CapabilityDefinition(
             name="system.disk",
             description=(
                 "Returns total, used, and free "
                 "disk space for Freya's "
                 "current drive."
             ),
+            provider=SYSTEM_TOOLS_PROVIDER,
             handler=get_disk_info,
             category="system",
             aliases=[
@@ -204,13 +218,14 @@ def register_system_tools(
     )
 
     registry.register(
-        ToolDefinition(
+        CapabilityDefinition(
             name="system.gpu",
             description=(
                 "Returns NVIDIA GPU name, "
                 "temperature, utilization, "
                 "and VRAM usage."
             ),
+            provider=SYSTEM_TOOLS_PROVIDER,
             handler=get_gpu_info,
             category="system",
             aliases=[
@@ -218,4 +233,25 @@ def register_system_tools(
                 "gpu.status",
             ],
         )
+    )
+
+
+def create_system_tools_provider():
+    """
+    Describe the in-process provider behind Freya's
+    read-only local system tools.
+
+    It has nothing to start and no external dependency,
+    so it reports healthy whenever it is asked.
+    """
+
+    return ProviderDefinition(
+        provider_id=SYSTEM_TOOLS_PROVIDER,
+        name="Local system tools",
+        capabilities=list(
+            SYSTEM_TOOL_CAPABILITIES
+        ),
+        start_handler=lambda: None,
+        stop_handler=lambda: None,
+        health_handler=lambda: True,
     )

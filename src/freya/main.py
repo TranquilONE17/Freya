@@ -1,20 +1,23 @@
 import re
 
+import threading
 
 
-from core.assistant import FreyaAssistant
 
-from gpu.resource_manager import GPUResourceManager
+from freya.core.assistant import FreyaAssistant
 
-from image.image_generator import FreyaImageGenerator
+from freya.core.llm import warm_models
 
-from tools.system_tools import register_system_tools
-from tools.tool_registry import ToolRegistry
-from tools.tool_router import FreyaToolRouter
+from freya.gpu.resource_manager import GPUResourceManager
 
-from voice.stt import FreyaSTT
+from freya.image.image_generator import FreyaImageGenerator
 
-from voice.tts import FreyaVoice
+from freya.control_plane import build_local_control_plane
+from freya.tools.tool_router import FreyaToolRouter
+
+from freya.voice.stt import FreyaSTT
+
+from freya.voice.tts import FreyaVoice
 
 
 
@@ -438,7 +441,7 @@ def print_registered_tool_result(result):
 
     print()
 
-    if result.tool_name == "system.gpu":
+    if result.capability_name == "system.gpu":
         for gpu in result.result:
             print(
                 "Freya: "
@@ -450,7 +453,7 @@ def print_registered_tool_result(result):
                 f"({gpu['memory_free_mib']} MiB free)."
             )
 
-    elif result.tool_name == "system.disk":
+    elif result.capability_name == "system.disk":
         info = result.result
         print(
             "Freya: "
@@ -460,7 +463,7 @@ def print_registered_tool_result(result):
             f"({info['used_gb']} GB used)."
         )
 
-    elif result.tool_name == "system.info":
+    elif result.capability_name == "system.info":
         info = result.result
         print(
             "Freya: Host system — "
@@ -480,7 +483,7 @@ def print_registered_tool_result(result):
 
 def handle_tool_request(
     tool_router,
-    tool_registry,
+    capability_broker,
     image_generator,
     gpu_manager,
     user_input,
@@ -500,8 +503,8 @@ def handle_tool_request(
         )
         return True
 
-    if tool_registry.exists(tool_request.tool):
-        result = tool_registry.execute(
+    if capability_broker.exists(tool_request.tool):
+        result = capability_broker.invoke(
             tool_request.tool
         )
         print_registered_tool_result(result)
@@ -518,7 +521,7 @@ def handle_normal_input(
 
     tool_router,
 
-    tool_registry,
+    capability_broker,
 
     image_generator,
 
@@ -532,7 +535,7 @@ def handle_normal_input(
 
         tool_router,
 
-        tool_registry,
+        capability_broker,
 
         image_generator,
 
@@ -574,7 +577,7 @@ def run_conversation_mode(
 
     tool_router,
 
-    tool_registry,
+    capability_broker,
 
     image_generator,
 
@@ -732,7 +735,7 @@ def run_conversation_mode(
 
             tool_router,
 
-            tool_registry,
+            capability_broker,
 
             image_generator,
 
@@ -758,6 +761,20 @@ def run_conversation_mode(
 
 def main():
 
+    # Load the Ollama models while the voice engine is starting up.
+
+    threading.Thread(
+
+        target=warm_models,
+
+        name="FreyaModelWarmup",
+
+        daemon=True,
+
+    ).start()
+
+
+
     freya = FreyaAssistant()
 
     voice = FreyaVoice()
@@ -770,9 +787,13 @@ def main():
 
     tool_router = FreyaToolRouter()
 
-    tool_registry = ToolRegistry()
+    control_plane = build_local_control_plane()
 
-    register_system_tools(tool_registry)
+    for message in control_plane.startup_messages():
+
+        print(message)
+
+    capability_broker = control_plane.broker
 
     gpu_manager = GPUResourceManager()
 
@@ -956,7 +977,7 @@ def main():
 
                         tool_router,
 
-                        tool_registry,
+                        capability_broker,
 
                         image_generator,
 
@@ -1068,7 +1089,7 @@ def main():
 
                     tool_router,
 
-                    tool_registry,
+                    capability_broker,
 
                     image_generator,
 
@@ -1166,7 +1187,7 @@ def main():
 
                     tool_router,
 
-                    tool_registry,
+                    capability_broker,
 
                     image_generator,
 
@@ -1294,7 +1315,7 @@ def main():
 
                     tool_router,
 
-                    tool_registry,
+                    capability_broker,
 
                     image_generator,
 
@@ -1318,7 +1339,7 @@ def main():
 
                 tool_router,
 
-                tool_registry,
+                capability_broker,
 
                 image_generator,
 
@@ -1343,6 +1364,8 @@ def main():
     finally:
 
         voice.shutdown()
+
+        control_plane.close()
 
 
 
