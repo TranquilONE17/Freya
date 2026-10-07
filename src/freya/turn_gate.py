@@ -41,6 +41,15 @@ class TurnGate:
             self._lock.release()
 
     @contextmanager
+    def turn(self):
+        """
+        Take the gate for a turn asked for from the window, waiting
+        for any turn already in progress to finish.
+        """
+        with self._lock:
+            yield
+
+    @contextmanager
     def spoken_turn(self):
         """
         Take the gate for a spoken turn. Yields False, without

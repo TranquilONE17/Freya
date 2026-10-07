@@ -168,6 +168,113 @@ def check_comfyui_health(url):
     return ProviderHealth.HEALTHY
 
 
+_job_handle = None
+
+
+def _tie_to_freya(process) -> bool:
+    """
+    Make Windows end the server when Freya's own process ends, however
+    that happens: closing her console window or a crash skips the
+    normal shutdown that would stop it.
+
+    The server is placed in a job object set to kill its processes
+    when the last handle to the job closes, and Freya holds the only
+    handle. Returns False when this could not be arranged.
+    """
+    global _job_handle
+
+    if os.name != "nt":
+        return False
+
+    try:
+        import ctypes
+        from ctypes import wintypes
+
+        kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+        kernel32.CreateJobObjectW.restype = wintypes.HANDLE
+        kernel32.CreateJobObjectW.argtypes = [
+            wintypes.LPVOID,
+            wintypes.LPCWSTR,
+        ]
+        kernel32.SetInformationJobObject.argtypes = [
+            wintypes.HANDLE,
+            ctypes.c_int,
+            wintypes.LPVOID,
+            wintypes.DWORD,
+        ]
+        kernel32.AssignProcessToJobObject.argtypes = [
+            wintypes.HANDLE,
+            wintypes.HANDLE,
+        ]
+
+        class BasicLimits(ctypes.Structure):
+            _fields_ = [
+                ("PerProcessUserTimeLimit", ctypes.c_int64),
+                ("PerJobUserTimeLimit", ctypes.c_int64),
+                ("LimitFlags", wintypes.DWORD),
+                ("MinimumWorkingSetSize", ctypes.c_size_t),
+                ("MaximumWorkingSetSize", ctypes.c_size_t),
+                ("ActiveProcessLimit", wintypes.DWORD),
+                ("Affinity", ctypes.c_size_t),
+                ("PriorityClass", wintypes.DWORD),
+                ("SchedulingClass", wintypes.DWORD),
+            ]
+
+        class IoCounters(ctypes.Structure):
+            _fields_ = [
+                (name, ctypes.c_uint64)
+                for name in (
+                    "ReadOperationCount",
+                    "WriteOperationCount",
+                    "OtherOperationCount",
+                    "ReadTransferCount",
+                    "WriteTransferCount",
+                    "OtherTransferCount",
+                )
+            ]
+
+        class ExtendedLimits(ctypes.Structure):
+            _fields_ = [
+                ("BasicLimitInformation", BasicLimits),
+                ("IoInfo", IoCounters),
+                ("ProcessMemoryLimit", ctypes.c_size_t),
+                ("JobMemoryLimit", ctypes.c_size_t),
+                ("PeakProcessMemoryUsed", ctypes.c_size_t),
+                ("PeakJobMemoryUsed", ctypes.c_size_t),
+            ]
+
+        kill_on_job_close = 0x2000
+        extended_limit_information = 9
+
+        if _job_handle is None:
+            job = kernel32.CreateJobObjectW(None, None)
+
+            if not job:
+                return False
+
+            limits = ExtendedLimits()
+            limits.BasicLimitInformation.LimitFlags = kill_on_job_close
+
+            if not kernel32.SetInformationJobObject(
+                job,
+                extended_limit_information,
+                ctypes.byref(limits),
+                ctypes.sizeof(limits),
+            ):
+                return False
+
+            _job_handle = job
+
+        return bool(
+            kernel32.AssignProcessToJobObject(
+                _job_handle,
+                wintypes.HANDLE(int(process._handle)),
+            )
+        )
+    except Exception:
+        return False
+
+
 def _launch(plan: LaunchPlan, log_path=None):
     """
     Start the planned program and return its process.
@@ -193,7 +300,7 @@ def _launch(plan: LaunchPlan, log_path=None):
         )
 
     try:
-        return subprocess.Popen(
+        process = subprocess.Popen(
             plan.command,
             cwd=plan.cwd,
             stdin=subprocess.DEVNULL,
@@ -205,6 +312,11 @@ def _launch(plan: LaunchPlan, log_path=None):
     finally:
         if output is not subprocess.DEVNULL:
             output.close()
+
+    if plan.headless:
+        _tie_to_freya(process)
+
+    return process
 
 
 def _stop_process_tree(process) -> None:
