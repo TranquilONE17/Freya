@@ -65,6 +65,47 @@ class FreyaSTT:
 
         return transcript, info
 
+    def transcribe_audio(
+        self,
+        audio,
+        sample_rate=MICROPHONE_SAMPLE_RATE,
+        hotwords=None,
+    ):
+        """
+        Transcribe audio already held in memory, without printing.
+
+        hotwords nudges recognition towards particular words, such
+        as the names Freya answers to.
+        """
+
+        temp_path = (
+            Path(tempfile.gettempdir())
+            / "freya_background_listen.wav"
+        )
+
+        sf.write(
+            temp_path,
+            audio,
+            sample_rate,
+        )
+
+        try:
+            segments, _ = self.model.transcribe(
+                str(temp_path),
+                beam_size=5,
+                vad_filter=True,
+                hotwords=hotwords,
+            )
+
+            return " ".join(
+                segment.text.strip()
+                for segment in segments
+                if segment.text.strip()
+            )
+        finally:
+            # Background audio is not kept once it has been read.
+            temp_path.unlink(missing_ok=True)
+
     def record_push_to_talk(self):
         print()
         input("Press ENTER to start talking...")
