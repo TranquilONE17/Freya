@@ -212,6 +212,90 @@ def test_window_reports_how_it_was_shown(tmp_path, shown, message):
         window.stop()
 
 
+class FakeGateway:
+    def __init__(self):
+        self.idle = 0.0
+        self.ever_connected = False
+        self.port = 1
+
+    def idle_seconds(self):
+        return self.idle
+
+    def start(self):
+        pass
+
+    def stop(self):
+        pass
+
+
+def test_window_counts_as_closed_only_after_a_grace_period(tmp_path):
+    window = make_window(tmp_path, lambda url: "window")
+    gateway = FakeGateway()
+    window._gateway = gateway
+
+    # Not started at all: there is no window.
+    assert window.closed() is True
+
+    window.running = True
+
+    # Waiting for the window to appear for the first time.
+    gateway.idle = 30
+    assert window.closed() is False
+    gateway.idle = window_module.OPEN_TIMEOUT_SECONDS + 1
+    assert window.closed() is True
+
+    # Connected.
+    gateway.ever_connected = True
+    gateway.idle = None
+    assert window.closed() is False
+
+    # Closed a moment ago, as during a page reload.
+    gateway.idle = 2
+    assert window.closed() is False
+
+    # Closed for good.
+    gateway.idle = window_module.CLOSE_GRACE_SECONDS + 1
+    assert window.closed() is True
+
+
+def test_single_instance_claim(monkeypatch):
+    import subprocess
+    import sys
+
+    from freya import single_instance
+
+    monkeypatch.setattr(
+        single_instance, "MUTEX_NAME", "Local\\FreyaAssistantTest"
+    )
+    monkeypatch.setattr(single_instance, "_handle", None)
+    monkeypatch.delenv("FREYA_ALLOW_MULTIPLE", raising=False)
+
+    assert single_instance.claim() is True
+    assert single_instance.claim() is True
+
+    probe = (
+        "from freya import single_instance as s;"
+        "s.MUTEX_NAME='Local\\\\FreyaAssistantTest';"
+        "print(s.claim())"
+    )
+    second = subprocess.run(
+        [sys.executable, "-c", probe],
+        capture_output=True,
+        text=True,
+        env={k: v for k, v in __import__("os").environ.items() if k != "FREYA_ALLOW_MULTIPLE"},
+    )
+    allowed = subprocess.run(
+        [sys.executable, "-c", probe],
+        capture_output=True,
+        text=True,
+        env={**__import__("os").environ, "FREYA_ALLOW_MULTIPLE": "1"},
+    )
+
+    if sys.platform == "win32":
+        assert second.stdout.strip() == "False"
+    assert allowed.stdout.strip() == "True"
+
+
 def test_app_window_uses_its_own_browser_profile(tmp_path, monkeypatch):
     edge = tmp_path / "msedge.exe"
     edge.write_text("")

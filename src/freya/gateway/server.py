@@ -4,6 +4,7 @@ import queue
 import secrets
 import socket
 import threading
+import time
 import urllib.parse
 from http.cookies import SimpleCookie
 from importlib import resources
@@ -95,6 +96,12 @@ class Gateway:
         self._server = None
         self._threads = []
         self.port = None
+
+        # Which windows are connected, for knowing when the last one
+        # has been closed.
+        self._clients = 0
+        self._no_clients_since = time.monotonic()
+        self.ever_connected = False
 
     # -- lifecycle ---------------------------------------------------
 
@@ -257,9 +264,24 @@ class Gateway:
 
     # -- WebSocket ---------------------------------------------------
 
+    def idle_seconds(self):
+        """
+        How long there has been no window connected, or None while at
+        least one is.
+        """
+        with self._lock:
+            if self._clients:
+                return None
+
+            return time.monotonic() - self._no_clients_since
+
     def _handle_socket(self, websocket) -> None:
         def forward(event):
             websocket.send(json.dumps(event))
+
+        with self._lock:
+            self._clients += 1
+            self.ever_connected = True
 
         try:
             websocket.send(
@@ -282,6 +304,12 @@ class Gateway:
             pass
         finally:
             self._bus.unsubscribe(forward)
+
+            with self._lock:
+                self._clients -= 1
+
+                if not self._clients:
+                    self._no_clients_since = time.monotonic()
 
     def _handle_message(self, websocket, raw) -> None:
         def reject(reason):

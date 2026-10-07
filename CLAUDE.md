@@ -97,8 +97,14 @@ tool calling. Requested tools run through the broker, their JSON results go back
 the model, and it answers in its own words; at most three tool rounds per turn. The
 offered tools take no arguments, and arguments the model invents are discarded. Tool
 results are untrusted content from the model's point of view. The tool exchange is not
-kept in conversation history. Before adding a tool that takes arguments or has effects,
-decide how its arguments are validated and authorized.
+kept in conversation history. A tool that takes arguments declares them in its metadata
+(`tool_parameters`); `ModelToolHost` passes only declared arguments and requires each
+to be non-empty text within its declared length. `image.generate` is the one such tool:
+it is provided by Freya's in-process image service (`image-service-local`), which starts
+ComfyUI on demand and unloads the Ollama models while it runs, so the reply after an
+image waits for the model to reload. It has a local, reversible effect; before adding a
+tool with a consequential effect, decide how it is authorized, including whether a
+spoken request may trigger it.
 
 Always-on listening: the microphone stays open on a background thread while the
 keyboard prompt waits. Every utterance is transcribed locally and then discarded unless
@@ -109,6 +115,16 @@ the memory database connection allows cross-thread use. The microphone is ignore
 while Freya is speaking or handling a turn; she cannot be interrupted by voice. Voice
 is ambient input and is not authentication: before any tool with effects exists,
 decide what spoken requests may trigger (see proposed NEW-I).
+
+Two ways to start: `freya` (console plus window) and `freya-window`
+(`freya/launcher.py`, no console). The console-free launcher points stdout and stderr at
+`data/freya.log` before importing anything heavy, because a program without a console
+has nowhere to print and some libraries fail when they try. In that mode Freya exits
+about eight seconds after her last window closes, or after two minutes if none ever
+connects, so she is never left running unseen with the microphone open. Only one Freya
+runs per user (`single_instance.py`, a named mutex; `FREYA_ALLOW_MULTIPLE=1` lifts it
+for tests). Console-only commands such as `/names` and `/talk` have no window
+equivalent yet.
 
 The window: Freya opens it at startup (`FREYA_WINDOW=0` disables that; `/window`
 reopens it). The gateway binds `127.0.0.1` only, port 8770 or a free one. A request is

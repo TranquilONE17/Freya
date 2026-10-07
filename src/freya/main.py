@@ -1,5 +1,7 @@
 import re
 
+import time
+
 import urllib.request
 
 import threading
@@ -29,6 +31,8 @@ from freya.window import WINDOW_COMMAND
 from freya.window import FreyaWindow
 from freya.window import WindowActions
 from freya.window import build_status
+from freya.single_instance import claim as claim_single_instance
+from freya.single_instance import show_message
 from freya.tools.tool_router import FreyaToolRouter
 
 from freya.voice.stt import FreyaSTT
@@ -931,9 +935,32 @@ def run_conversation_mode(
 
 
 
-def main():
+def main(window_only=False):
+
+    """
+
+    Run Freya. With window_only, there is no console: she is used
+
+    through her window and by voice, and exits when it is closed.
+
+    """
 
     global GALLERY
+
+
+    if not claim_single_instance():
+
+        message = "Freya is already running."
+
+        if window_only:
+
+            show_message(message)
+
+        else:
+
+            print(message)
+
+        return
 
     control_plane = build_local_control_plane()
 
@@ -1311,7 +1338,7 @@ def main():
 
     if window.start():
 
-        if OPEN_WINDOW:
+        if OPEN_WINDOW or window_only:
 
             print(window.open())
 
@@ -1323,17 +1350,31 @@ def main():
 
 
 
+    def read_next_line():
+
+        if not window_only:
+
+            return gate.read_line("You: ")
+
+        # No console to read from: carry on until the window has
+
+        # been closed, then leave as if 'exit' had been typed.
+
+        while not window.closed():
+
+            time.sleep(0.5)
+
+        return "exit"
+
+
+
     try:
 
         while True:
 
             user_input = normalize_command(
 
-                gate.read_line(
-
-                    "You: "
-
-                ).strip()
+                read_next_line().strip()
 
             )
 
@@ -1855,6 +1896,7 @@ def main():
         voice.shutdown()
 
         control_plane.close()
+
 
 
 
