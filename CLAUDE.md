@@ -59,7 +59,11 @@ Rules for the spec:
   `/unmute`, `/names`, `/name add|remove`. `src/freya/settings.py` — owner preferences
   in `data/freya_settings.json` (currently the names Freya answers to).
   `src/freya/turn_gate.py` — lets one turn run at a time, typed or spoken.
-- `src/freya/image/` — ComfyUI client.
+- `src/freya/image/` — ComfyUI client. `src/freya/providers/image/comfyui.py` — the
+  `comfyui-local` provider: a health check and a start handler that launches the Comfy
+  Desktop app (or `FREYA_COMFYUI_COMMAND`) when an image is requested and ComfyUI is
+  not running, then waits up to three minutes for it. Freya never stops ComfyUI.
+  Image generation itself still calls ComfyUI directly, not through the broker.
 
 Known state: the system tools and every chat and embedding call run only through
 `CapabilityBroker`, which checks policy (deny by default), checks availability, writes
