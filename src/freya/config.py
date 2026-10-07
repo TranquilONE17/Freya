@@ -11,6 +11,12 @@ AUDIT_CHECKPOINT_PATH = os.environ.get(
     "FREYA_AUDIT_CHECKPOINT_PATH"
 ) or None
 
+# Program that starts ComfyUI when an image is requested and it is not
+# running. Unset means the standard Comfy Desktop install, if present.
+COMFYUI_COMMAND = os.environ.get(
+    "FREYA_COMFYUI_COMMAND"
+) or None
+
 # LibreHardwareMonitor's web server on this machine, which supplies
 # temperatures, fan speeds, and other sensor readings.
 SENSOR_URL = os.environ.get(

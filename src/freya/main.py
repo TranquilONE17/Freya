@@ -290,6 +290,26 @@ def run_image_generation(
 
     print()
 
+    try:
+
+        # Start ComfyUI first if it is not running, so the language
+
+        # model is not unloaded for an image that cannot be made.
+
+        image_generator.ensure_running()
+
+    except RuntimeError as exc:
+
+        print(
+
+            f"Freya: I can't generate images right now. {exc}\n"
+
+        )
+
+        return
+
+
+
     print("Freya: Preparing GPU for image generation...")
 
     print(f"Prompt: {prompt}")
@@ -794,7 +814,11 @@ def main():
 
 
 
-    image_generator = FreyaImageGenerator()
+    image_generator = FreyaImageGenerator(
+
+        ensure_running=control_plane.ensure_image_backend,
+
+    )
 
     tool_router = FreyaToolRouter()
 

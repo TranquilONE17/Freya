@@ -2,6 +2,7 @@ from dataclasses import dataclass
 from typing import List
 
 from freya.config import AUDIT_CHECKPOINT_PATH
+from freya.config import COMFYUI_COMMAND
 from freya.config import EMBEDDING_MODEL
 from freya.config import MODEL
 from freya.core.audit import (
@@ -29,6 +30,14 @@ from freya.core.model_runtime import (
 from freya.core.providers import (
     ProviderHealth,
     ProviderRegistry,
+    ProviderState,
+)
+from freya.image.image_generator import (
+    COMFYUI_URL,
+)
+from freya.providers.image.comfyui import (
+    COMFYUI_PROVIDER,
+    create_comfyui_provider,
 )
 from freya.providers.model.ollama import (
     OLLAMA_CAPABILITIES,
@@ -73,6 +82,36 @@ class ControlPlane:
         warm_ollama_models(
             metadata["chat_model"],
             metadata["embedding_model"],
+        )
+
+    def ensure_image_backend(self, announce=print) -> None:
+        """
+        Make sure ComfyUI is running, starting it if needed. Raises
+        RuntimeError when it is not running and cannot be started.
+        """
+        self.providers.check_health(COMFYUI_PROVIDER)
+        provider = self.providers.get(COMFYUI_PROVIDER)
+
+        if provider.health != ProviderHealth.HEALTHY:
+            if provider.metadata["can_start"]:
+                announce(
+                    "Freya: ComfyUI is not running, so I am starting "
+                    "it. This can take a minute..."
+                )
+
+            result = self.providers.start(COMFYUI_PROVIDER)
+
+            if not result.success:
+                raise RuntimeError(result.error)
+
+            self.providers.check_health(COMFYUI_PROVIDER)
+            announce("Freya: ComfyUI is ready.")
+            return
+
+        # It was started outside Freya; record that it is up.
+        self.providers.set_state(
+            COMFYUI_PROVIDER,
+            ProviderState.RUNNING,
         )
 
     def startup_messages(self) -> List[str]:
@@ -148,6 +187,11 @@ def build_local_control_plane(
     providers.register(create_ollama_provider(MODEL, EMBEDDING_MODEL))
     providers.start(OLLAMA_PROVIDER)
     providers.check_health(OLLAMA_PROVIDER)
+
+    # ComfyUI is started on demand, when an image is first requested.
+    providers.register(
+        create_comfyui_provider(COMFYUI_URL, COMFYUI_COMMAND)
+    )
 
     capabilities = CapabilityRegistry(providers)
     register_system_tools(capabilities)
