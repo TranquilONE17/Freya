@@ -77,6 +77,21 @@ MIGRATIONS = [
         sink_status TEXT
     );
     """,
+    # Version 2: remember which default rule sets have been applied, so a
+    # new default set can be added later without restoring rules the owner
+    # removed. Stores seeded under version 1 already hold the system-tools
+    # set.
+    """
+    CREATE TABLE policy_seed (
+        name TEXT PRIMARY KEY,
+        applied_at TEXT NOT NULL
+    );
+
+    INSERT INTO policy_seed (name, applied_at)
+    SELECT 'alpha-system-tools', strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+    FROM policy_state
+    WHERE revision > 0;
+    """,
 ]
 
 

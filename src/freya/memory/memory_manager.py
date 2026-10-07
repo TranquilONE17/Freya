@@ -3,9 +3,7 @@ import math
 import sqlite3
 from pathlib import Path
 
-import ollama
-
-from freya.config import EMBEDDING_MODEL
+from freya.core.model_runtime import get_model_runtime
 
 
 DATA_DIR = Path(__file__).resolve().parents[3] / "data"
@@ -137,12 +135,9 @@ class MemoryManager:
         self.connection.commit()
 
     def _create_embedding(self, text):
-        response = ollama.embed(
-            model=EMBEDDING_MODEL,
-            input=text,
+        return get_model_runtime().embed(
+            text
         )
-
-        return response["embeddings"][0]
 
     def _embed_existing_memories(self):
         cursor = self.connection.execute(
