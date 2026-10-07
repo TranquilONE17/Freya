@@ -40,7 +40,8 @@ Rules for the spec:
 
 Known state: `CapabilityRegistry` and `ProviderRegistry` are not yet wired into
 `main.py`; `ToolRegistry` duplicates them. `tool_selector.py`/`tool_executor.py` are not
-wired in either. There is no `pyproject.toml`, lockfile, or `tests/` directory yet.
+wired in either. `pyproject.toml` declares dependencies only (nothing is packaged yet);
+there is no `tests/` directory yet.
 
 ## Running locally (Windows)
 
@@ -49,8 +50,11 @@ wired in either. There is no `pyproject.toml`, lockfile, or `tests/` directory y
   that directory: `cd src\freya` then `python main.py`.
 - Requires Ollama on `127.0.0.1:11434` with `gpt-oss:20b` and `nomic-embed-text`.
   Image generation requires ComfyUI on `127.0.0.1:8188`.
-- Dependencies in use: `ollama`, `faster-whisper`, `kokoro`, `sounddevice`, `soundfile`,
-  `numpy`.
+- Direct dependencies are declared in `pyproject.toml`; `uv.lock` pins the full resolved
+  set for Windows and Linux (Python 3.12). After changing dependencies, run `uv lock`
+  and commit both files. `uv sync` rebuilds `.venv` from the lock.
+- Kokoro also needs the spaCy model `en_core_web_sm`, which is downloaded outside the
+  lockfile.
 
 ## Working rules
 
@@ -68,7 +72,7 @@ wired in either. There is no `pyproject.toml`, lockfile, or `tests/` directory y
 
 ## Next planned work (alpha step 1)
 
-`pyproject.toml` and lockfile, a proper `freya` package layout, tests for the existing
+A proper `freya` package layout (`pyproject.toml` and lockfile are done), tests for the existing
 registries, merge `ToolRegistry` into `CapabilityRegistry`, link provider health to
 capability availability, then the SQLite audit log and policy table in front of
 capability execution.
