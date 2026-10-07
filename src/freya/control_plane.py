@@ -14,6 +14,7 @@ from freya.core.audit import (
 from freya.core.capabilities import (
     LOCAL_OWNER,
     CapabilityBroker,
+    CapabilityDefinition,
     CapabilityRegistry,
 )
 from freya.core.persistence import (
@@ -29,6 +30,7 @@ from freya.core.model_runtime import (
     configure_model_runtime,
 )
 from freya.core.providers import (
+    ProviderDefinition,
     ProviderHealth,
     ProviderRegistry,
     ProviderState,
@@ -38,6 +40,7 @@ from freya.image.image_generator import (
 )
 from freya.providers.image.comfyui import (
     COMFYUI_PROVIDER,
+    IMAGE_GENERATE,
     ComfyUIServer,
     create_comfyui_provider,
 )
@@ -49,8 +52,13 @@ from freya.providers.model.ollama import (
     warm_ollama_models,
 )
 from freya.tools.model_tools import (
+    MODEL_TOOL,
+    TOOL_PARAMETERS,
     ModelToolHost,
 )
+
+
+IMAGE_SERVICE_PROVIDER = "image-service-local"
 from freya.tools.system_tools import (
     SYSTEM_TOOL_CAPABILITIES,
     SYSTEM_TOOLS_PROVIDER,
@@ -84,6 +92,73 @@ class ControlPlane:
         warm_ollama_models(
             metadata["chat_model"],
             metadata["embedding_model"],
+        )
+
+    def register_image_generation(self, generate) -> None:
+        """
+        Offer image generation as a capability the model can call.
+
+        The capability belongs to Freya's own image service, which
+        starts ComfyUI on demand and hands the GPU back afterwards, so
+        it is available whenever ComfyUI is running or can be started.
+        """
+        comfyui = self.providers.get(COMFYUI_PROVIDER)
+
+        def service_health():
+            self.providers.check_health(COMFYUI_PROVIDER)
+
+            return bool(
+                comfyui.health == ProviderHealth.HEALTHY
+                or comfyui.metadata["can_start"]
+            )
+
+        self.providers.register(
+            ProviderDefinition(
+                provider_id=IMAGE_SERVICE_PROVIDER,
+                name="Freya image service",
+                capabilities=[IMAGE_GENERATE],
+                start_handler=lambda: None,
+                health_handler=service_health,
+            )
+        )
+        self.providers.start(IMAGE_SERVICE_PROVIDER)
+        self.providers.check_health(IMAGE_SERVICE_PROVIDER)
+
+        self.capabilities.register(
+            CapabilityDefinition(
+                name=IMAGE_GENERATE,
+                description=(
+                    "Generates a picture from a text description and "
+                    "shows it in the Images tab of Freya's window. "
+                    "Use this whenever the user asks for an image, "
+                    "picture, drawing, illustration, or photo. It "
+                    "takes about twenty seconds."
+                ),
+                provider=IMAGE_SERVICE_PROVIDER,
+                handler=generate,
+                category="image",
+                requires_gpu=True,
+                optional_dependencies=[COMFYUI_PROVIDER],
+                metadata={
+                    MODEL_TOOL: True,
+                    TOOL_PARAMETERS: {
+                        "prompt": {
+                            "description": (
+                                "A detailed description of the "
+                                "picture to generate."
+                            ),
+                            "max_length": 1000,
+                        },
+                    },
+                },
+            )
+        )
+
+        seed_alpha_policy(
+            self.policy,
+            "alpha-image-generate",
+            LOCAL_OWNER.actor,
+            [IMAGE_GENERATE],
         )
 
     def ensure_image_backend(self, announce=print) -> None:
