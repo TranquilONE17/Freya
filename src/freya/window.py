@@ -21,6 +21,10 @@ WINDOW_PROFILE_DIR = DATA_DIR / "window_profile"
 
 WINDOW_SIZE = "1100,820"
 
+# How long the window may be gone before a console-free Freya exits.
+CLOSE_GRACE_SECONDS = 8
+OPEN_TIMEOUT_SECONDS = 120
+
 
 @dataclass
 class WindowActions:
@@ -181,6 +185,28 @@ class FreyaWindow:
             return "Freya's window is open in your browser."
 
         return "Freya's window could not be opened."
+
+    def closed(self) -> bool:
+        """
+        True when Freya's window is gone: every window has been closed
+        for a few seconds (a page reload reconnects well inside that),
+        or none ever appeared.
+
+        When Freya runs without a console, this is what tells her to
+        exit, so she is never left running unseen.
+        """
+        if not self.running:
+            return True
+
+        idle = self._gateway.idle_seconds()
+
+        if idle is None:
+            return False
+
+        if self._gateway.ever_connected:
+            return idle >= CLOSE_GRACE_SECONDS
+
+        return idle >= OPEN_TIMEOUT_SECONDS
 
     def stop(self) -> None:
         if self.running:

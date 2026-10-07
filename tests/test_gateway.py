@@ -325,6 +325,33 @@ def test_failure_in_a_turn_is_reported_to_the_window(gateway, freya, bus):
     assert "the model fell over" in notice["text"]
 
 
+def test_gateway_knows_when_no_window_is_connected(gateway):
+    assert gateway.ever_connected is False
+    assert gateway.idle_seconds() >= 0
+
+    cookie = sign_in(gateway)
+
+    with open_socket(gateway, cookie) as first:
+        receive(first, "hello")
+        assert gateway.ever_connected is True
+        assert gateway.idle_seconds() is None
+
+        with open_socket(gateway, cookie) as second:
+            receive(second, "hello")
+
+        # One window is still open.
+        deadline = time.monotonic() + 5
+        while gateway._clients != 1 and time.monotonic() < deadline:
+            time.sleep(0.02)
+        assert gateway.idle_seconds() is None
+
+    deadline = time.monotonic() + 5
+    while gateway.idle_seconds() is None and time.monotonic() < deadline:
+        time.sleep(0.02)
+
+    assert 0 <= gateway.idle_seconds() < 5
+
+
 def test_closed_window_stops_receiving_events(gateway, bus):
     with open_socket(gateway, sign_in(gateway)) as socket:
         receive(socket, "hello")

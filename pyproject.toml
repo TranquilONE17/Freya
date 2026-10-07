@@ -24,6 +24,10 @@ dev = [
 [project.scripts]
 freya = "freya.main:main"
 
+# Starts Freya with her window only, without a console window.
+[project.gui-scripts]
+freya-window = "freya.launcher:main_window"
+
 [build-system]
 requires = ["setuptools>=77"]
 build-backend = "setuptools.build_meta"
