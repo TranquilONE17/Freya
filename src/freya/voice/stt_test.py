@@ -1,4 +1,4 @@
-from stt import FreyaSTT
+from freya.voice.stt import FreyaSTT
 
 
 def main():

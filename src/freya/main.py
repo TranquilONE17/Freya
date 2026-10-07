@@ -2,19 +2,19 @@ import re
 
 
 
-from core.assistant import FreyaAssistant
+from freya.core.assistant import FreyaAssistant
 
-from gpu.resource_manager import GPUResourceManager
+from freya.gpu.resource_manager import GPUResourceManager
 
-from image.image_generator import FreyaImageGenerator
+from freya.image.image_generator import FreyaImageGenerator
 
-from tools.system_tools import register_system_tools
-from tools.tool_registry import ToolRegistry
-from tools.tool_router import FreyaToolRouter
+from freya.tools.system_tools import register_system_tools
+from freya.tools.tool_registry import ToolRegistry
+from freya.tools.tool_router import FreyaToolRouter
 
-from voice.stt import FreyaSTT
+from freya.voice.stt import FreyaSTT
 
-from voice.tts import FreyaVoice
+from freya.voice.tts import FreyaVoice
 
 
 

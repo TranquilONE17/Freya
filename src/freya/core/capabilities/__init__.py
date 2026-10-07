@@ -1,10 +1,10 @@
-from core.capabilities.capability import (
+from freya.core.capabilities.capability import (
     CapabilityDefinition,
     CapabilityExecutionResult,
     CapabilityStatus,
 )
 
-from core.capabilities.registry import (
+from freya.core.capabilities.registry import (
     CapabilityRegistry,
 )
 

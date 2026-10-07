@@ -1,7 +1,7 @@
 from dataclasses import dataclass
 from typing import Any, Optional
 
-from tools.tool_registry import (
+from freya.tools.tool_registry import (
     ToolExecutionResult,
 )
 

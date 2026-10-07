@@ -40,14 +40,16 @@ Rules for the spec:
 
 Known state: `CapabilityRegistry` and `ProviderRegistry` are not yet wired into
 `main.py`; `ToolRegistry` duplicates them. `tool_selector.py`/`tool_executor.py` are not
-wired in either. `pyproject.toml` declares dependencies only (nothing is packaged yet);
-there is no `tests/` directory yet.
+wired in either. There is no `tests/` directory yet; `voice/stt_test.py` and
+`voice/tts_test.py` are manual scripts, not automated tests. `memory_manager.py` locates
+`data/` relative to the source tree, so it only works from an editable install.
 
 ## Running locally (Windows)
 
 - Python 3.12 virtual environment at `.venv`.
-- Imports are relative to `src/freya` (e.g. `from core.llm import ...`), so run from
-  that directory: `cd src\freya` then `python main.py`.
+- `freya` is an installable package (src layout) and imports are absolute
+  (e.g. `from freya.core.llm import ...`). It is installed in `.venv` in editable mode;
+  run it from any directory with `freya` or `python -m freya`.
 - Requires Ollama on `127.0.0.1:11434` with `gpt-oss:20b` and `nomic-embed-text`.
   Image generation requires ComfyUI on `127.0.0.1:8188`.
 - Direct dependencies are declared in `pyproject.toml`; `uv.lock` pins the full resolved
@@ -72,7 +74,7 @@ there is no `tests/` directory yet.
 
 ## Next planned work (alpha step 1)
 
-A proper `freya` package layout (`pyproject.toml` and lockfile are done), tests for the existing
-registries, merge `ToolRegistry` into `CapabilityRegistry`, link provider health to
+`pyproject.toml`, the lockfile, and the package layout are done. Remaining: tests for the
+existing registries, merge `ToolRegistry` into `CapabilityRegistry`, link provider health to
 capability availability, then the SQLite audit log and policy table in front of
 capability execution.

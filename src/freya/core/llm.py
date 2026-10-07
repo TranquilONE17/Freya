@@ -3,7 +3,7 @@ import re
 
 import ollama
 
-from config import MODEL
+from freya.config import MODEL
 
 
 ALLOWED_MEMORY_TYPES = {

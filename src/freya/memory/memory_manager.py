@@ -5,7 +5,7 @@ from pathlib import Path
 
 import ollama
 
-from config import EMBEDDING_MODEL
+from freya.config import EMBEDDING_MODEL
 
 
 DATA_DIR = Path(__file__).resolve().parents[3] / "data"
