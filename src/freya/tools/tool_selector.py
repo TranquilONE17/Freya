@@ -55,7 +55,7 @@ class LLMToolSelector:
                 reason="Empty input.",
             )
 
-        tools = self.registry.describe_tools()
+        tools = self.registry.describe_capabilities()
 
         if not tools:
             return ToolSelection(

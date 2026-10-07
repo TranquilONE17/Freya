@@ -3,7 +3,8 @@ import re
 
 import ollama
 
-from config import MODEL
+from freya.config import EMBEDDING_MODEL
+from freya.config import MODEL
 
 
 ALLOWED_MEMORY_TYPES = {
@@ -52,6 +53,20 @@ def chat_stream(messages):
 
         if content:
             yield content
+
+
+def warm_models():
+    # An empty generate request makes Ollama load the model without
+    # producing any output, so the first real reply does not wait for it.
+    try:
+        ollama.generate(model=MODEL)
+        ollama.embed(
+            model=EMBEDDING_MODEL,
+            input="warm-up",
+        )
+    except Exception:
+        # Ollama may not be running yet; the first real call reports that.
+        pass
 
 
 def _normalize_key(memory_key):

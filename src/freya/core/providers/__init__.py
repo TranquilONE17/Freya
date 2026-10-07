@@ -1,11 +1,11 @@
-from core.providers.provider import (
+from freya.core.providers.provider import (
     ProviderDefinition,
     ProviderHealth,
     ProviderOperationResult,
     ProviderState,
 )
 
-from core.providers.registry import (
+from freya.core.providers.registry import (
     ProviderRegistry,
 )
 
