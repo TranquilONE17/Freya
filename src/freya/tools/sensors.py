@@ -23,6 +23,33 @@ UNLABELLED_NOTE = (
     "connected can show a meaningless value."
 )
 
+# Motherboards report numbered channels without saying what they are.
+# For boards that have been checked, this names the known channels and
+# drops the ones with nothing connected. Keys are LibreHardwareMonitor
+# sensor IDs, which stay the same between runs.
+#
+# The entries below were identified on 2026-10-07 by sampling the board
+# alongside HWiNFO, which carries the manufacturer's names.
+BOARD_SENSORS = {
+    "ASUS TUF GAMING Z790-PLUS WIFI": {
+        "labels": {
+            "/lpc/nct6798d/0/temperature/0": "CPU (motherboard reading)",
+            "/lpc/nct6798d/0/temperature/2": "Motherboard",
+            "/lpc/nct6798d/0/temperature/3": "VRM",
+            "/lpc/nct6798d/0/fan/1": "CPU fan",
+            "/lpc/nct6798d/0/fan/2": "CPU_OPT fan",
+        },
+        # Fixed at 19 C, and swinging between 15 C and 115 C: neither
+        # behaves like a connected sensor.
+        "ignored": {
+            "/lpc/nct6798d/0/temperature/4",
+            "/lpc/nct6798d/0/temperature/5",
+        },
+    },
+}
+
+UNLABELLED_SENSOR = re.compile(r"^(?:Temperature|Fan) #\d+$")
+
 # Per-core readings and fixed thresholds would bury the useful values.
 SKIPPED_TEMPERATURES = re.compile(
     r"Distance to TjMax"
@@ -121,8 +148,17 @@ def _own_sensors(node):
             yield from _own_sensors(child)
 
 
+def _board_sensors(name):
+    for board, known in BOARD_SENSORS.items():
+        if name.startswith(board):
+            return known
+
+    return {"labels": {}, "ignored": set()}
+
+
 def _summarize(name, node):
     component = {"name": name}
+    known = _board_sensors(name)
 
     temperatures = {}
     limits = {}
@@ -132,7 +168,15 @@ def _summarize(name, node):
     levels = {}
 
     for sensor in _own_sensors(node):
-        label = (sensor.get("Text") or "").strip()
+        sensor_id = sensor.get("SensorId")
+
+        if sensor_id in known["ignored"]:
+            continue
+
+        label = known["labels"].get(
+            sensor_id,
+            (sensor.get("Text") or "").strip(),
+        )
         value = _number(sensor.get("Value"))
         kind = sensor.get("Type")
 
@@ -198,8 +242,19 @@ def get_sensor_readings(url=None):
             "LibreHardwareMonitor may need to run as administrator."
         )
 
-    return {
+    readings = {
         "source": "LibreHardwareMonitor",
         "components": components,
-        "note": UNLABELLED_NOTE,
     }
+
+    unlabelled = any(
+        UNLABELLED_SENSOR.match(label)
+        for component in components
+        for group in ("temperatures_c", "fans_rpm")
+        for label in component.get(group, {})
+    )
+
+    if unlabelled:
+        readings["note"] = UNLABELLED_NOTE
+
+    return readings
