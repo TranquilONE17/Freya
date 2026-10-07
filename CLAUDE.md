@@ -40,7 +40,7 @@ Rules for the spec:
 
 Known state: `CapabilityRegistry` and `ProviderRegistry` are not yet wired into
 `main.py`; `ToolRegistry` duplicates them. `tool_selector.py`/`tool_executor.py` are not
-wired in either. There is no `tests/` directory yet; `voice/stt_test.py` and
+wired in either. `tests/` covers the three registries only; `voice/stt_test.py` and
 `voice/tts_test.py` are manual scripts, not automated tests. `memory_manager.py` locates
 `data/` relative to the source tree, so it only works from an editable install.
 
@@ -55,6 +55,8 @@ wired in either. There is no `tests/` directory yet; `voice/stt_test.py` and
 - Direct dependencies are declared in `pyproject.toml`; `uv.lock` pins the full resolved
   set for Windows and Linux (Python 3.12). After changing dependencies, run `uv lock`
   and commit both files. `uv sync` rebuilds `.venv` from the lock.
+- Run the tests with `python -m pytest` from the repository root (pytest is in the `dev`
+  dependency group).
 - Kokoro also needs the spaCy model `en_core_web_sm`, which is downloaded outside the
   lockfile.
 
@@ -74,7 +76,7 @@ wired in either. There is no `tests/` directory yet; `voice/stt_test.py` and
 
 ## Next planned work (alpha step 1)
 
-`pyproject.toml`, the lockfile, and the package layout are done. Remaining: tests for the
-existing registries, merge `ToolRegistry` into `CapabilityRegistry`, link provider health to
+`pyproject.toml`, the lockfile, the package layout, and tests for the existing registries
+are done. Remaining: merge `ToolRegistry` into `CapabilityRegistry`, link provider health to
 capability availability, then the SQLite audit log and policy table in front of
 capability execution.
