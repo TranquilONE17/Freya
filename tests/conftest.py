@@ -14,7 +14,11 @@ class FakeOllama:
         self.reachable = True
         self.calls = []
         self.reply = "Hello from the fake model."
+        self.json_reply = '{"remember": false}'
         self.fail_mid_stream = False
+        # Scripted responses for successive streamed chats. A str is a
+        # reply; a list of (name, arguments) pairs is a tool-call request.
+        self.stream_script = []
 
     def _check(self):
         if not self.reachable:
@@ -39,12 +43,35 @@ class FakeOllama:
         self.calls.append(("chat", model, messages, stream, kwargs))
 
         if not stream:
-            return {"message": {"content": self.reply}}
+            content = (
+                self.json_reply
+                if kwargs.get("format") == "json"
+                and self.reply == "Hello from the fake model."
+                else self.reply
+            )
+            return {"message": {"content": content}}
 
-        return self._stream()
+        scripted = self.stream_script.pop(0) if self.stream_script else self.reply
 
-    def _stream(self):
-        words = self.reply.split(" ")
+        if isinstance(scripted, list):
+            return iter(
+                [
+                    {
+                        "message": {
+                            "content": "",
+                            "tool_calls": [
+                                {"function": {"name": name, "arguments": arguments}}
+                                for name, arguments in scripted
+                            ],
+                        }
+                    }
+                ]
+            )
+
+        return self._stream(scripted)
+
+    def _stream(self, reply):
+        words = reply.split(" ")
         for index, word in enumerate(words):
             if self.fail_mid_stream and index == 2:
                 raise ConnectionError("Ollama went away.")

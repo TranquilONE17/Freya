@@ -29,9 +29,20 @@ def chat(messages):
     )
 
 
-def chat_stream(messages):
+def chat_stream(messages, tools=None):
+    """
+    Yield the reply as text chunks. When tools are offered and the
+    model asks to use them, a dict with a "tool_calls" list is
+    yielded instead of text.
+    """
+    options = {}
+
+    if tools:
+        options["tools"] = tools
+
     yield from get_model_runtime().chat_stream(
-        messages
+        messages,
+        **options,
     )
 
 

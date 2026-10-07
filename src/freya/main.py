@@ -429,61 +429,8 @@ def run_image_generation(
 
 
 
-def print_registered_tool_result(result):
-    if not result.success:
-        print()
-        print(
-            "Freya: Tool execution failed: "
-            f"{result.error}"
-        )
-        print()
-        return
-
-    print()
-
-    if result.capability_name == "system.gpu":
-        for gpu in result.result:
-            print(
-                "Freya: "
-                f"{gpu['name']} — "
-                f"{gpu['temperature_c']}°C, "
-                f"{gpu['utilization_percent']}% utilization, "
-                f"{gpu['memory_used_mib']} MiB / "
-                f"{gpu['memory_total_mib']} MiB VRAM used "
-                f"({gpu['memory_free_mib']} MiB free)."
-            )
-
-    elif result.capability_name == "system.disk":
-        info = result.result
-        print(
-            "Freya: "
-            f"Drive {info['drive']} has "
-            f"{info['free_gb']} GB free of "
-            f"{info['total_gb']} GB total "
-            f"({info['used_gb']} GB used)."
-        )
-
-    elif result.capability_name == "system.info":
-        info = result.result
-        print(
-            "Freya: Host system — "
-            f"{info['operating_system']} "
-            f"{info['os_release']}, "
-            f"{info['architecture']}, "
-            f"Python {info['python_version']}."
-        )
-        print(f"Computer: {info['computer_name']}")
-        print(f"Processor: {info['processor']}")
-
-    else:
-        print(f"Freya: {result.result}")
-
-    print()
-
-
 def handle_tool_request(
     tool_router,
-    capability_broker,
     image_generator,
     gpu_manager,
     user_input,
@@ -503,13 +450,6 @@ def handle_tool_request(
         )
         return True
 
-    if capability_broker.exists(tool_request.tool):
-        result = capability_broker.invoke(
-            tool_request.tool
-        )
-        print_registered_tool_result(result)
-        return True
-
     return False
 
 
@@ -520,8 +460,6 @@ def handle_normal_input(
     voice,
 
     tool_router,
-
-    capability_broker,
 
     image_generator,
 
@@ -534,8 +472,6 @@ def handle_normal_input(
     tool_was_used = handle_tool_request(
 
         tool_router,
-
-        capability_broker,
 
         image_generator,
 
@@ -586,8 +522,6 @@ def run_conversation_mode(
     stt,
 
     tool_router,
-
-    capability_broker,
 
     image_generator,
 
@@ -745,8 +679,6 @@ def run_conversation_mode(
 
             tool_router,
 
-            capability_broker,
-
             image_generator,
 
             gpu_manager,
@@ -777,10 +709,6 @@ def main():
 
         print(message)
 
-    capability_broker = control_plane.broker
-
-
-
     # Load the Ollama models while the voice engine is starting up.
 
     threading.Thread(
@@ -795,7 +723,11 @@ def main():
 
 
 
-    freya = FreyaAssistant()
+    freya = FreyaAssistant(
+
+        tool_host=control_plane.model_tools,
+
+    )
 
     voice = FreyaVoice()
 
@@ -989,8 +921,6 @@ def main():
 
                         tool_router,
 
-                        capability_broker,
-
                         image_generator,
 
                         gpu_manager,
@@ -1101,8 +1031,6 @@ def main():
 
                     tool_router,
 
-                    capability_broker,
-
                     image_generator,
 
                     gpu_manager,
@@ -1198,8 +1126,6 @@ def main():
                     voice,
 
                     tool_router,
-
-                    capability_broker,
 
                     image_generator,
 
@@ -1327,8 +1253,6 @@ def main():
 
                     tool_router,
 
-                    capability_broker,
-
                     image_generator,
 
                     gpu_manager,
@@ -1350,8 +1274,6 @@ def main():
                 voice,
 
                 tool_router,
-
-                capability_broker,
 
                 image_generator,
 
