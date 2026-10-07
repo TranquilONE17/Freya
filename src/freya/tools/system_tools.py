@@ -3,9 +3,12 @@ import platform
 import shutil
 import subprocess
 
-from freya.tools.tool_registry import (
-    ToolDefinition,
+from freya.core.capabilities import (
+    CapabilityDefinition,
 )
+
+
+SYSTEM_TOOLS_PROVIDER = "system-tools-local"
 
 
 def _bytes_to_gb(value):
@@ -170,13 +173,14 @@ def register_system_tools(
     """
 
     registry.register(
-        ToolDefinition(
+        CapabilityDefinition(
             name="system.info",
             description=(
                 "Returns basic information about "
                 "Freya's host computer and "
                 "operating system."
             ),
+            provider=SYSTEM_TOOLS_PROVIDER,
             handler=get_system_info,
             category="system",
             aliases=[
@@ -187,13 +191,14 @@ def register_system_tools(
     )
 
     registry.register(
-        ToolDefinition(
+        CapabilityDefinition(
             name="system.disk",
             description=(
                 "Returns total, used, and free "
                 "disk space for Freya's "
                 "current drive."
             ),
+            provider=SYSTEM_TOOLS_PROVIDER,
             handler=get_disk_info,
             category="system",
             aliases=[
@@ -204,13 +209,14 @@ def register_system_tools(
     )
 
     registry.register(
-        ToolDefinition(
+        CapabilityDefinition(
             name="system.gpu",
             description=(
                 "Returns NVIDIA GPU name, "
                 "temperature, utilization, "
                 "and VRAM usage."
             ),
+            provider=SYSTEM_TOOLS_PROVIDER,
             handler=get_gpu_info,
             category="system",
             aliases=[

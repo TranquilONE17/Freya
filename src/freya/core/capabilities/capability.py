@@ -43,6 +43,17 @@ class CapabilityDefinition:
 
     status: CapabilityStatus = CapabilityStatus.AVAILABLE
 
+    # Interim safety/resource flags. They stand in for the risk class
+    # and resource profile of the Foundation capability schema until
+    # those schemas are defined.
+    requires_gpu: bool = False
+    destructive: bool = False
+
+    # Alternative lookup names. The capability name stays canonical.
+    aliases: List[str] = field(
+        default_factory=list
+    )
+
     optional_dependencies: List[str] = field(
         default_factory=list
     )

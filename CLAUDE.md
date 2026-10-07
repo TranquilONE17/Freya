@@ -7,8 +7,9 @@ heterogeneous Linux/Windows rack without changing Core contracts.
 ## Architecture documents
 
 - **Authoritative baseline:** *Freya Foundation v1.1 — System Architecture and Design
-  Specification* (the owner's reconciled v1.1). If it is not in `docs/specs/`, ask the
-  owner for it before making architecture decisions.
+  Specification* (the owner's reconciled v1.1), at
+  `docs/specs/Freya_Foundation_v1.1_baseline.docx`. Read it before making architecture
+  decisions.
 - **Pending amendments:** `docs/specs/Freya_Foundation_v1.1_Claude_amendments_redline.docx`
   — tracked-change proposals (NEW-A to NEW-L) awaiting Codex review and reconciliation.
   Not yet adopted.
@@ -34,13 +35,16 @@ Rules for the spec:
 - `src/freya/core/` — `assistant.py`, `llm.py` (Ollama calls and memory prompts),
   `capabilities/` (CapabilityRegistry), `providers/` (ProviderRegistry).
 - `src/freya/memory/memory_manager.py` — SQLite memory with embeddings and history.
-- `src/freya/tools/` — ToolRegistry, system tools, regex router, LLM selector/executor.
+- `src/freya/tools/` — system tools (registered as capabilities), regex router, LLM
+  selector/executor.
 - `src/freya/gpu/resource_manager.py` — Ollama/ComfyUI VRAM handoff.
 - `src/freya/voice/` — faster-whisper STT, Kokoro TTS. `src/freya/image/` — ComfyUI client.
 
-Known state: `CapabilityRegistry` and `ProviderRegistry` are not yet wired into
-`main.py`; `ToolRegistry` duplicates them. `tool_selector.py`/`tool_executor.py` are not
-wired in either. `tests/` covers the three registries only; `voice/stt_test.py` and
+Known state: `main.py` registers the system tools in `CapabilityRegistry` (the former
+`ToolRegistry` was merged into it); `ProviderRegistry`, `tool_selector.py`, and
+`tool_executor.py` are not yet wired into `main.py`. `CapabilityDefinition` is far smaller
+than the baseline's capability schema; its `destructive`/`requires_gpu` flags are interim.
+`tests/` covers the registries and the tool modules only; `voice/stt_test.py` and
 `voice/tts_test.py` are manual scripts, not automated tests. `memory_manager.py` locates
 `data/` relative to the source tree, so it only works from an editable install.
 
@@ -76,7 +80,7 @@ wired in either. `tests/` covers the three registries only; `voice/stt_test.py` 
 
 ## Next planned work (alpha step 1)
 
-`pyproject.toml`, the lockfile, the package layout, and tests for the existing registries
-are done. Remaining: merge `ToolRegistry` into `CapabilityRegistry`, link provider health to
+`pyproject.toml`, the lockfile, the package layout, tests for the registries, and the
+`ToolRegistry` merge are done. Remaining: link provider health to
 capability availability, then the SQLite audit log and policy table in front of
 capability execution.
