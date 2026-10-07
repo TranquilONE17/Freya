@@ -1,8 +1,8 @@
 from dataclasses import dataclass
 from typing import Any, Optional
 
-from freya.tools.tool_registry import (
-    ToolExecutionResult,
+from freya.core.capabilities import (
+    CapabilityExecutionResult,
 )
 
 
@@ -30,7 +30,7 @@ class SafeToolExecutionResult:
 class SafeToolExecutor:
     """
     Safety layer between Freya's tool selector
-    and the ToolRegistry.
+    and the CapabilityRegistry.
 
     Stage 2B policy:
 
@@ -159,10 +159,10 @@ class SafeToolExecutor:
 
     @staticmethod
     def _convert_result(
-        registry_result: ToolExecutionResult,
+        registry_result: CapabilityExecutionResult,
     ) -> SafeToolExecutionResult:
         """
-        Convert a ToolRegistry result into the
+        Convert a CapabilityRegistry result into the
         executor's standardized result.
         """
 
@@ -172,7 +172,7 @@ class SafeToolExecutor:
                 executed=True,
                 blocked=False,
                 tool_name=(
-                    registry_result.tool_name
+                    registry_result.capability_name
                 ),
                 result=(
                     registry_result.result
@@ -187,7 +187,7 @@ class SafeToolExecutor:
             executed=True,
             blocked=False,
             tool_name=(
-                registry_result.tool_name
+                registry_result.capability_name
             ),
             error=(
                 registry_result.error

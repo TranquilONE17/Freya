@@ -30,18 +30,42 @@ class CapabilityRegistry:
             CapabilityDefinition,
         ] = {}
 
+        self._aliases: Dict[
+            str,
+            str,
+        ] = {}
+
     @staticmethod
     def _normalize_name(
         name: str,
     ) -> str:
         return name.strip().lower()
 
+    def _resolve_name(
+        self,
+        name: str,
+    ) -> Optional[str]:
+        name = self._normalize_name(name)
+
+        if name in self._capabilities:
+            return name
+
+        return self._aliases.get(name)
+
     def register(
         self,
         capability: CapabilityDefinition,
+        replace: bool = False,
     ) -> None:
         """
-        Register or replace a capability.
+        Register a capability.
+
+        A name that is already registered is rejected
+        unless replace=True, so one provider cannot
+        silently take over another's capability.
+
+        Registration is all-or-nothing: when the name or
+        any alias conflicts, the registry is unchanged.
         """
 
         name = self._normalize_name(
@@ -53,51 +77,116 @@ class CapabilityRegistry:
                 "Capability name cannot be empty."
             )
 
+        if (
+            name in self._capabilities
+            and not replace
+        ):
+            raise ValueError(
+                "Capability is already registered: "
+                f"{name}"
+            )
+
+        if self._aliases.get(name) is not None:
+            raise ValueError(
+                "Capability name conflicts with "
+                "a registered alias: "
+                f"{name}"
+            )
+
+        aliases = []
+
+        for alias in capability.aliases:
+            alias = self._normalize_name(alias)
+
+            if (
+                not alias
+                or alias == name
+                or alias in aliases
+            ):
+                continue
+
+            if alias in self._capabilities:
+                raise ValueError(
+                    "Capability alias conflicts with "
+                    "a registered capability: "
+                    f"{alias}"
+                )
+
+            if self._aliases.get(alias, name) != name:
+                raise ValueError(
+                    "Capability alias is already "
+                    f"registered: {alias}"
+                )
+
+            aliases.append(alias)
+
+        self._remove_aliases(name)
+
         capability.name = name
+        capability.aliases = aliases
 
         self._capabilities[name] = capability
+
+        for alias in aliases:
+            self._aliases[alias] = name
+
+    def _remove_aliases(
+        self,
+        name: str,
+    ) -> None:
+        for alias in [
+            alias
+            for alias, target
+            in self._aliases.items()
+            if target == name
+        ]:
+            del self._aliases[alias]
 
     def unregister(
         self,
         name: str,
     ) -> bool:
         """
-        Remove a capability from the registry.
+        Remove a capability, and its aliases, from the
+        registry.
         """
 
-        name = self._normalize_name(name)
+        name = self._resolve_name(name)
 
-        return (
-            self._capabilities.pop(
-                name,
-                None,
-            )
-            is not None
-        )
+        if name is None:
+            return False
+
+        del self._capabilities[name]
+
+        self._remove_aliases(name)
+
+        return True
 
     def exists(
         self,
         name: str,
     ) -> bool:
         """
-        Return True when a capability is registered.
+        Return True when a capability is registered
+        under this name or alias.
         """
 
-        name = self._normalize_name(name)
-
-        return name in self._capabilities
+        return self._resolve_name(name) is not None
 
     def get(
         self,
         name: str,
     ) -> Optional[CapabilityDefinition]:
         """
-        Retrieve a capability definition.
+        Retrieve a capability definition by name or alias.
         """
 
-        name = self._normalize_name(name)
+        name = self._resolve_name(name)
 
-        return self._capabilities.get(name)
+        if name is None:
+            return None
+
+        return self._capabilities[name]
 
     def list_capabilities(
         self,
@@ -243,6 +332,15 @@ class CapabilityRegistry:
                     ),
                     "status": (
                         capability.status.value
+                    ),
+                    "requires_gpu": (
+                        capability.requires_gpu
+                    ),
+                    "destructive": (
+                        capability.destructive
+                    ),
+                    "aliases": list(
+                        capability.aliases
                     ),
                     "optional_dependencies": list(
                         capability.optional_dependencies

@@ -39,15 +39,139 @@ def test_register_rejects_empty_name(registry, name):
         registry.register(make_capability(name))
 
 
-def test_register_replaces_existing_capability(registry):
+def test_register_rejects_duplicate_name(registry):
     first = make_capability()
-    second = make_capability()
+    registry.register(first)
+
+    with pytest.raises(ValueError):
+        registry.register(make_capability(" LLM.CHAT "))
+
+    assert registry.get("llm.chat") is first
+
+
+def test_register_with_replace_swaps_capability_and_aliases(registry):
+    first = make_capability(aliases=["chat", "talk"])
+    second = make_capability(aliases=["chat", "converse"])
 
     registry.register(first)
-    registry.register(second)
+    registry.register(second, replace=True)
 
-    assert registry.get("llm.chat") is second
     assert registry.list_capabilities() == [second]
+    assert registry.get("chat") is second
+    assert registry.get("converse") is second
+    assert not registry.exists("talk")
+
+
+def test_replace_true_registers_new_capability(registry):
+    capability = make_capability()
+
+    registry.register(capability, replace=True)
+
+    assert registry.get("llm.chat") is capability
+
+
+def test_lookup_by_alias(registry):
+    capability = make_capability(
+        aliases=["Chat", " talk to model ", "", "chat", "LLM.Chat"]
+    )
+
+    registry.register(capability)
+
+    assert capability.aliases == ["chat", "talk to model"]
+    assert registry.get("chat") is capability
+    assert registry.get("TALK TO MODEL") is capability
+    assert registry.exists("Chat")
+    assert registry.is_available("chat")
+
+
+def test_alias_cannot_shadow_registered_capability(registry):
+    registry.register(make_capability("system.time"))
+
+    with pytest.raises(ValueError):
+        registry.register(make_capability("system.clock", aliases=["system.time"]))
+
+
+def test_alias_cannot_be_registered_twice(registry):
+    registry.register(make_capability("system.time", aliases=["clock"]))
+
+    with pytest.raises(ValueError):
+        registry.register(make_capability("system.clock", aliases=["Clock"]))
+
+
+def test_name_cannot_shadow_registered_alias(registry):
+    first = make_capability("system.time", aliases=["clock"])
+    registry.register(first)
+
+    with pytest.raises(ValueError):
+        registry.register(make_capability("clock"))
+
+    assert registry.get("clock") is first
+
+
+def test_failed_registration_leaves_registry_unchanged(registry):
+    first = make_capability("system.time", aliases=["clock"])
+    registry.register(first)
+
+    with pytest.raises(ValueError):
+        registry.register(
+            make_capability("system.disk", aliases=["disk", "clock"])
+        )
+
+    assert registry.list_capabilities() == [first]
+    assert not registry.exists("system.disk")
+    assert not registry.exists("disk")
+
+
+def test_failed_replace_keeps_previous_capability(registry):
+    first = make_capability("system.time", aliases=["clock"])
+    other = make_capability("system.disk", aliases=["disk"])
+    registry.register(first)
+    registry.register(other)
+
+    with pytest.raises(ValueError):
+        registry.register(
+            make_capability("system.time", aliases=["disk"]),
+            replace=True,
+        )
+
+    assert registry.get("system.time") is first
+    assert registry.get("clock") is first
+    assert registry.get("disk") is other
+
+
+def test_unregister_removes_capability_and_its_aliases(registry):
+    registry.register(make_capability("system.time", aliases=["clock", "time"]))
+    registry.register(make_capability("system.disk", aliases=["disk"]))
+
+    assert registry.unregister("Clock") is True
+
+    assert not registry.exists("system.time")
+    assert not registry.exists("clock")
+    assert not registry.exists("time")
+    assert registry.exists("disk")
+    assert registry.unregister("system.time") is False
+
+
+def test_alias_can_be_reused_after_unregister(registry):
+    registry.register(make_capability("system.time", aliases=["clock"]))
+    registry.unregister("system.time")
+    replacement = make_capability("system.clock", aliases=["clock"])
+
+    registry.register(replacement)
+
+    assert registry.get("clock") is replacement
+
+
+def test_execute_by_alias_reports_canonical_name(registry):
+    registry.register(
+        make_capability("system.time", handler=lambda: "12:00", aliases=["clock"])
+    )
+
+    result = registry.execute("Clock")
+
+    assert result.success is True
+    assert result.capability_name == "system.time"
+    assert result.result == "12:00"
 
 
 def test_get_unknown_returns_none(registry):
@@ -173,6 +297,9 @@ def test_describe_capabilities_is_serializable_snapshot(registry):
         make_capability(
             category="llm",
             status=CapabilityStatus.DEGRADED,
+            requires_gpu=True,
+            destructive=True,
+            aliases=["chat"],
             optional_dependencies=["gpu"],
             metadata={"model": "test"},
         )
@@ -187,14 +314,28 @@ def test_describe_capabilities_is_serializable_snapshot(registry):
             "provider": "test-provider",
             "category": "llm",
             "status": "degraded",
+            "requires_gpu": True,
+            "destructive": True,
+            "aliases": ["chat"],
             "optional_dependencies": ["gpu"],
             "metadata": {"model": "test"},
         }
     ]
 
+    described[0]["aliases"].append("changed")
     described[0]["optional_dependencies"].append("changed")
     described[0]["metadata"]["model"] = "changed"
     capability = registry.get("llm.chat")
 
+    assert capability.aliases == ["chat"]
     assert capability.optional_dependencies == ["gpu"]
     assert capability.metadata == {"model": "test"}
+
+
+def test_safety_flags_default_to_false(registry):
+    registry.register(make_capability())
+    capability = registry.get("llm.chat")
+
+    assert capability.requires_gpu is False
+    assert capability.destructive is False
+    assert capability.aliases == []
