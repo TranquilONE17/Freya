@@ -43,8 +43,11 @@ Rules for the spec:
   (hash-chained SQLite audit log, checkpoint sinks), `persistence/` (ControlStore and
   its migrations).
 - `src/freya/memory/memory_manager.py` — SQLite memory with embeddings and history.
-- `src/freya/tools/` — system tools (registered as capabilities), regex router, LLM
-  selector/executor.
+- `src/freya/tools/` — read-only system tools registered as capabilities (host info,
+  GPU, CPU, RAM, all drives, and a Windows-only hardware inventory in
+  `hardware_inventory.py`), regex router, LLM selector/executor. A tool added after
+  first release needs its own named policy seed in `control_plane.py`, and its output
+  is formatted by hand in `main.print_registered_tool_result`.
 - `src/freya/gpu/resource_manager.py` — Ollama/ComfyUI VRAM handoff.
 - `src/freya/voice/` — faster-whisper STT, Kokoro TTS. `src/freya/image/` — ComfyUI client.
 

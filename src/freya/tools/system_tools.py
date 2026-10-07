@@ -1,13 +1,17 @@
-import os
 import platform
 import shutil
 import subprocess
+
+import psutil
 
 from freya.core.capabilities import (
     CapabilityDefinition,
 )
 from freya.core.providers import (
     ProviderDefinition,
+)
+from freya.tools.hardware_inventory import (
+    get_hardware_inventory,
 )
 
 
@@ -17,7 +21,12 @@ SYSTEM_TOOL_CAPABILITIES = [
     "system.info",
     "system.disk",
     "system.gpu",
+    "system.cpu",
+    "system.memory",
+    "system.hardware",
 ]
+
+CPU_SAMPLE_SECONDS = 0.5
 
 
 def _bytes_to_gb(value):
@@ -59,34 +68,139 @@ def get_system_info():
 
 def get_disk_info():
     """
-    Return disk usage for the drive containing
-    the Freya project.
+    Return usage for every mounted drive.
+
+    Drives that cannot be read, such as an empty card reader or
+    optical drive, are skipped. This is read-only.
     """
 
-    project_drive = os.path.splitdrive(
-        os.getcwd()
-    )[0]
+    drives = []
 
-    if project_drive:
-        disk_path = project_drive + "\\"
-    else:
-        disk_path = os.getcwd()
+    for partition in psutil.disk_partitions(
+        all=False
+    ):
+        if not partition.fstype:
+            continue
 
-    usage = shutil.disk_usage(
-        disk_path
+        try:
+            usage = shutil.disk_usage(
+                partition.mountpoint
+            )
+        except OSError:
+            continue
+
+        drives.append(
+            {
+                "drive": partition.mountpoint,
+                "filesystem": partition.fstype,
+                "removable": (
+                    "removable" in partition.opts
+                ),
+                "total_gb": _bytes_to_gb(
+                    usage.total
+                ),
+                "used_gb": _bytes_to_gb(
+                    usage.used
+                ),
+                "free_gb": _bytes_to_gb(
+                    usage.free
+                ),
+                "used_percent": (
+                    round(
+                        usage.used / usage.total * 100,
+                        1,
+                    )
+                    if usage.total
+                    else 0.0
+                ),
+            }
+        )
+
+    if not drives:
+        raise RuntimeError(
+            "No readable drives were found."
+        )
+
+    return drives
+
+
+def _processor_name():
+    """
+    Return the processor's marketing name where the platform exposes
+    it, falling back to the generic identifier.
+    """
+
+    if platform.system() == "Windows":
+        try:
+            import winreg
+
+            with winreg.OpenKey(
+                winreg.HKEY_LOCAL_MACHINE,
+                r"HARDWARE\DESCRIPTION\System\CentralProcessor\0",
+            ) as key:
+                name, _ = winreg.QueryValueEx(
+                    key,
+                    "ProcessorNameString",
+                )
+
+            if name.strip():
+                return name.strip()
+        except OSError:
+            pass
+
+    return platform.processor()
+
+
+def get_cpu_info():
+    """
+    Return live CPU load, measured over a short sample.
+
+    This is read-only.
+    """
+
+    utilization = psutil.cpu_percent(
+        interval=CPU_SAMPLE_SECONDS
     )
 
+    frequency = psutil.cpu_freq()
+
     return {
-        "drive": disk_path,
+        "processor": _processor_name(),
+        "physical_cores": psutil.cpu_count(
+            logical=False
+        ),
+        "logical_cores": psutil.cpu_count(
+            logical=True
+        ),
+        "utilization_percent": utilization,
+        "frequency_mhz": (
+            round(frequency.current)
+            if frequency is not None
+            else None
+        ),
+    }
+
+
+def get_memory_info():
+    """
+    Return live system memory (RAM) usage.
+
+    This is read-only.
+    """
+
+    memory = psutil.virtual_memory()
+
+    return {
         "total_gb": _bytes_to_gb(
-            usage.total
+            memory.total
         ),
         "used_gb": _bytes_to_gb(
-            usage.used
+            memory.total - memory.available
         ),
-        "free_gb": _bytes_to_gb(
-            usage.free
+        "available_gb": _bytes_to_gb(
+            memory.available
         ),
+        "used_percent": memory.percent,
     }
 
 
@@ -203,9 +317,9 @@ def register_system_tools(
         CapabilityDefinition(
             name="system.disk",
             description=(
-                "Returns total, used, and free "
-                "disk space for Freya's "
-                "current drive."
+                "Returns the filesystem and total, "
+                "used, and free space for every "
+                "drive on the computer."
             ),
             provider=SYSTEM_TOOLS_PROVIDER,
             handler=get_disk_info,
@@ -213,6 +327,7 @@ def register_system_tools(
             aliases=[
                 "disk",
                 "disk.info",
+                "drives",
             ],
         )
     )
@@ -231,6 +346,60 @@ def register_system_tools(
             aliases=[
                 "gpu",
                 "gpu.status",
+            ],
+        )
+    )
+
+    registry.register(
+        CapabilityDefinition(
+            name="system.cpu",
+            description=(
+                "Returns the processor name, core "
+                "counts, clock speed, and current "
+                "CPU utilization."
+            ),
+            provider=SYSTEM_TOOLS_PROVIDER,
+            handler=get_cpu_info,
+            category="system",
+            aliases=[
+                "cpu",
+                "cpu.status",
+            ],
+        )
+    )
+
+    registry.register(
+        CapabilityDefinition(
+            name="system.memory",
+            description=(
+                "Returns total, used, and available "
+                "system memory (RAM)."
+            ),
+            provider=SYSTEM_TOOLS_PROVIDER,
+            handler=get_memory_info,
+            category="system",
+            aliases=[
+                "ram",
+                "ram.status",
+            ],
+        )
+    )
+
+    registry.register(
+        CapabilityDefinition(
+            name="system.hardware",
+            description=(
+                "Returns an inventory of the computer's "
+                "components: motherboard, BIOS, processor, "
+                "memory modules, physical disks, graphics "
+                "cards, network adapters, and audio devices."
+            ),
+            provider=SYSTEM_TOOLS_PROVIDER,
+            handler=get_hardware_inventory,
+            category="system",
+            aliases=[
+                "hardware",
+                "components",
             ],
         )
     )
