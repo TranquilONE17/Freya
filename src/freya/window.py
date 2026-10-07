@@ -1,0 +1,188 @@
+import os
+import subprocess
+import webbrowser
+from dataclasses import dataclass
+from pathlib import Path
+from typing import Callable
+
+from freya.core.providers import ProviderHealth
+from freya.gateway.server import DEFAULT_PORT, Gateway
+from freya.providers.image.comfyui import COMFYUI_PROVIDER
+from freya.providers.model.ollama import OLLAMA_PROVIDER
+
+
+WINDOW_COMMAND = "/window"
+
+DATA_DIR = Path(__file__).resolve().parents[2] / "data"
+
+# The window gets a browser profile of its own, so it shares nothing
+# with the owner's everyday browsing.
+WINDOW_PROFILE_DIR = DATA_DIR / "window_profile"
+
+WINDOW_SIZE = "1100,820"
+
+
+@dataclass
+class WindowActions:
+    """
+    What the window is allowed to ask Freya to do.
+    """
+
+    say: Callable[[str], None]
+    generate_image: Callable[[str], None]
+    set_muted: Callable[[bool], None]
+    interrupt: Callable[[], None]
+    status: Callable[[], dict]
+
+
+def build_status(listener, settings, control_plane) -> dict:
+    """
+    The few facts the window's status strip shows.
+    """
+    if listener is None or not listener.running:
+        microphone = "off"
+    elif listener.muted:
+        microphone = "muted"
+    else:
+        microphone = "listening"
+
+    providers = control_plane.providers
+    comfyui = providers.get(COMFYUI_PROVIDER)
+
+    if comfyui.health == ProviderHealth.HEALTHY:
+        images = "healthy"
+    elif comfyui.metadata.get("can_start"):
+        images = "startable"
+    else:
+        images = "unavailable"
+
+    return {
+        "microphone": microphone,
+        "names": [name.title() for name in settings.wake_names],
+        "model": providers.get(OLLAMA_PROVIDER).health.value,
+        "images": images,
+    }
+
+
+def _edge_path():
+    for root in (
+        os.environ.get("ProgramFiles(x86)"),
+        os.environ.get("ProgramFiles"),
+    ):
+        if not root:
+            continue
+
+        candidate = (
+            Path(root) / "Microsoft" / "Edge" / "Application" / "msedge.exe"
+        )
+
+        if candidate.is_file():
+            return candidate
+
+    return None
+
+
+def open_app_window(url, profile_dir=WINDOW_PROFILE_DIR) -> str:
+    """
+    Show the page in a window of its own, without browser tabs or an
+    address bar. Falls back to the default browser when that is not
+    possible. Returns "window", "browser", or "none".
+    """
+    edge = _edge_path()
+
+    if edge is not None:
+        flags = 0
+
+        if os.name == "nt":
+            flags = (
+                subprocess.DETACHED_PROCESS
+                | subprocess.CREATE_NEW_PROCESS_GROUP
+            )
+
+        try:
+            Path(profile_dir).mkdir(parents=True, exist_ok=True)
+            subprocess.Popen(
+                [
+                    str(edge),
+                    f"--app={url}",
+                    f"--user-data-dir={profile_dir}",
+                    f"--window-size={WINDOW_SIZE}",
+                    "--no-first-run",
+                    "--no-default-browser-check",
+                ],
+                stdin=subprocess.DEVNULL,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                creationflags=flags,
+                close_fds=True,
+            )
+            return "window"
+        except OSError:
+            pass
+
+    try:
+        if webbrowser.open(url):
+            return "browser"
+    except webbrowser.Error:
+        pass
+
+    return "none"
+
+
+class FreyaWindow:
+    """
+    Freya's window: a local page with Chat and Images tabs, served by
+    the gateway and shown in its own application window.
+    """
+
+    def __init__(
+        self,
+        bus,
+        gallery,
+        actions: WindowActions,
+        port=DEFAULT_PORT,
+        opener=open_app_window,
+    ):
+        self._gateway = Gateway(bus, gallery, actions, port=port)
+        self._opener = opener
+        self.running = False
+
+    @property
+    def port(self):
+        return self._gateway.port
+
+    def start(self) -> bool:
+        """
+        Start serving the window. Returns False, with Freya otherwise
+        unaffected, when the server cannot start.
+        """
+        try:
+            self._gateway.start()
+        except Exception as exc:
+            print(f"Freya's window could not be started: {exc}")
+            return False
+
+        self.running = True
+        return True
+
+    def open(self) -> str:
+        """
+        Open the window and return one line saying what happened.
+        """
+        if not self.running:
+            return "Freya's window is not available."
+
+        shown = self._opener(self._gateway.new_window_url())
+
+        if shown == "window":
+            return "Freya's window is open."
+
+        if shown == "browser":
+            return "Freya's window is open in your browser."
+
+        return "Freya's window could not be opened."
+
+    def stop(self) -> None:
+        if self.running:
+            self.running = False
+            self._gateway.stop()

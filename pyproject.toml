@@ -13,6 +13,7 @@ dependencies = [
     "psutil>=7",
     "sounddevice>=0.5",
     "soundfile>=0.13",
+    "websockets>=15",
 ]
 
 [dependency-groups]
@@ -32,6 +33,7 @@ where = ["src"]
 
 [tool.setuptools.package-data]
 "freya.image" = ["workflows/*.json"]
+"freya.gateway" = ["static/*"]
 
 # voice/stt_test.py and voice/tts_test.py are manual scripts, so only collect
 # from tests/.

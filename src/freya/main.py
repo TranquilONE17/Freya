@@ -1,5 +1,7 @@
 import re
 
+import urllib.request
+
 import threading
 
 
@@ -13,6 +15,7 @@ from freya.gpu.resource_manager import GPUResourceManager
 from freya.image.image_generator import FreyaImageGenerator
 
 from freya.control_plane import build_local_control_plane
+from freya.config import OPEN_WINDOW
 from freya.hands_free import LISTENING_COMMANDS
 from freya.hands_free import describe_listening
 from freya.hands_free import handle_listening_command
@@ -20,6 +23,12 @@ from freya.hands_free import load_speech_recognition
 from freya.hands_free import start_background_listening
 from freya.settings import Settings
 from freya.turn_gate import TurnGate
+from freya.events import EventBus
+from freya.image.gallery import ImageGallery
+from freya.window import WINDOW_COMMAND
+from freya.window import FreyaWindow
+from freya.window import WindowActions
+from freya.window import build_status
 from freya.tools.tool_router import FreyaToolRouter
 
 from freya.voice.stt import FreyaSTT
@@ -56,7 +65,19 @@ COMMANDS = (
 
     IMAGE_COMMAND,
 
-) + LISTENING_COMMANDS
+) + LISTENING_COMMANDS + (WINDOW_COMMAND,)
+
+
+
+# Everything that happens in a conversation is announced here, so the
+
+# window can show it. The console keeps printing as before.
+
+EVENTS = EventBus()
+
+# Freya's own copies of generated images; set up in main().
+
+GALLERY = None
 
 
 
@@ -164,6 +185,8 @@ def stream_freya_response(
 
     )
 
+    EVENTS.publish("assistant_start")
+
 
 
     speech_buffer = ""
@@ -183,6 +206,14 @@ def stream_freya_response(
             end="",
 
             flush=True,
+
+        )
+
+        EVENTS.publish(
+
+            "assistant_chunk",
+
+            text=chunk,
 
         )
 
@@ -230,6 +261,8 @@ def stream_freya_response(
 
         )
 
+    EVENTS.publish("assistant_end")
+
 
 
     print("\n")
@@ -262,6 +295,74 @@ def get_image_prompt(command):
 
     ].strip()
 
+
+
+
+
+def announce_image_failure(exc):
+
+    EVENTS.publish("image_failed")
+
+    EVENTS.publish(
+
+        "notice",
+
+        text=f"Image generation failed. {exc}",
+
+    )
+
+
+
+
+def keep_generated_image(prompt, result):
+
+    """
+
+    Copy a finished image into Freya's gallery and announce it.
+
+    """
+
+    if GALLERY is None or not result["image_urls"]:
+
+        EVENTS.publish("image_failed")
+
+        return
+
+
+    try:
+
+        with urllib.request.urlopen(
+
+            result["image_urls"][0],
+
+            timeout=30,
+
+        ) as response:
+
+            image = GALLERY.add(
+
+                prompt,
+
+                response.read(),
+
+                seed=result.get("seed"),
+
+            )
+
+    except (OSError, ValueError) as exc:
+
+        announce_image_failure(exc)
+
+        return
+
+
+    EVENTS.publish(
+
+        "image_ready",
+
+        image=image,
+
+    )
 
 
 
@@ -306,11 +407,27 @@ def run_image_generation(
 
         )
 
+        EVENTS.publish(
+
+            "notice",
+
+            text=f"I can't generate images right now. {exc}",
+
+        )
+
         return
 
 
 
     print("Freya: Preparing GPU for image generation...")
+
+    EVENTS.publish(
+
+        "image_started",
+
+        prompt=prompt,
+
+    )
 
     print(f"Prompt: {prompt}")
 
@@ -341,6 +458,8 @@ def run_image_generation(
             f"Error: {exc}\n"
 
         )
+
+        announce_image_failure(exc)
 
         return
 
@@ -379,6 +498,8 @@ def run_image_generation(
             f"Error: {exc}\n"
 
         )
+
+        announce_image_failure(exc)
 
         return
 
@@ -419,6 +540,14 @@ def run_image_generation(
     print(
 
         "Freya: Image generated successfully."
+
+    )
+
+    keep_generated_image(
+
+        prompt,
+
+        result,
 
     )
 
@@ -542,7 +671,19 @@ def handle_normal_input(
 
     user_input,
 
+    source="typed",
+
 ):
+
+    EVENTS.publish(
+
+        "user",
+
+        text=user_input,
+
+        source=source,
+
+    )
 
     tool_was_used = handle_tool_request(
 
@@ -581,6 +722,16 @@ def handle_normal_input(
         print(
 
             f"\n\nFreya: {exc}\n"
+
+        )
+
+        EVENTS.publish("assistant_end")
+
+        EVENTS.publish(
+
+            "notice",
+
+            text=str(exc),
 
         )
 
@@ -760,6 +911,8 @@ def run_conversation_mode(
 
             transcript,
 
+            source="voice",
+
         )
 
 
@@ -777,6 +930,8 @@ def run_conversation_mode(
 
 
 def main():
+
+    global GALLERY
 
     control_plane = build_local_control_plane()
 
@@ -812,11 +967,30 @@ def main():
 
     gate = TurnGate()
 
+    GALLERY = ImageGallery()
+
+
+
+    def announce_image_backend(message):
+
+        print(message)
+
+        EVENTS.publish(
+
+            "notice",
+
+            text=message.removeprefix("Freya: "),
+
+        )
 
 
     image_generator = FreyaImageGenerator(
 
-        ensure_running=control_plane.ensure_image_backend,
+        ensure_running=lambda: control_plane.ensure_image_backend(
+
+            announce=announce_image_backend,
+
+        ),
 
     )
 
@@ -890,6 +1064,8 @@ def main():
 
     print("Use /names to see the names Freya answers to.")
 
+    print("Use /window to open Freya's window.")
+
     print("Type 'exit' to quit.\n")
 
 
@@ -928,6 +1104,8 @@ def main():
 
                     request,
 
+                    source="voice",
+
                 )
 
             print("You: ", end="", flush=True)
@@ -949,6 +1127,143 @@ def main():
     )
 
     print(describe_listening(listener, settings))
+
+
+
+    def current_status():
+
+        return build_status(
+
+            listener,
+
+            settings,
+
+            control_plane,
+
+        )
+
+
+    def publish_status():
+
+        EVENTS.publish(
+
+            "status",
+
+            status=current_status(),
+
+        )
+
+
+    def say_from_window(text):
+
+        # Runs on the window's worker thread; waits for any turn
+
+        # already in progress.
+
+        with gate.turn():
+
+            print(f"\rYou (window): {text}")
+
+            handle_normal_input(
+
+                freya,
+
+                voice,
+
+                tool_router,
+
+                image_generator,
+
+                gpu_manager,
+
+                text,
+
+                source="window",
+
+            )
+
+            publish_status()
+
+            print("You: ", end="", flush=True)
+
+
+    def image_from_window(prompt):
+
+        with gate.turn():
+
+            print(f"\rYou (window): /image {prompt}")
+
+            EVENTS.publish(
+
+                "user",
+
+                text=f"Generate an image: {prompt}",
+
+                source="window",
+
+            )
+
+            run_image_generation(
+
+                image_generator,
+
+                gpu_manager,
+
+                prompt,
+
+            )
+
+            publish_status()
+
+            print("You: ", end="", flush=True)
+
+
+    def mute_from_window(muted):
+
+        if listener is not None and listener.running:
+
+            if muted:
+
+                listener.mute()
+
+            else:
+
+                listener.unmute()
+
+        publish_status()
+
+
+    window = FreyaWindow(
+
+        EVENTS,
+
+        GALLERY,
+
+        WindowActions(
+
+            say=say_from_window,
+
+            generate_image=image_from_window,
+
+            set_muted=mute_from_window,
+
+            interrupt=voice.interrupt,
+
+            status=current_status,
+
+        ),
+
+    )
+
+    if window.start():
+
+        if OPEN_WINDOW:
+
+            print(window.open())
+
+        else:
+
+            print("Use /window to open Freya's window.")
 
     print()
 
@@ -1017,6 +1332,15 @@ def main():
                 settings,
 
             ):
+
+                publish_status()
+
+                continue
+
+
+            if user_input.lower() == WINDOW_COMMAND:
+
+                print(f"\n{window.open()}\n")
 
                 continue
 
@@ -1200,6 +1524,8 @@ def main():
 
                     transcript,
 
+                    source="voice",
+
                 )
 
 
@@ -1295,6 +1621,8 @@ def main():
                     gpu_manager,
 
                     transcript,
+
+                    source="voice",
 
                 )
 
@@ -1422,6 +1750,8 @@ def main():
 
                     transcript,
 
+                    source="voice",
+
                 )
 
 
@@ -1465,6 +1795,8 @@ def main():
             listener.stop()
 
         gate.close()
+
+        window.stop()
 
         voice.shutdown()
 

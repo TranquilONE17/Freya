@@ -55,6 +55,13 @@ Rules for the spec:
 - `src/freya/voice/` — faster-whisper STT, Kokoro TTS, `wake.py` (deciding whether a
   heard sentence is addressed to Freya), `listener.py` (utterance segmenting, the
   attention window, and the background listener thread).
+- `src/freya/gateway/` — `server.py` (the loopback gateway: HTTP GET for the page and
+  images, one WebSocket for everything interactive) and `static/` (the window's page:
+  Chat and Images tabs). `src/freya/window.py` — opens that page in a standalone Edge
+  app window with its own browser profile, and builds the status strip.
+  `src/freya/events.py` — the event bus the console loop publishes to and the window
+  subscribes to. `src/freya/image/gallery.py` — Freya's own copies of generated images
+  in `data/images/`.
 - `src/freya/hands_free.py` — starts background listening and handles `/mute`,
   `/unmute`, `/names`, `/name add|remove`. `src/freya/settings.py` — owner preferences
   in `data/freya_settings.json` (currently the names Freya answers to).
@@ -64,8 +71,9 @@ Rules for the spec:
   Freya runs the ComfyUI server that Comfy Desktop installed, directly and with no
   window (the Desktop app waits for a click before starting its server), using the
   app's own model-path config and shared input/output folders. Output goes to
-  `data/comfyui_server.log`. Freya stops that server when she exits, but never stops a
-  ComfyUI the owner started. `FREYA_COMFYUI_COMMAND` overrides how it is started. The
+  `data/comfyui_server.log`. Freya stops that server when she exits, and a Windows job
+  object ends it if her process dies without a normal exit; she never stops a ComfyUI
+  the owner started. `FREYA_COMFYUI_COMMAND` overrides how it is started. The
   paths inside Comfy Desktop's install are discovered, not documented by its vendor, so
   an app update could move them. Image generation itself still calls ComfyUI directly,
   not through the broker.
@@ -101,6 +109,18 @@ the memory database connection allows cross-thread use. The microphone is ignore
 while Freya is speaking or handling a turn; she cannot be interrupted by voice. Voice
 is ambient input and is not authentication: before any tool with effects exists,
 decide what spoken requests may trigger (see proposed NEW-I).
+
+The window: Freya opens it at startup (`FREYA_WINDOW=0` disables that; `/window`
+reopens it). The gateway binds `127.0.0.1` only, port 8770 or a free one. A request is
+accepted only with a matching Host header and a session cookie, which is issued once in
+exchange for a single-use key in the address Freya opens; the WebSocket also requires
+this server as its Origin. This is a first step, not the authenticated gateway of the
+baseline: there is no pairing, no per-client scope, and window turns are attributed to
+the same fixed `local-owner` principal. The page shows everything with `textContent`
+and a strict Content-Security-Policy, because replies and tool results are untrusted.
+The window can only ask for a chat turn, an image, mute/unmute, or stopping speech;
+add new message types deliberately. `main.py` publishes conversation and image events
+on a module-level `EVENTS` bus; the console still prints as before.
 
 Audit log: `data/freya_control.db` holds policy rules and the append-only, hash-chained
 `audit_event` table. It is verified at startup; if verification fails, the broker
