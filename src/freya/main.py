@@ -1,8 +1,12 @@
 import re
 
+import threading
+
 
 
 from freya.core.assistant import FreyaAssistant
+
+from freya.core.llm import warm_models
 
 from freya.gpu.resource_manager import GPUResourceManager
 
@@ -757,6 +761,20 @@ def run_conversation_mode(
 
 
 def main():
+
+    # Load the Ollama models while the voice engine is starting up.
+
+    threading.Thread(
+
+        target=warm_models,
+
+        name="FreyaModelWarmup",
+
+        daemon=True,
+
+    ).start()
+
+
 
     freya = FreyaAssistant()
 
