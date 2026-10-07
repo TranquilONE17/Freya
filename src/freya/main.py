@@ -6,7 +6,7 @@ import threading
 
 from freya.core.assistant import FreyaAssistant
 
-from freya.core.llm import warm_models
+from freya.core.model_runtime import ModelRuntimeUnavailable
 
 from freya.gpu.resource_manager import GPUResourceManager
 
@@ -553,15 +553,25 @@ def handle_normal_input(
 
 
 
-    stream_freya_response(
+    try:
 
-        freya,
+        stream_freya_response(
 
-        voice,
+            freya,
 
-        user_input,
+            voice,
 
-    )
+            user_input,
+
+        )
+
+    except ModelRuntimeUnavailable as exc:
+
+        print(
+
+            f"\n\nFreya: {exc}\n"
+
+        )
 
 
 
@@ -761,11 +771,21 @@ def run_conversation_mode(
 
 def main():
 
+    control_plane = build_local_control_plane()
+
+    for message in control_plane.startup_messages():
+
+        print(message)
+
+    capability_broker = control_plane.broker
+
+
+
     # Load the Ollama models while the voice engine is starting up.
 
     threading.Thread(
 
-        target=warm_models,
+        target=control_plane.warm_models,
 
         name="FreyaModelWarmup",
 
@@ -786,14 +806,6 @@ def main():
     image_generator = FreyaImageGenerator()
 
     tool_router = FreyaToolRouter()
-
-    control_plane = build_local_control_plane()
-
-    for message in control_plane.startup_messages():
-
-        print(message)
-
-    capability_broker = control_plane.broker
 
     gpu_manager = GPUResourceManager()
 

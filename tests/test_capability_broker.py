@@ -309,7 +309,77 @@ def test_audit_log_verifies_after_mixed_activity(broker, audit):
     assert audit.verify().ok is True
 
 
-def test_local_control_plane_runs_system_tools(tmp_path):
+def test_streamed_result_is_audited_when_the_stream_ends(
+    registry, policy, audit, store
+):
+    def count():
+        yield 1
+        yield 2
+
+    registry.register(
+        CapabilityDefinition(
+            name="stream.count",
+            description="Test capability.",
+            provider="test-provider",
+            handler=count,
+        )
+    )
+    policy.add_rule("local-owner", "stream.count", "allow", "Test allow.")
+    broker = CapabilityBroker(registry, policy, audit)
+
+    result = broker.invoke("stream.count")
+
+    assert result.success is True
+    assert result.outcome == "streaming"
+    assert [row["kind"] for row in events(store)] == ["dispatch"]
+
+    assert list(result.result) == [1, 2]
+
+    rows = events(store)
+    assert [row["kind"] for row in rows] == ["dispatch", "outcome"]
+    assert rows[1]["outcome"] == "succeeded"
+    assert rows[1]["operation_id"] == result.operation_id
+
+
+def test_stream_that_fails_or_is_abandoned_is_recorded(
+    registry, policy, audit, store
+):
+    def breaks():
+        yield 1
+        raise RuntimeError("stream exploded")
+
+    registry.register(
+        CapabilityDefinition(
+            name="stream.breaks",
+            description="Test capability.",
+            provider="test-provider",
+            handler=breaks,
+        )
+    )
+    policy.add_rule("local-owner", "stream.breaks", "allow", "Test allow.")
+    broker = CapabilityBroker(registry, policy, audit)
+
+    failing = broker.invoke("stream.breaks").result
+    assert next(failing) == 1
+    with pytest.raises(RuntimeError):
+        next(failing)
+
+    abandoned = broker.invoke("stream.breaks").result
+    assert next(abandoned) == 1
+    abandoned.close()
+
+    outcomes = [
+        (row["outcome"], row["error_summary"])
+        for row in events(store)
+        if row["kind"] == "outcome"
+    ]
+    assert outcomes == [
+        ("failed-known", "stream exploded"),
+        ("failed-known", "Stream closed before completion."),
+    ]
+
+
+def test_local_control_plane_runs_system_tools(tmp_path, fake_ollama):
     database = tmp_path / "control.db"
     checkpoints = tmp_path / "offhost" / "checkpoints.jsonl"
 
@@ -327,6 +397,9 @@ def test_local_control_plane_runs_system_tools(tmp_path):
         "system.info",
         "system.disk",
         "system.gpu",
+        "llm.chat",
+        "llm.chat_stream",
+        "llm.embed",
     }
     assert all(
         r["subject"] == LOCAL_OWNER.actor for r in plane.policy.list_rules()
@@ -338,12 +411,14 @@ def test_local_control_plane_runs_system_tools(tmp_path):
 
     assert reopened.audit_startup.verification.ok is True
     assert reopened.audit_startup.verification.events_checked == 2
-    assert reopened.policy.state() == (3, 1)
+    assert reopened.policy.state() == (2, 1)
     assert checkpoints.exists()
     reopened.close()
 
 
-def test_local_control_plane_disables_tools_when_log_is_tampered(tmp_path):
+def test_local_control_plane_disables_tools_when_log_is_tampered(
+    tmp_path, fake_ollama
+):
     database = tmp_path / "control.db"
 
     plane = build_local_control_plane(database, None)
