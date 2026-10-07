@@ -113,8 +113,26 @@ def register_ollama_capabilities(
             **options,
         )
 
+        # Text arrives as str chunks. When the model asks for tools
+        # instead, that request arrives as one dict.
         for chunk in stream:
-            content = chunk.get("message", {}).get("content", "")
+            message = chunk.get("message", {})
+            tool_calls = message.get("tool_calls")
+
+            if tool_calls:
+                yield {
+                    "tool_calls": [
+                        {
+                            "name": call["function"]["name"],
+                            "arguments": dict(
+                                call["function"]["arguments"] or {}
+                            ),
+                        }
+                        for call in tool_calls
+                    ]
+                }
+
+            content = message.get("content", "")
             if content:
                 yield content
 
@@ -135,7 +153,8 @@ def register_ollama_capabilities(
         (
             LLM_CHAT_STREAM,
             "Generates a chat reply from the local language "
-            "model as a stream of text chunks.",
+            "model as a stream of text chunks, or a request "
+            "to call one of the tools it was offered.",
             chat_stream,
         ),
         (
