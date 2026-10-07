@@ -156,6 +156,14 @@ def build_local_control_plane(
         LOCAL_OWNER.actor,
         SYSTEM_TOOL_CAPABILITIES,
     )
+    # Tools added after the first seed need a seed of their own, because
+    # a seed that has already been applied is never applied again.
+    seed_alpha_policy(
+        policy,
+        "alpha-system-hardware",
+        LOCAL_OWNER.actor,
+        ["system.cpu", "system.memory", "system.hardware"],
+    )
     seed_alpha_policy(
         policy,
         "alpha-model-runtime",

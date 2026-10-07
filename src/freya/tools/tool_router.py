@@ -16,6 +16,9 @@ class FreyaToolRouter:
     Stage 1C supports:
         - image generation
         - GPU status
+        - CPU status
+        - memory (RAM) status
+        - hardware inventory
         - disk status
         - basic system information
 
@@ -49,10 +52,45 @@ class FreyaToolRouter:
         r"\bwhat gpu (?:do i have|is installed)\b",
     )
 
+    HARDWARE_PATTERNS = (
+        r"\b(?:my|this|your|pc|computer|system|machine)(?:'s)? (?:hardware|components)\b",
+        r"\b(?:hardware|components)\b.*\b(?:in|inside|of) (?:my|this|the|your) (?:pc|computer|machine|system|rig)\b",
+        r"\bwhat (?:hardware|components) (?:do i have|is installed|are installed)\b",
+        r"\bhardware (?:info|information|inventory|list|details|specs)\b",
+        r"\b(?:system|computer|pc|machine|hardware)\b.*\bspecs\b",
+        r"\bwhat(?:'s| is) (?:in|inside) (?:my|this) (?:pc|computer|machine)\b",
+        r"\b(?:what|which) (?:motherboard|mainboard|bios)\b",
+        r"\b(?:motherboard|mainboard|bios)\b.*\b(?:info|information|version|model|details)\b",
+        r"\b(?:ram|memory) (?:modules|sticks|dimms)\b",
+        r"\b(?:what|which) (?:network|wi-?fi|ethernet|sound|audio) (?:adapter|card|device)s?\b",
+    )
+
+    CPU_PATTERNS = (
+        r"\b(?:cpu|processor)\b.*\b(?:status|usage|utilization|load|speed|cores|threads|busy|doing)\b",
+        r"\b(?:status|usage|utilization|load|speed|cores|threads)\b.*\b(?:cpu|processor)\b",
+        r"\bwhat(?:'s| is) my (?:cpu|processor)\b",
+        r"\bwhat (?:cpu|processor) (?:do i have|is installed)\b",
+        r"\bhow (?:busy|loaded|hard) is (?:my|the) (?:cpu|processor)\b",
+        r"\bhow many (?:cpu )?(?:cores|threads)\b",
+    )
+
+    # "Memory" on its own also means Freya's long-term memory, so these
+    # only match when the request is clearly about RAM.
+    MEMORY_PATTERNS = (
+        r"\b(?:ram|system memory|physical memory)\b.*\b(?:status|usage|used|using|free|available|left|remaining|installed|total)\b",
+        r"\b(?:status|usage|used|using|free|available|installed|total)\b.*\b(?:ram|system memory|physical memory)\b",
+        r"\bhow much\b.*\b(?:ram|system memory|physical memory)\b",
+        r"\bhow much memory\b.*\b(?:used|using|in use|free|available|left|installed|do i have)\b",
+        r"\bmemory usage\b",
+    )
+
     DISK_PATTERNS = (
-        r"\b(?:disk|drive|storage)\b.*\b(?:space|usage|free|available|left|remaining)\b",
-        r"\bhow much\b.*\b(?:disk|drive|storage)\b.*\b(?:space|free|left|remaining)\b",
+        r"\b(?:disks?|drives?|storage)\b.*\b(?:space|usage|free|available|left|remaining|full|info|information|status)\b",
+        r"\bhow much\b.*\b(?:disks?|drives?|storage)\b.*\b(?:space|free|left|remaining)\b",
         r"\bhow much (?:free )?space do i have\b",
+        r"\bhow full\b.*\b(?:disks?|drives?|storage)\b",
+        r"\b(?:what|which|list|show)\b.*\b(?:disks|drives)\b",
+        r"\bhow many (?:disks|drives)\b",
     )
 
     SYSTEM_PATTERNS = (
@@ -88,6 +126,15 @@ class FreyaToolRouter:
 
         if self._matches_any(text, self.GPU_PATTERNS):
             return ToolRequest(tool="system.gpu")
+
+        if self._matches_any(text, self.HARDWARE_PATTERNS):
+            return ToolRequest(tool="system.hardware")
+
+        if self._matches_any(text, self.CPU_PATTERNS):
+            return ToolRequest(tool="system.cpu")
+
+        if self._matches_any(text, self.MEMORY_PATTERNS):
+            return ToolRequest(tool="system.memory")
 
         if self._matches_any(text, self.DISK_PATTERNS):
             return ToolRequest(tool="system.disk")

@@ -13,6 +13,7 @@ from freya.gpu.resource_manager import GPUResourceManager
 from freya.image.image_generator import FreyaImageGenerator
 
 from freya.control_plane import build_local_control_plane
+from freya.tools.hardware_inventory import format_hardware_inventory
 from freya.tools.tool_router import FreyaToolRouter
 
 from freya.voice.stt import FreyaSTT
@@ -453,15 +454,52 @@ def print_registered_tool_result(result):
                 f"({gpu['memory_free_mib']} MiB free)."
             )
 
-    elif result.capability_name == "system.disk":
+    elif result.capability_name == "system.cpu":
+        info = result.result
+        speed = (
+            f", {info['frequency_mhz']} MHz"
+            if info["frequency_mhz"]
+            else ""
+        )
+        print(
+            "Freya: CPU — "
+            f"{info['utilization_percent']}% utilization, "
+            f"{info['physical_cores']} cores / "
+            f"{info['logical_cores']} threads"
+            f"{speed}."
+        )
+        print(f"Processor: {info['processor']}")
+
+    elif result.capability_name == "system.hardware":
+        print("Freya: Here is what this computer is made of.")
+        for line in format_hardware_inventory(result.result):
+            print(f"  {line}")
+
+    elif result.capability_name == "system.memory":
         info = result.result
         print(
-            "Freya: "
-            f"Drive {info['drive']} has "
-            f"{info['free_gb']} GB free of "
-            f"{info['total_gb']} GB total "
-            f"({info['used_gb']} GB used)."
+            "Freya: RAM — "
+            f"{info['used_gb']} GB used of "
+            f"{info['total_gb']} GB "
+            f"({info['used_percent']}%), "
+            f"{info['available_gb']} GB available."
         )
+
+    elif result.capability_name == "system.disk":
+        for index, info in enumerate(result.result):
+            kind = (
+                f"{info['filesystem']}, removable"
+                if info["removable"]
+                else info["filesystem"]
+            )
+            print(
+                ("Freya: " if index == 0 else "       ")
+                + f"Drive {info['drive']} ({kind}) has "
+                f"{info['free_gb']} GB free of "
+                f"{info['total_gb']} GB total "
+                f"({info['used_gb']} GB used, "
+                f"{info['used_percent']}%)."
+            )
 
     elif result.capability_name == "system.info":
         info = result.result
