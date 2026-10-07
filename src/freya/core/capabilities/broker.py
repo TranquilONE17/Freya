@@ -1,4 +1,5 @@
 import hashlib
+import inspect
 import json
 import uuid
 from dataclasses import dataclass
@@ -39,7 +40,9 @@ class BrokerResult:
     Result of asking the broker to invoke a capability.
 
     outcome is one of: succeeded, failed-known, unknown-outcome,
-    denied, unavailable.
+    denied, unavailable, or streaming. When it is streaming, result
+    is an iterator and the final outcome is written to the audit log
+    once that iterator finishes, fails, or is closed.
     """
 
     success: bool
@@ -108,7 +111,7 @@ class CapabilityBroker:
 
         def result(outcome, error=None, value=None):
             return BrokerResult(
-                success=outcome == "succeeded",
+                success=outcome in ("succeeded", "streaming"),
                 capability_name=capability_name,
                 operation_id=operation_id,
                 outcome=outcome,
@@ -191,14 +194,28 @@ class CapabilityBroker:
             **kwargs,
         )
 
-        if execution.success:
-            outcome = "succeeded"
-        elif capability.destructive:
-            # A destructive action that raised may still have had
-            # an effect.
-            outcome = "unknown-outcome"
-        else:
-            outcome = "failed-known"
+        # A destructive action that raised may still have had an effect.
+        failure = (
+            "unknown-outcome"
+            if capability.destructive
+            else "failed-known"
+        )
+
+        if execution.success and inspect.isgenerator(
+            execution.result
+        ):
+            # The work happens as the caller consumes the stream, so
+            # the outcome is recorded when the stream ends.
+            return result(
+                "streaming",
+                value=self._audited_stream(
+                    execution.result,
+                    event,
+                    failure,
+                ),
+            )
+
+        outcome = "succeeded" if execution.success else failure
 
         # If this write fails, the operation is closed out as
         # unknown-outcome when the audit log next starts.
@@ -214,6 +231,24 @@ class CapabilityBroker:
             error=execution.error,
             value=execution.result,
         )
+
+    def _audited_stream(self, stream, event, failure):
+        outcome = failure
+        error = "Stream closed before completion."
+
+        try:
+            yield from stream
+            outcome, error = "succeeded", None
+        except Exception as exc:
+            error = str(exc)
+            raise
+        finally:
+            self._record_quietly(
+                event,
+                kind="outcome",
+                outcome=outcome,
+                error_summary=error,
+            )
 
     def _record_quietly(self, event, **fields):
         try:

@@ -1,10 +1,7 @@
 import json
 import re
 
-import ollama
-
-from freya.config import EMBEDDING_MODEL
-from freya.config import MODEL
+from freya.core.model_runtime import get_model_runtime
 
 
 ALLOWED_MEMORY_TYPES = {
@@ -27,46 +24,15 @@ ALLOWED_MEMORY_RELATIONSHIPS = {
 
 
 def chat(messages):
-    response = ollama.chat(
-        model=MODEL,
-        messages=messages,
+    return get_model_runtime().chat(
+        messages
     )
-
-    return response["message"]["content"]
 
 
 def chat_stream(messages):
-    stream = ollama.chat(
-        model=MODEL,
-        messages=messages,
-        stream=True,
+    yield from get_model_runtime().chat_stream(
+        messages
     )
-
-    for chunk in stream:
-        content = chunk.get(
-            "message",
-            {},
-        ).get(
-            "content",
-            "",
-        )
-
-        if content:
-            yield content
-
-
-def warm_models():
-    # An empty generate request makes Ollama load the model without
-    # producing any output, so the first real reply does not wait for it.
-    try:
-        ollama.generate(model=MODEL)
-        ollama.embed(
-            model=EMBEDDING_MODEL,
-            input="warm-up",
-        )
-    except Exception:
-        # Ollama may not be running yet; the first real call reports that.
-        pass
 
 
 def _normalize_key(memory_key):
@@ -227,20 +193,15 @@ User message:
 {user_input}
 """
 
-    response = ollama.chat(
-        model=MODEL,
-        messages=[
+    result = get_model_runtime().chat(
+        [
             {
                 "role": "user",
                 "content": prompt,
             }
         ],
         format="json",
-    )
-
-    result = response[
-        "message"
-    ]["content"].strip()
+    ).strip()
 
     return _parse_memory_result(
         result
@@ -337,20 +298,15 @@ Original memory:
 {content}
 """
 
-    response = ollama.chat(
-        model=MODEL,
-        messages=[
+    result = get_model_runtime().chat(
+        [
             {
                 "role": "user",
                 "content": prompt,
             }
         ],
         format="json",
-    )
-
-    result = response[
-        "message"
-    ]["content"].strip()
+    ).strip()
 
     candidate = _parse_memory_result(
         result
@@ -469,20 +425,15 @@ Key: {memory_b["key"]}
 Content: {memory_b["content"]}
 """
 
-    response = ollama.chat(
-        model=MODEL,
-        messages=[
+    result = get_model_runtime().chat(
+        [
             {
                 "role": "user",
                 "content": prompt,
             }
         ],
         format="json",
-    )
-
-    result = response[
-        "message"
-    ]["content"].strip()
+    ).strip()
 
     try:
         data = json.loads(
@@ -629,20 +580,15 @@ Candidate memories:
 {candidates_text}
 """
 
-    response = ollama.chat(
-        model=MODEL,
-        messages=[
+    result = get_model_runtime().chat(
+        [
             {
                 "role": "user",
                 "content": prompt,
             }
         ],
         format="json",
-    )
-
-    result = response[
-        "message"
-    ]["content"].strip()
+    ).strip()
 
     try:
         data = json.loads(result)
