@@ -1,6 +1,6 @@
 from typing import Dict, List, Optional
 
-from core.capabilities.capability import (
+from freya.core.capabilities.capability import (
     CapabilityDefinition,
     CapabilityExecutionResult,
     CapabilityStatus,

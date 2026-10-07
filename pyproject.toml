@@ -14,13 +14,15 @@ dependencies = [
     "soundfile>=0.13",
 ]
 
+[project.scripts]
+freya = "freya.main:main"
+
 [build-system]
 requires = ["setuptools>=77"]
 build-backend = "setuptools.build_meta"
 
-# Dependency metadata only for now. The code under src/freya still uses imports
-# relative to that directory, so nothing is packaged until the package layout
-# work (alpha step 1) lands.
-[tool.setuptools]
-packages = []
-py-modules = []
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+"freya.image" = ["workflows/*.json"]

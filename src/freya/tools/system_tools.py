@@ -3,7 +3,7 @@ import platform
 import shutil
 import subprocess
 
-from tools.tool_registry import (
+from freya.tools.tool_registry import (
     ToolDefinition,
 )
 
