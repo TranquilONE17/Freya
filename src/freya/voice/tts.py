@@ -205,6 +205,19 @@ class FreyaVoice:
     def is_speaking(self):
         return self._speaking_event.is_set()
 
+    def is_busy(self):
+        """
+        True while speech is playing or still waiting to be spoken.
+        """
+
+        if not self.enabled:
+            return False
+
+        return (
+            self._speaking_event.is_set()
+            or self._speech_queue.unfinished_tasks > 0
+        )
+
     def wait_until_done(self):
         if not self.enabled:
             return

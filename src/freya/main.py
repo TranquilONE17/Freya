@@ -13,6 +13,13 @@ from freya.gpu.resource_manager import GPUResourceManager
 from freya.image.image_generator import FreyaImageGenerator
 
 from freya.control_plane import build_local_control_plane
+from freya.hands_free import LISTENING_COMMANDS
+from freya.hands_free import describe_listening
+from freya.hands_free import handle_listening_command
+from freya.hands_free import load_speech_recognition
+from freya.hands_free import start_background_listening
+from freya.settings import Settings
+from freya.turn_gate import TurnGate
 from freya.tools.tool_router import FreyaToolRouter
 
 from freya.voice.stt import FreyaSTT
@@ -49,7 +56,7 @@ COMMANDS = (
 
     IMAGE_COMMAND,
 
-)
+) + LISTENING_COMMANDS
 
 
 
@@ -779,7 +786,11 @@ def main():
 
     voice = FreyaVoice()
 
-    stt = None
+    stt = load_speech_recognition()
+
+    settings = Settings()
+
+    gate = TurnGate()
 
 
 
@@ -853,7 +864,69 @@ def main():
 
     )
 
+    print("Use /names to see the names Freya answers to.")
+
     print("Type 'exit' to quit.\n")
+
+
+
+    def handle_spoken_request(request):
+
+        # Runs on the listener thread while the keyboard waits.
+
+        with gate.spoken_turn() as acquired:
+
+            if not acquired:
+
+                return
+
+            if not request:
+
+                print("\rYou (voice): Freya\n\nFreya: Yes?\n")
+
+                voice.speak("Yes?")
+
+            else:
+
+                print(f"\rYou (voice): {request}")
+
+                handle_normal_input(
+
+                    freya,
+
+                    voice,
+
+                    tool_router,
+
+                    image_generator,
+
+                    gpu_manager,
+
+                    request,
+
+                )
+
+            print("You: ", end="", flush=True)
+
+
+
+    listener = start_background_listening(
+
+        stt,
+
+        voice,
+
+        gate,
+
+        settings,
+
+        handle_spoken_request,
+
+    )
+
+    print(describe_listening(listener, settings))
+
+    print()
 
 
 
@@ -863,7 +936,7 @@ def main():
 
             user_input = normalize_command(
 
-                input(
+                gate.read_line(
 
                     "You: "
 
@@ -906,6 +979,20 @@ def main():
                     "\nFreya: Speech playback interrupted.\n"
 
                 )
+
+                continue
+
+
+
+            if handle_listening_command(
+
+                user_input,
+
+                listener,
+
+                settings,
+
+            ):
 
                 continue
 
@@ -1348,6 +1435,12 @@ def main():
 
 
     finally:
+
+        if listener is not None:
+
+            listener.stop()
+
+        gate.close()
 
         voice.shutdown()
 
