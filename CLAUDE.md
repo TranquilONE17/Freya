@@ -52,7 +52,14 @@ Rules for the spec:
   seed in `control_plane.py`. Its description is what the model chooses by, so say
   what it returns and when to prefer a neighbouring tool.
 - `src/freya/gpu/resource_manager.py` — Ollama/ComfyUI VRAM handoff.
-- `src/freya/voice/` — faster-whisper STT, Kokoro TTS. `src/freya/image/` — ComfyUI client.
+- `src/freya/voice/` — faster-whisper STT, Kokoro TTS, `wake.py` (deciding whether a
+  heard sentence is addressed to Freya), `listener.py` (utterance segmenting, the
+  attention window, and the background listener thread).
+- `src/freya/hands_free.py` — starts background listening and handles `/mute`,
+  `/unmute`, `/names`, `/name add|remove`. `src/freya/settings.py` — owner preferences
+  in `data/freya_settings.json` (currently the names Freya answers to).
+  `src/freya/turn_gate.py` — lets one turn run at a time, typed or spoken.
+- `src/freya/image/` — ComfyUI client.
 
 Known state: the system tools and every chat and embedding call run only through
 `CapabilityBroker`, which checks policy (deny by default), checks availability, writes
@@ -76,6 +83,16 @@ results are untrusted content from the model's point of view. The tool exchange 
 kept in conversation history. Before adding a tool that takes arguments or has effects,
 decide how its arguments are validated and authorized.
 
+Always-on listening: the microphone stays open on a background thread while the
+keyboard prompt waits. Every utterance is transcribed locally and then discarded unless
+it is addressed to one of Freya's names at the start or end of the sentence; the name
+alone opens a ten-second window for one follow-up sentence. Typed turns run on the main
+thread and spoken turns on the listener thread, serialized by `TurnGate`, which is why
+the memory database connection allows cross-thread use. The microphone is ignored
+while Freya is speaking or handling a turn; she cannot be interrupted by voice. Voice
+is ambient input and is not authentication: before any tool with effects exists,
+decide what spoken requests may trigger (see proposed NEW-I).
+
 Audit log: `data/freya_control.db` holds policy rules and the append-only, hash-chained
 `audit_event` table. It is verified at startup; if verification fails, the broker
 refuses every invocation. Checkpoints of the chain head go to the file named by
@@ -85,8 +102,9 @@ administrator. SQLite durability settings are provisional pending ADR-015; each 
 invocation currently costs roughly 30–60 ms in synchronous writes. Default policy rules
 are applied once per named seed (`policy_seed` table), so removed rules stay removed.
 
-`tests/` covers the registries, tool modules, policy, audit, broker, and model runtime,
-using a fake Ollama client (`tests/conftest.py`); `voice/stt_test.py` and
+`tests/` covers the registries, tool modules, policy, audit, broker, model runtime,
+name matching, the listener, and the listening commands, using a fake Ollama client
+(`tests/conftest.py`) and scripted microphone blocks; `voice/stt_test.py` and
 `voice/tts_test.py` are manual scripts, not automated tests. `memory_manager.py` locates
 `data/` relative to the source tree, so it only works from an editable install.
 

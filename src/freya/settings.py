@@ -34,12 +34,24 @@ class Settings:
         except (OSError, ValueError):
             return
 
+        stored = (
+            data.get("wake_names")
+            if isinstance(data, dict)
+            else None
+        )
+
+        if not isinstance(stored, list):
+            return
+
         names = []
 
-        for name in data.get("wake_names", []) if isinstance(data, dict) else []:
+        for name in stored:
+            if not isinstance(name, str):
+                continue
+
             try:
                 name = normalize_name(name)
-            except (ValueError, TypeError):
+            except ValueError:
                 continue
 
             if name not in names:
