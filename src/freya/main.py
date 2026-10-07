@@ -12,11 +12,7 @@ from freya.gpu.resource_manager import GPUResourceManager
 
 from freya.image.image_generator import FreyaImageGenerator
 
-from freya.core.capabilities import CapabilityRegistry
-from freya.core.providers import ProviderRegistry
-from freya.tools.system_tools import SYSTEM_TOOLS_PROVIDER
-from freya.tools.system_tools import create_system_tools_provider
-from freya.tools.system_tools import register_system_tools
+from freya.control_plane import build_local_control_plane
 from freya.tools.tool_router import FreyaToolRouter
 
 from freya.voice.stt import FreyaSTT
@@ -487,7 +483,7 @@ def print_registered_tool_result(result):
 
 def handle_tool_request(
     tool_router,
-    capability_registry,
+    capability_broker,
     image_generator,
     gpu_manager,
     user_input,
@@ -507,8 +503,8 @@ def handle_tool_request(
         )
         return True
 
-    if capability_registry.exists(tool_request.tool):
-        result = capability_registry.execute(
+    if capability_broker.exists(tool_request.tool):
+        result = capability_broker.invoke(
             tool_request.tool
         )
         print_registered_tool_result(result)
@@ -525,7 +521,7 @@ def handle_normal_input(
 
     tool_router,
 
-    capability_registry,
+    capability_broker,
 
     image_generator,
 
@@ -539,7 +535,7 @@ def handle_normal_input(
 
         tool_router,
 
-        capability_registry,
+        capability_broker,
 
         image_generator,
 
@@ -581,7 +577,7 @@ def run_conversation_mode(
 
     tool_router,
 
-    capability_registry,
+    capability_broker,
 
     image_generator,
 
@@ -739,7 +735,7 @@ def run_conversation_mode(
 
             tool_router,
 
-            capability_registry,
+            capability_broker,
 
             image_generator,
 
@@ -791,27 +787,13 @@ def main():
 
     tool_router = FreyaToolRouter()
 
-    provider_registry = ProviderRegistry()
+    control_plane = build_local_control_plane()
 
-    provider_registry.register(
+    for message in control_plane.startup_messages():
 
-        create_system_tools_provider()
+        print(message)
 
-    )
-
-    provider_registry.start(SYSTEM_TOOLS_PROVIDER)
-
-    provider_registry.check_health(SYSTEM_TOOLS_PROVIDER)
-
-
-
-    capability_registry = CapabilityRegistry(
-
-        provider_registry
-
-    )
-
-    register_system_tools(capability_registry)
+    capability_broker = control_plane.broker
 
     gpu_manager = GPUResourceManager()
 
@@ -995,7 +977,7 @@ def main():
 
                         tool_router,
 
-                        capability_registry,
+                        capability_broker,
 
                         image_generator,
 
@@ -1107,7 +1089,7 @@ def main():
 
                     tool_router,
 
-                    capability_registry,
+                    capability_broker,
 
                     image_generator,
 
@@ -1205,7 +1187,7 @@ def main():
 
                     tool_router,
 
-                    capability_registry,
+                    capability_broker,
 
                     image_generator,
 
@@ -1333,7 +1315,7 @@ def main():
 
                     tool_router,
 
-                    capability_registry,
+                    capability_broker,
 
                     image_generator,
 
@@ -1357,7 +1339,7 @@ def main():
 
                 tool_router,
 
-                capability_registry,
+                capability_broker,
 
                 image_generator,
 
@@ -1382,6 +1364,8 @@ def main():
     finally:
 
         voice.shutdown()
+
+        control_plane.close()
 
 
 
