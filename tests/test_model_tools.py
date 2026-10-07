@@ -65,6 +65,7 @@ def test_only_marked_capabilities_are_offered(plane):
         "system_cpu",
         "system_memory",
         "system_hardware",
+        "system_sensors",
     }
     for definition in plane.model_tools.definitions():
         assert definition["type"] == "function"

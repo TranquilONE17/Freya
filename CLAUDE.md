@@ -44,8 +44,9 @@ Rules for the spec:
   its migrations).
 - `src/freya/memory/memory_manager.py` — SQLite memory with embeddings and history.
 - `src/freya/tools/` — read-only system tools registered as capabilities (host info,
-  GPU, CPU, RAM, all drives, and a Windows-only hardware inventory in
-  `hardware_inventory.py`); `model_tools.py` (`ModelToolHost`, which offers marked
+  GPU, CPU, RAM, all drives, a Windows-only hardware inventory in
+  `hardware_inventory.py`, and temperatures/fans/power in `sensors.py`);
+  `model_tools.py` (`ModelToolHost`, which offers marked
   capabilities to the model and runs the ones it asks for); `tool_router.py` (regex,
   image requests only). A tool added after first release needs its own named policy
   seed in `control_plane.py`. Its description is what the model chooses by, so say
@@ -102,6 +103,11 @@ using a fake Ollama client (`tests/conftest.py`); `voice/stt_test.py` and
   and commit both files. `uv sync` rebuilds `.venv` from the lock.
 - Run the tests with `python -m pytest` from the repository root (pytest is in the `dev`
   dependency group).
+- Optional: `system.sensors` reads LibreHardwareMonitor (MPL-2.0, installed by the
+  owner with winget, not bundled) over its local web server at
+  `http://127.0.0.1:8085/data.json` (`FREYA_SENSOR_URL` overrides). It must be running
+  as administrator with Options > Remote Web Server > Run enabled; otherwise the tool
+  reports that sensors are unavailable.
 - Kokoro also needs the spaCy model `en_core_web_sm`, which is downloaded outside the
   lockfile.
 

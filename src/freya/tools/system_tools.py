@@ -16,6 +16,9 @@ from freya.tools.hardware_inventory import (
 from freya.tools.model_tools import (
     MODEL_TOOL,
 )
+from freya.tools.sensors import (
+    get_sensor_readings,
+)
 
 
 SYSTEM_TOOLS_PROVIDER = "system-tools-local"
@@ -27,6 +30,7 @@ SYSTEM_TOOL_CAPABILITIES = [
     "system.cpu",
     "system.memory",
     "system.hardware",
+    "system.sensors",
 ]
 
 CPU_SAMPLE_SECONDS = 0.5
@@ -348,7 +352,8 @@ def register_system_tools(
             description=(
                 "Returns the graphics card's live status: "
                 "temperature, utilization, and VRAM used and "
-                "free."
+                "free. For its hot spot temperature, fans, or "
+                "power draw, use system_sensors."
             ),
             provider=SYSTEM_TOOLS_PROVIDER,
             handler=get_gpu_info,
@@ -369,7 +374,8 @@ def register_system_tools(
             description=(
                 "Returns the processor's live load: current "
                 "utilization, core and thread counts, and "
-                "clock speed."
+                "clock speed. For its temperature or power "
+                "draw, use system_sensors."
             ),
             provider=SYSTEM_TOOLS_PROVIDER,
             handler=get_cpu_info,
@@ -429,6 +435,34 @@ def register_system_tools(
             aliases=[
                 "hardware",
                 "components",
+            ],
+        )
+    )
+
+    registry.register(
+        CapabilityDefinition(
+            name="system.sensors",
+            description=(
+                "Returns live sensor readings for each "
+                "component: temperatures of the processor, "
+                "motherboard, memory modules, graphics card, "
+                "and drives; fan speeds; processor and "
+                "graphics power draw; and SSD wear. Use this "
+                "for questions about heat, cooling, fans, or "
+                "power."
+            ),
+            provider=SYSTEM_TOOLS_PROVIDER,
+            handler=get_sensor_readings,
+            category="system",
+            metadata={
+                MODEL_TOOL: True,
+            },
+            optional_dependencies=[
+                "LibreHardwareMonitor web server",
+            ],
+            aliases=[
+                "sensors",
+                "temperatures",
             ],
         )
     )

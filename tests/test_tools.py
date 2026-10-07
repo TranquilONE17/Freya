@@ -100,6 +100,7 @@ def test_system_tools_register_as_capabilities(registry):
         "system.cpu",
         "system.memory",
         "system.hardware",
+        "system.sensors",
     }
     for capability in described.values():
         assert capability["provider"] == SYSTEM_TOOLS_PROVIDER

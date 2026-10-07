@@ -11,6 +11,12 @@ AUDIT_CHECKPOINT_PATH = os.environ.get(
     "FREYA_AUDIT_CHECKPOINT_PATH"
 ) or None
 
+# LibreHardwareMonitor's web server on this machine, which supplies
+# temperatures, fan speeds, and other sensor readings.
+SENSOR_URL = os.environ.get(
+    "FREYA_SENSOR_URL"
+) or "http://127.0.0.1:8085/data.json"
+
 SYSTEM_PROMPT = """
 You are Freya, a locally hosted personal AI assistant.
 
