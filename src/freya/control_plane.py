@@ -1,4 +1,5 @@
 from dataclasses import dataclass
+from pathlib import Path
 from typing import List
 
 from freya.config import AUDIT_CHECKPOINT_PATH
@@ -37,6 +38,7 @@ from freya.image.image_generator import (
 )
 from freya.providers.image.comfyui import (
     COMFYUI_PROVIDER,
+    ComfyUIServer,
     create_comfyui_provider,
 )
 from freya.providers.model.ollama import (
@@ -98,6 +100,12 @@ class ControlPlane:
                     "Freya: ComfyUI is not running, so I am starting "
                     "it. This can take a minute..."
                 )
+
+                if not provider.metadata["headless"]:
+                    announce(
+                        "Freya: Its window may need you to press "
+                        "its start button."
+                    )
 
             result = self.providers.start(COMFYUI_PROVIDER)
 
@@ -162,6 +170,9 @@ class ControlPlane:
     def close(self) -> None:
         configure_model_runtime(None)
 
+        # Stops the ComfyUI server only if Freya started it.
+        self.providers.stop(COMFYUI_PROVIDER)
+
         try:
             if self.audit.integrity_ok:
                 self.audit.checkpoint()
@@ -189,9 +200,12 @@ def build_local_control_plane(
     providers.check_health(OLLAMA_PROVIDER)
 
     # ComfyUI is started on demand, when an image is first requested.
-    providers.register(
-        create_comfyui_provider(COMFYUI_URL, COMFYUI_COMMAND)
+    comfyui = ComfyUIServer(
+        COMFYUI_URL,
+        COMFYUI_COMMAND,
+        log_path=Path(database_path).parent / "comfyui_server.log",
     )
+    providers.register(create_comfyui_provider(comfyui))
 
     capabilities = CapabilityRegistry(providers)
     register_system_tools(capabilities)
