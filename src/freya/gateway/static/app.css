@@ -244,6 +244,7 @@ main {
 
 .composer textarea {
   flex: 1;
+  min-width: 0;
   min-height: 24px;
   max-height: 180px;
   padding: 6px 8px;
@@ -377,9 +378,20 @@ main {
 
   .status {
     margin-left: 0;
+    flex-wrap: wrap;
   }
 
   .message {
     max-width: 92%;
+  }
+
+  /* The text box takes a row of its own, with the buttons beneath. */
+  .composer {
+    flex-wrap: wrap;
+    justify-content: flex-end;
+  }
+
+  .composer textarea {
+    flex: 1 1 100%;
   }
 }

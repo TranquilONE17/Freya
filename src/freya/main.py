@@ -385,7 +385,7 @@ def run_image_generation(
 
         )
 
-        return
+        return False
 
 
 
@@ -415,7 +415,7 @@ def run_image_generation(
 
         )
 
-        return
+        return False
 
 
 
@@ -461,7 +461,7 @@ def run_image_generation(
 
         announce_image_failure(exc)
 
-        return
+        return False
 
 
 
@@ -501,7 +501,7 @@ def run_image_generation(
 
         announce_image_failure(exc)
 
-        return
+        return False
 
 
 
@@ -628,6 +628,8 @@ def run_image_generation(
 
 
     print()
+
+    return True
 
 
 
@@ -1231,6 +1233,58 @@ def main():
                 listener.unmute()
 
         publish_status()
+
+
+    def generate_image_tool(prompt):
+
+        # Called when the model decides an image is wanted. The turn
+
+        # that asked for it already holds the gate.
+
+        EVENTS.publish(
+
+            "notice",
+
+            text=f"Generating an image: {prompt}",
+
+        )
+
+        succeeded = run_image_generation(
+
+            image_generator,
+
+            gpu_manager,
+
+            prompt,
+
+        )
+
+        publish_status()
+
+        if not succeeded:
+
+            raise RuntimeError(
+
+                "The image could not be generated."
+
+            )
+
+        return {
+
+            "status": "generated",
+
+            "prompt": prompt,
+
+            "shown_in": "the Images tab of Freya's window",
+
+        }
+
+
+    control_plane.register_image_generation(
+
+        generate_image_tool,
+
+    )
 
 
     window = FreyaWindow(
