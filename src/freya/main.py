@@ -35,6 +35,54 @@ INTERRUPT_COMMAND = "/interrupt"
 
 IMAGE_COMMAND = "/image"
 
+COMMANDS = (
+
+    VOICE_FILE_COMMAND,
+
+    TALK_COMMAND,
+
+    LISTEN_COMMAND,
+
+    CONVERSATION_COMMAND,
+
+    INTERRUPT_COMMAND,
+
+    IMAGE_COMMAND,
+
+)
+
+
+
+
+
+def normalize_command(user_input):
+
+    """
+
+    Accept a command typed with a backslash, such as \\listen.
+
+    Anything that is not a known command is returned unchanged.
+
+    """
+
+    if not user_input.startswith("\\"):
+
+        return user_input
+
+    words = user_input[1:].split(maxsplit=1)
+
+    if not words:
+
+        return user_input
+
+    command = "/" + words[0].lower()
+
+    if command not in COMMANDS:
+
+        return user_input
+
+    return "/" + user_input[1:]
+
 
 
 
@@ -813,11 +861,15 @@ def main():
 
         while True:
 
-            user_input = input(
+            user_input = normalize_command(
 
-                "You: "
+                input(
 
-            ).strip()
+                    "You: "
+
+                ).strip()
+
+            )
 
 
 
