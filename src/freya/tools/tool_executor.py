@@ -147,6 +147,24 @@ class SafeToolExecutor:
                 ),
             )
 
+        if not self.registry.is_available(
+            tool.name
+        ):
+            return SafeToolExecutionResult(
+                requested=True,
+                executed=False,
+                blocked=True,
+                tool_name=tool.name,
+                error=(
+                    "Selected tool is not "
+                    "currently available."
+                ),
+                reason=(
+                    "Capability or its provider "
+                    "is not available."
+                ),
+            )
+
         registry_result = (
             self.registry.execute(
                 tool.name

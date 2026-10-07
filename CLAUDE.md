@@ -41,8 +41,11 @@ Rules for the spec:
 - `src/freya/voice/` — faster-whisper STT, Kokoro TTS. `src/freya/image/` — ComfyUI client.
 
 Known state: `main.py` registers the system tools in `CapabilityRegistry` (the former
-`ToolRegistry` was merged into it); `ProviderRegistry`, `tool_selector.py`, and
-`tool_executor.py` are not yet wired into `main.py`. `CapabilityDefinition` is far smaller
+`ToolRegistry` was merged into it) behind the `system-tools-local` provider in
+`ProviderRegistry`. A capability is available only while its provider is running and
+healthy. Ollama, Whisper, Kokoro, and ComfyUI are still called directly, not through
+providers or capabilities, and `tool_selector.py`/`tool_executor.py` are not yet wired
+into `main.py`. `CapabilityDefinition` is far smaller
 than the baseline's capability schema; its `destructive`/`requires_gpu` flags are interim.
 `tests/` covers the registries and the tool modules only; `voice/stt_test.py` and
 `voice/tts_test.py` are manual scripts, not automated tests. `memory_manager.py` locates
@@ -80,7 +83,7 @@ than the baseline's capability schema; its `destructive`/`requires_gpu` flags ar
 
 ## Next planned work (alpha step 1)
 
-`pyproject.toml`, the lockfile, the package layout, tests for the registries, and the
-`ToolRegistry` merge are done. Remaining: link provider health to
-capability availability, then the SQLite audit log and policy table in front of
+`pyproject.toml`, the lockfile, the package layout, tests for the registries, the
+`ToolRegistry` merge, and linking provider health to capability availability are done.
+Remaining: the SQLite audit log and policy table in front of
 capability execution.

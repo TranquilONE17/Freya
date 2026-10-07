@@ -5,6 +5,13 @@ from freya.core.capabilities.capability import (
     CapabilityExecutionResult,
     CapabilityStatus,
 )
+from freya.core.providers.provider import (
+    ProviderHealth,
+    ProviderState,
+)
+from freya.core.providers.registry import (
+    ProviderRegistry,
+)
 
 
 class CapabilityRegistry:
@@ -22,9 +29,20 @@ class CapabilityRegistry:
         - behind an API
 
     Freya Core should not need to know the difference.
+
+    When a ProviderRegistry is supplied, a capability is
+    only available while its provider is registered there,
+    running, and healthy. Availability is derived from the
+    provider on every query rather than copied, so the two
+    registries cannot disagree.
     """
 
-    def __init__(self):
+    def __init__(
+        self,
+        providers: Optional[ProviderRegistry] = None,
+    ):
+        self._providers = providers
+
         self._capabilities: Dict[
             str,
             CapabilityDefinition,
@@ -217,22 +235,106 @@ class CapabilityRegistry:
 
         return True
 
-    def is_available(
+    def _effective_status(
+        self,
+        capability: CapabilityDefinition,
+    ) -> CapabilityStatus:
+        """
+        Combine the capability's own status with the
+        state and health of its provider.
+        """
+
+        if (
+            capability.status
+            != CapabilityStatus.AVAILABLE
+            or self._providers is None
+        ):
+            return capability.status
+
+        provider = self._providers.get(
+            capability.provider
+        )
+
+        if (
+            provider is None
+            or provider.state
+            != ProviderState.RUNNING
+        ):
+            return CapabilityStatus.UNAVAILABLE
+
+        if (
+            provider.health
+            == ProviderHealth.HEALTHY
+        ):
+            return CapabilityStatus.AVAILABLE
+
+        if (
+            provider.health
+            == ProviderHealth.DEGRADED
+        ):
+            return CapabilityStatus.DEGRADED
+
+        return CapabilityStatus.UNAVAILABLE
+
+    def _unavailable_reason(
+        self,
+        capability: CapabilityDefinition,
+    ) -> str:
+        if (
+            capability.status
+            != CapabilityStatus.AVAILABLE
+            or self._providers is None
+        ):
+            return (
+                "Current status: "
+                f"{capability.status.value}"
+            )
+
+        provider = self._providers.get(
+            capability.provider
+        )
+
+        if provider is None:
+            return (
+                "Provider is not registered: "
+                f"{capability.provider}"
+            )
+
+        return (
+            f"Provider {provider.provider_id} is "
+            f"{provider.state.value} with health "
+            f"{provider.health.value}."
+        )
+
+    def get_status(
         self,
         name: str,
-    ) -> bool:
+    ) -> Optional[CapabilityStatus]:
         """
-        Return True only when a capability exists and
-        is currently marked AVAILABLE.
+        Return the capability's effective status, taking
+        its provider into account.
         """
 
         capability = self.get(name)
 
         if capability is None:
-            return False
+            return None
+
+        return self._effective_status(
+            capability
+        )
+
+    def is_available(
+        self,
+        name: str,
+    ) -> bool:
+        """
+        Return True only when a capability exists, is
+        marked AVAILABLE, and its provider is usable.
+        """
 
         return (
-            capability.status
+            self.get_status(name)
             == CapabilityStatus.AVAILABLE
         )
 
@@ -264,7 +366,7 @@ class CapabilityRegistry:
             )
 
         if (
-            capability.status
+            self._effective_status(capability)
             != CapabilityStatus.AVAILABLE
         ):
             return CapabilityExecutionResult(
@@ -273,8 +375,9 @@ class CapabilityRegistry:
                 provider=capability.provider,
                 error=(
                     "Capability is not available. "
-                    f"Current status: "
-                    f"{capability.status.value}"
+                    + self._unavailable_reason(
+                        capability
+                    )
                 ),
             )
 
@@ -331,7 +434,9 @@ class CapabilityRegistry:
                         capability.category
                     ),
                     "status": (
-                        capability.status.value
+                        self._effective_status(
+                            capability
+                        ).value
                     ),
                     "requires_gpu": (
                         capability.requires_gpu

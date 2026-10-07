@@ -12,8 +12,11 @@ from freya.gpu.resource_manager import GPUResourceManager
 
 from freya.image.image_generator import FreyaImageGenerator
 
-from freya.tools.system_tools import register_system_tools
 from freya.core.capabilities import CapabilityRegistry
+from freya.core.providers import ProviderRegistry
+from freya.tools.system_tools import SYSTEM_TOOLS_PROVIDER
+from freya.tools.system_tools import create_system_tools_provider
+from freya.tools.system_tools import register_system_tools
 from freya.tools.tool_router import FreyaToolRouter
 
 from freya.voice.stt import FreyaSTT
@@ -788,7 +791,25 @@ def main():
 
     tool_router = FreyaToolRouter()
 
-    capability_registry = CapabilityRegistry()
+    provider_registry = ProviderRegistry()
+
+    provider_registry.register(
+
+        create_system_tools_provider()
+
+    )
+
+    provider_registry.start(SYSTEM_TOOLS_PROVIDER)
+
+    provider_registry.check_health(SYSTEM_TOOLS_PROVIDER)
+
+
+
+    capability_registry = CapabilityRegistry(
+
+        provider_registry
+
+    )
 
     register_system_tools(capability_registry)
 
