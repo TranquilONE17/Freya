@@ -45,9 +45,11 @@ Rules for the spec:
 - `src/freya/memory/memory_manager.py` — SQLite memory with embeddings and history.
 - `src/freya/tools/` — read-only system tools registered as capabilities (host info,
   GPU, CPU, RAM, all drives, and a Windows-only hardware inventory in
-  `hardware_inventory.py`), regex router, LLM selector/executor. A tool added after
-  first release needs its own named policy seed in `control_plane.py`, and its output
-  is formatted by hand in `main.print_registered_tool_result`.
+  `hardware_inventory.py`); `model_tools.py` (`ModelToolHost`, which offers marked
+  capabilities to the model and runs the ones it asks for); `tool_router.py` (regex,
+  image requests only). A tool added after first release needs its own named policy
+  seed in `control_plane.py`. Its description is what the model chooses by, so say
+  what it returns and when to prefer a neighbouring tool.
 - `src/freya/gpu/resource_manager.py` — Ollama/ComfyUI VRAM handoff.
 - `src/freya/voice/` — faster-whisper STT, Kokoro TTS. `src/freya/image/` — ComfyUI client.
 
@@ -61,9 +63,17 @@ there are no authenticated sessions yet. `core/llm.py` and `memory_manager.py` r
 model through a process-wide `ModelRuntime` set up by `build_local_control_plane()`, so
 the control plane must be built before `FreyaAssistant`. Still calling their backends
 directly: Whisper, Kokoro, ComfyUI, the memory store, the GPU manager's Ollama unload,
-the startup model warm-up, and the unwired `tool_selector.py`. `tool_executor.py` is
-also unwired and calls the registry, not the broker. `CapabilityDefinition` is far smaller than the
+and the startup model warm-up. `CapabilityDefinition` is far smaller than the
 baseline's capability schema; its `destructive`/`requires_gpu` flags are interim.
+
+Model tool calling: `FreyaAssistant.respond_stream` offers the model the capabilities
+whose metadata has `model_tool: True` (never destructive ones) using the model's native
+tool calling. Requested tools run through the broker, their JSON results go back to
+the model, and it answers in its own words; at most three tool rounds per turn. The
+offered tools take no arguments, and arguments the model invents are discarded. Tool
+results are untrusted content from the model's point of view. The tool exchange is not
+kept in conversation history. Before adding a tool that takes arguments or has effects,
+decide how its arguments are validated and authorized.
 
 Audit log: `data/freya_control.db` holds policy rules and the append-only, hash-chained
 `audit_event` table. It is verified at startup; if verification fails, the broker

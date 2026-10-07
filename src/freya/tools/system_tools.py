@@ -13,6 +13,9 @@ from freya.core.providers import (
 from freya.tools.hardware_inventory import (
     get_hardware_inventory,
 )
+from freya.tools.model_tools import (
+    MODEL_TOOL,
+)
 
 
 SYSTEM_TOOLS_PROVIDER = "system-tools-local"
@@ -299,13 +302,16 @@ def register_system_tools(
         CapabilityDefinition(
             name="system.info",
             description=(
-                "Returns basic information about "
-                "Freya's host computer and "
-                "operating system."
+                "Returns the computer's name, operating "
+                "system and version, architecture, and Python "
+                "version."
             ),
             provider=SYSTEM_TOOLS_PROVIDER,
             handler=get_system_info,
             category="system",
+            metadata={
+                MODEL_TOOL: True,
+            },
             aliases=[
                 "system",
                 "computer.info",
@@ -317,13 +323,17 @@ def register_system_tools(
         CapabilityDefinition(
             name="system.disk",
             description=(
-                "Returns the filesystem and total, "
-                "used, and free space for every "
-                "drive on the computer."
+                "Returns how full each drive letter is right "
+                "now: filesystem and total, used, and free "
+                "space. For the physical disks' model, type, "
+                "or health, use system_hardware."
             ),
             provider=SYSTEM_TOOLS_PROVIDER,
             handler=get_disk_info,
             category="system",
+            metadata={
+                MODEL_TOOL: True,
+            },
             aliases=[
                 "disk",
                 "disk.info",
@@ -336,13 +346,16 @@ def register_system_tools(
         CapabilityDefinition(
             name="system.gpu",
             description=(
-                "Returns NVIDIA GPU name, "
-                "temperature, utilization, "
-                "and VRAM usage."
+                "Returns the graphics card's live status: "
+                "temperature, utilization, and VRAM used and "
+                "free."
             ),
             provider=SYSTEM_TOOLS_PROVIDER,
             handler=get_gpu_info,
             category="system",
+            metadata={
+                MODEL_TOOL: True,
+            },
             aliases=[
                 "gpu",
                 "gpu.status",
@@ -354,13 +367,16 @@ def register_system_tools(
         CapabilityDefinition(
             name="system.cpu",
             description=(
-                "Returns the processor name, core "
-                "counts, clock speed, and current "
-                "CPU utilization."
+                "Returns the processor's live load: current "
+                "utilization, core and thread counts, and "
+                "clock speed."
             ),
             provider=SYSTEM_TOOLS_PROVIDER,
             handler=get_cpu_info,
             category="system",
+            metadata={
+                MODEL_TOOL: True,
+            },
             aliases=[
                 "cpu",
                 "cpu.status",
@@ -372,12 +388,17 @@ def register_system_tools(
         CapabilityDefinition(
             name="system.memory",
             description=(
-                "Returns total, used, and available "
-                "system memory (RAM)."
+                "Returns how much system memory (RAM) is in "
+                "use right now: total, used, and available. "
+                "For the installed modules' type, speed, or "
+                "slots, use system_hardware."
             ),
             provider=SYSTEM_TOOLS_PROVIDER,
             handler=get_memory_info,
             category="system",
+            metadata={
+                MODEL_TOOL: True,
+            },
             aliases=[
                 "ram",
                 "ram.status",
@@ -389,14 +410,22 @@ def register_system_tools(
         CapabilityDefinition(
             name="system.hardware",
             description=(
-                "Returns an inventory of the computer's "
-                "components: motherboard, BIOS, processor, "
-                "memory modules, physical disks, graphics "
-                "cards, network adapters, and audio devices."
+                "Returns what the computer is built from: "
+                "motherboard, BIOS version, processor model, "
+                "each memory module's size, type, and current "
+                "speed, physical disks with model and health, "
+                "graphics card and driver, network adapters, "
+                "and audio devices. Use this for questions "
+                "about components, specifications, or how "
+                "hardware is configured, rather than live "
+                "usage."
             ),
             provider=SYSTEM_TOOLS_PROVIDER,
             handler=get_hardware_inventory,
             category="system",
+            metadata={
+                MODEL_TOOL: True,
+            },
             aliases=[
                 "hardware",
                 "components",

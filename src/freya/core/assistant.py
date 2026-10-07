@@ -10,9 +10,16 @@ from freya.core.llm import (
 from freya.memory.memory_manager import MemoryManager
 
 
+MAX_TOOL_ROUNDS = 3
+
+
 class FreyaAssistant:
-    def __init__(self):
+    def __init__(self, tool_host=None):
         self.memory = MemoryManager()
+
+        # Optional: offers tools to the model and runs the ones it
+        # asks for. Without it Freya answers from the model alone.
+        self.tool_host = tool_host
 
         self.messages = [
             {
@@ -188,13 +195,79 @@ class FreyaAssistant:
             }
         )
 
+        tools = (
+            self.tool_host.definitions()
+            if self.tool_host is not None
+            else []
+        )
+
+        if tools:
+            messages_for_model.insert(
+                len(messages_for_model) - 1,
+                {
+                    "role": "system",
+                    "content": self.tool_host.hint,
+                },
+            )
+
         reply_parts = []
 
-        for chunk in chat_stream(
-            messages_for_model
-        ):
-            reply_parts.append(chunk)
-            yield chunk
+        for round_number in range(MAX_TOOL_ROUNDS + 1):
+            # After the last allowed round the model must answer
+            # with what it has.
+            offered = (
+                tools
+                if round_number < MAX_TOOL_ROUNDS
+                else None
+            )
+
+            tool_calls = []
+
+            for chunk in chat_stream(
+                messages_for_model,
+                tools=offered,
+            ):
+                if isinstance(chunk, dict):
+                    tool_calls.extend(
+                        chunk.get("tool_calls", [])
+                    )
+                    continue
+
+                reply_parts.append(chunk)
+                yield chunk
+
+            if not tool_calls:
+                break
+
+            # The tool exchange is only needed for this turn; it
+            # is not kept in the conversation history.
+            messages_for_model.append(
+                {
+                    "role": "assistant",
+                    "content": "",
+                    "tool_calls": [
+                        {
+                            "function": {
+                                "name": call["name"],
+                                "arguments": call["arguments"],
+                            }
+                        }
+                        for call in tool_calls
+                    ],
+                }
+            )
+
+            for call in tool_calls:
+                messages_for_model.append(
+                    {
+                        "role": "tool",
+                        "tool_name": call["name"],
+                        "content": self.tool_host.run(
+                            call["name"],
+                            call["arguments"],
+                        ),
+                    }
+                )
 
         reply = "".join(
             reply_parts

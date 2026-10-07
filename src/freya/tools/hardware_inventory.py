@@ -1,6 +1,7 @@
 import json
 import platform
 import subprocess
+import time
 
 
 # Read-only CIM queries. Serial numbers, MAC addresses, and other unique
@@ -35,21 +36,21 @@ if ($physicalDisks.Count -eq 0) {
         'Caption', 'Version', 'BuildNumber', 'OSArchitecture'
     )
     system = Rows (Get-CimInstance Win32_ComputerSystem) @(
-        'Manufacturer', 'Model', 'TotalPhysicalMemory'
+        'Manufacturer', 'Model'
     )
     motherboard = Rows (Get-CimInstance Win32_BaseBoard) @(
-        'Manufacturer', 'Product', 'Version'
+        'Manufacturer', 'Product'
     )
     bios = Rows (Get-CimInstance Win32_BIOS) @(
         'Manufacturer', 'SMBIOSBIOSVersion'
     )
     processors = Rows (Get-CimInstance Win32_Processor) @(
         'Name', 'NumberOfCores', 'NumberOfLogicalProcessors',
-        'MaxClockSpeed', 'SocketDesignation'
+        'MaxClockSpeed'
     )
     memory_modules = Rows (Get-CimInstance Win32_PhysicalMemory) @(
         'Manufacturer', 'PartNumber', 'Capacity', 'Speed',
-        'ConfiguredClockSpeed', 'DeviceLocator'
+        'ConfiguredClockSpeed', 'DeviceLocator', 'SMBIOSMemoryType'
     )
     disks = $physicalDisks
     graphics = Rows (Get-CimInstance Win32_VideoController) @(
@@ -60,30 +61,35 @@ if ($physicalDisks.Count -eq 0) {
         Get-CimInstance Win32_NetworkAdapter |
             Where-Object { $_.PhysicalAdapter }
     ) @('Name', 'NetEnabled', 'Speed')
-    sound_devices = Rows (Get-CimInstance Win32_SoundDevice) @(
-        'Name', 'Manufacturer'
-    )
+    sound_devices = Rows (Get-CimInstance Win32_SoundDevice) @('Name')
 } | ConvertTo-Json -Depth 4 -Compress
 """
 
-SECTIONS = (
-    "os",
-    "system",
-    "motherboard",
-    "bios",
-    "processors",
-    "memory_modules",
-    "disks",
-    "graphics",
-    "network_adapters",
-    "sound_devices",
+# Installed hardware rarely changes while Freya is running, and the query
+# takes several seconds, so results are reused for a while.
+CACHE_SECONDS = 600
+
+MEMORY_SPEED_NOTE = (
+    "current_speed_mhz is the speed the memory is running at now. "
+    "Windows does not report a module's rated (XMP/EXPO) speed; the "
+    "part number usually contains it."
 )
 
+# SMBIOS memory type codes for the generations Freya may meet.
+MEMORY_TYPES = {
+    24: "DDR3",
+    26: "DDR4",
+    34: "DDR5",
+}
 
-def _clean(value):
-    if isinstance(value, str):
-        return value.strip()
-    return value
+_cache = None
+_cache_time = 0.0
+
+
+def _text(value):
+    if value is None:
+        return None
+    return str(value).strip() or None
 
 
 def _rows(value):
@@ -94,26 +100,22 @@ def _rows(value):
         return []
 
     if isinstance(value, dict):
-        value = [value]
+        return [value]
 
-    return [
-        {key: _clean(item) for key, item in row.items()}
-        for row in value
-    ]
+    return list(value)
 
 
-def get_hardware_inventory():
-    """
-    Return an inventory of the computer's components.
+def _gb(value):
+    if not value:
+        return None
+    return round(int(value) / 1024**3, 1)
 
-    This is read-only and Windows-only for now.
-    """
 
-    if platform.system() != "Windows":
-        raise RuntimeError(
-            "Hardware inventory is only supported on Windows."
-        )
+def _join(*parts):
+    return " ".join(str(part) for part in parts if part) or None
 
+
+def _query():
     completed = subprocess.run(
         [
             "powershell.exe",
@@ -135,141 +137,144 @@ def get_hardware_inventory():
             "The hardware query returned no data."
         )
 
-    raw = json.loads(output)
+    return json.loads(output)
+
+
+def _normalize(raw):
+    def first(section):
+        rows = _rows(raw.get(section))
+        return rows[0] if rows else {}
+
+    os_row = first("os")
+    system = first("system")
+    board = first("motherboard")
+    bios = first("bios")
+
+    modules = [
+        {
+            "slot": _text(row.get("DeviceLocator")),
+            "size_gb": _gb(row.get("Capacity")),
+            "type": MEMORY_TYPES.get(
+                row.get("SMBIOSMemoryType")
+            ),
+            "current_speed_mhz": (
+                row.get("ConfiguredClockSpeed")
+                or row.get("Speed")
+            ),
+            "manufacturer": _text(row.get("Manufacturer")),
+            "part_number": _text(row.get("PartNumber")),
+        }
+        for row in _rows(raw.get("memory_modules"))
+    ]
+
+    adapters = []
+
+    for row in _rows(raw.get("network_adapters")):
+        connected = bool(row.get("NetEnabled"))
+        speed = row.get("Speed")
+        adapters.append(
+            {
+                "name": _text(row.get("Name")),
+                "connected": connected,
+                "link_speed_mbps": (
+                    round(int(speed) / 1_000_000)
+                    if connected and speed
+                    else None
+                ),
+            }
+        )
 
     return {
-        section: _rows(raw.get(section))
-        for section in SECTIONS
+        "operating_system": _join(
+            _text(os_row.get("Caption")),
+            _text(os_row.get("OSArchitecture")),
+        ),
+        "os_build": _text(os_row.get("BuildNumber")),
+        "system": _join(
+            _text(system.get("Manufacturer")),
+            _text(system.get("Model")),
+        ),
+        "motherboard": _join(
+            _text(board.get("Manufacturer")),
+            _text(board.get("Product")),
+        ),
+        "bios_version": _join(
+            _text(bios.get("Manufacturer")),
+            _text(bios.get("SMBIOSBIOSVersion")),
+        ),
+        "processors": [
+            {
+                "name": _text(row.get("Name")),
+                "cores": row.get("NumberOfCores"),
+                "threads": row.get("NumberOfLogicalProcessors"),
+                "max_speed_mhz": row.get("MaxClockSpeed"),
+            }
+            for row in _rows(raw.get("processors"))
+        ],
+        "memory_total_gb": (
+            round(sum(m["size_gb"] or 0 for m in modules), 1)
+            if modules
+            else None
+        ),
+        "memory_modules": modules,
+        "memory_speed_note": MEMORY_SPEED_NOTE,
+        "physical_disks": [
+            {
+                "name": _text(row.get("FriendlyName")),
+                "size_gb": _gb(row.get("Size")),
+                "type": _text(row.get("MediaType")),
+                "interface": _text(row.get("BusType")),
+                "health": _text(row.get("HealthStatus")),
+            }
+            for row in _rows(raw.get("disks"))
+        ],
+        "graphics_cards": [
+            {
+                "name": _text(row.get("Name")),
+                "driver_version": _text(row.get("DriverVersion")),
+                "display": (
+                    f"{row.get('CurrentHorizontalResolution')}x"
+                    f"{row.get('CurrentVerticalResolution')} at "
+                    f"{row.get('CurrentRefreshRate')} Hz"
+                    if row.get("CurrentHorizontalResolution")
+                    else None
+                ),
+            }
+            for row in _rows(raw.get("graphics"))
+        ],
+        "network_adapters": adapters,
+        "audio_devices": [
+            _text(row.get("Name"))
+            for row in _rows(raw.get("sound_devices"))
+        ],
     }
 
 
-def _gb(value):
-    if not value:
-        return None
-    return round(int(value) / 1024**3, 1)
-
-
-def _join(*parts):
-    return " ".join(str(part) for part in parts if part)
-
-
-def format_hardware_inventory(inventory):
+def get_hardware_inventory():
     """
-    Turn an inventory into short display lines, one component per line.
+    Return an inventory of the computer's components.
+
+    This is read-only and Windows-only for now.
     """
+    global _cache, _cache_time
 
-    lines = []
-
-    def add(label, text):
-        if text:
-            lines.append(f"{label}: {text}")
-
-    for row in inventory["os"]:
-        add(
-            "Operating system",
-            _join(
-                row.get("Caption"),
-                row.get("OSArchitecture"),
-                f"(build {row.get('BuildNumber')})",
-            ),
+    if platform.system() != "Windows":
+        raise RuntimeError(
+            "Hardware inventory is only supported on Windows."
         )
 
-    for row in inventory["system"]:
-        add(
-            "System",
-            _join(row.get("Manufacturer"), row.get("Model")),
-        )
+    if (
+        _cache is not None
+        and time.monotonic() - _cache_time < CACHE_SECONDS
+    ):
+        return _cache
 
-    for row in inventory["motherboard"]:
-        add(
-            "Motherboard",
-            _join(row.get("Manufacturer"), row.get("Product")),
-        )
+    _cache = _normalize(_query())
+    _cache_time = time.monotonic()
 
-    for row in inventory["bios"]:
-        add(
-            "BIOS",
-            _join(
-                row.get("Manufacturer"),
-                row.get("SMBIOSBIOSVersion"),
-            ),
-        )
+    return _cache
 
-    for row in inventory["processors"]:
-        add(
-            "Processor",
-            f"{row.get('Name')} — "
-            f"{row.get('NumberOfCores')} cores / "
-            f"{row.get('NumberOfLogicalProcessors')} threads",
-        )
 
-    modules = inventory["memory_modules"]
-
-    if modules:
-        total = sum(
-            int(row.get("Capacity") or 0) for row in modules
-        )
-        add(
-            "Memory",
-            f"{_gb(total)} GB in {len(modules)} module(s)",
-        )
-
-    for row in modules:
-        speed = row.get("ConfiguredClockSpeed") or row.get("Speed")
-        add(
-            f"  {row.get('DeviceLocator') or 'Module'}",
-            _join(
-                f"{_gb(row.get('Capacity'))} GB",
-                f"{speed} MHz" if speed else None,
-                row.get("Manufacturer"),
-                row.get("PartNumber"),
-            ),
-        )
-
-    for row in inventory["disks"]:
-        size = _gb(row.get("Size"))
-        add(
-            "Disk",
-            _join(
-                row.get("FriendlyName"),
-                "—",
-                f"{size} GB" if size else None,
-                row.get("MediaType"),
-                row.get("BusType"),
-                f"(health: {row.get('HealthStatus')})"
-                if row.get("HealthStatus")
-                else None,
-            ),
-        )
-
-    for row in inventory["graphics"]:
-        width = row.get("CurrentHorizontalResolution")
-        height = row.get("CurrentVerticalResolution")
-        refresh = row.get("CurrentRefreshRate")
-        display = (
-            f"driving {width}x{height} at {refresh} Hz"
-            if width and height
-            else None
-        )
-        add(
-            "Graphics",
-            _join(
-                row.get("Name"),
-                f"(driver {row.get('DriverVersion')})",
-                display,
-            ),
-        )
-
-    for row in inventory["network_adapters"]:
-        speed = row.get("Speed")
-        state = (
-            f"connected at {round(int(speed) / 1_000_000)} Mbps"
-            if row.get("NetEnabled") and speed
-            else "not connected"
-        )
-        add("Network", f"{row.get('Name')} — {state}")
-
-    for row in inventory["sound_devices"]:
-        add("Audio", row.get("Name"))
-
-    return lines
+def clear_hardware_inventory_cache():
+    global _cache
+    _cache = None

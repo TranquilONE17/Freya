@@ -34,7 +34,6 @@ def test_unavailable_model_is_reported_instead_of_crashing(
         freya=None,
         voice=None,
         tool_router=NoToolRouter(),
-        capability_broker=None,
         image_generator=None,
         gpu_manager=None,
         user_input="hello",
