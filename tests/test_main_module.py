@@ -18,6 +18,25 @@ def test_main_module_imports(main_module):
     assert callable(main_module.main)
 
 
+@pytest.mark.parametrize(
+    "typed, expected",
+    [
+        ("\\listen", "/listen"),
+        ("\\Conversation", "/Conversation"),
+        ("\\talk", "/talk"),
+        ("\\image a red fox", "/image a red fox"),
+        ("\\voice-file C:\\clips\\a.wav", "/voice-file C:\\clips\\a.wav"),
+        ("/listen", "/listen"),
+        ("\\o/ hello", "\\o/ hello"),
+        ("\\", "\\"),
+        ("\\listening is hard", "\\listening is hard"),
+        ("what does \\listen do", "what does \\listen do"),
+    ],
+)
+def test_backslash_commands_are_accepted(main_module, typed, expected):
+    assert main_module.normalize_command(typed) == expected
+
+
 def test_unavailable_model_is_reported_instead_of_crashing(
     main_module, monkeypatch, capsys
 ):
