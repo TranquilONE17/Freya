@@ -168,6 +168,70 @@ def test_readings_are_grouped_and_trimmed(serve):
     json.dumps(readings)
 
 
+def test_known_board_channels_are_named_and_dead_ones_dropped(serve):
+    chip = "/lpc/nct6798d/0"
+    serve(
+        group(
+            "Sensor",
+            hardware(
+                "ASUS TUF GAMING Z790-PLUS WIFI",
+                "/motherboard",
+                hardware(
+                    "Nuvoton NCT6798D",
+                    chip,
+                    group(
+                        "Temperatures",
+                        sensor("CPU Core", "48.0 °C", "Temperature", f"{chip}/temperature/0"),
+                        sensor("Temperature #1", "40.0 °C", "Temperature", f"{chip}/temperature/1"),
+                        sensor("Temperature #2", "35.0 °C", "Temperature", f"{chip}/temperature/2"),
+                        sensor("Temperature #3", "47.0 °C", "Temperature", f"{chip}/temperature/3"),
+                        sensor("Temperature #4", "19.0 °C", "Temperature", f"{chip}/temperature/4"),
+                        sensor("Temperature #5", "108.0 °C", "Temperature", f"{chip}/temperature/5"),
+                    ),
+                    group(
+                        "Fans",
+                        sensor("Fan #1", "0 RPM", "Fan", f"{chip}/fan/0"),
+                        sensor("Fan #2", "1340 RPM", "Fan", f"{chip}/fan/1"),
+                        sensor("Fan #3", "870 RPM", "Fan", f"{chip}/fan/2"),
+                    ),
+                ),
+            ),
+        )
+    )
+
+    readings = sensors.get_sensor_readings()
+    board = readings["components"][0]
+
+    assert board["temperatures_c"] == {
+        "CPU (motherboard reading)": 48.0,
+        "Temperature #1": 40.0,
+        "Motherboard": 35.0,
+        "VRM": 47.0,
+    }
+    assert board["fans_rpm"] == {"CPU fan": 1340, "CPU_OPT fan": 870}
+    assert board["fans_stopped_or_not_connected"] == 1
+    # One channel is still unidentified, so the caution stays.
+    assert "note" in readings
+
+
+def test_note_is_omitted_when_every_channel_is_named(serve):
+    serve(
+        group(
+            "Sensor",
+            hardware(
+                "Test CPU",
+                "/intelcpu/0",
+                group(
+                    "Temperatures",
+                    sensor("CPU Package", "41.0 °C", "Temperature", "/cpu/t/1"),
+                ),
+            ),
+        )
+    )
+
+    assert "note" not in sensors.get_sensor_readings()
+
+
 def test_unreachable_service_gives_a_helpful_error(monkeypatch):
     def refuse(url, timeout=None):
         raise urllib.error.URLError("connection refused")
