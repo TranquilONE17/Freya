@@ -1,0 +1,26 @@
+[project]
+name = "freya"
+version = "0.1.0"
+description = "Local-first, modular, multi-user agentic AI platform."
+readme = "README.md"
+# kokoro (via misaki) does not support Python 3.13 yet.
+requires-python = ">=3.12,<3.13"
+dependencies = [
+    "faster-whisper>=1.2",
+    "kokoro>=0.9.4",
+    "numpy>=2.0",
+    "ollama>=0.6",
+    "sounddevice>=0.5",
+    "soundfile>=0.13",
+]
+
+[build-system]
+requires = ["setuptools>=77"]
+build-backend = "setuptools.build_meta"
+
+# Dependency metadata only for now. The code under src/freya still uses imports
+# relative to that directory, so nothing is packaged until the package layout
+# work (alpha step 1) lands.
+[tool.setuptools]
+packages = []
+py-modules = []
