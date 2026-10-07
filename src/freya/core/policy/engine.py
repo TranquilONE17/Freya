@@ -166,23 +166,77 @@ class SqlitePolicyEngine:
         return [dict(row) for row in rows]
 
 
-def seed_alpha_policy(engine, actor, capabilities) -> bool:
+    def apply_seed(
+        self,
+        name: str,
+        subject: str,
+        capabilities,
+        reason: str,
+    ) -> bool:
+        """
+        Apply a named set of default allow rules exactly once.
+
+        A seed that has already been applied is never applied again,
+        so rules the owner later removed are not silently restored.
+        Returns True when the seed was applied by this call.
+        """
+        subject = self._normalize(subject)
+
+        with self._store.transaction() as connection:
+            applied = connection.execute(
+                "SELECT 1 FROM policy_seed WHERE name = ?",
+                (name,),
+            ).fetchone()
+
+            if applied is not None:
+                return False
+
+            now = datetime.now(timezone.utc).isoformat(
+                timespec="milliseconds"
+            )
+            inserted = 0
+
+            for capability in capabilities:
+                cursor = connection.execute(
+                    """
+                    INSERT OR IGNORE INTO policy_rule
+                        (subject, capability, effect, reason, created_at)
+                    VALUES (?, ?, 'allow', ?, ?)
+                    """,
+                    (
+                        subject,
+                        self._normalize(capability),
+                        reason,
+                        now,
+                    ),
+                )
+                inserted += cursor.rowcount
+
+            if inserted:
+                connection.execute(
+                    "UPDATE policy_state SET revision = revision + 1 "
+                    "WHERE id = 1"
+                )
+
+            connection.execute(
+                "INSERT INTO policy_seed (name, applied_at) VALUES (?, ?)",
+                (name, now),
+            )
+
+        return True
+
+
+ALPHA_DEFAULT_REASON = "Alpha default: local owner may use this capability."
+
+
+def seed_alpha_policy(engine, name, actor, capabilities) -> bool:
     """
-    On a brand-new policy store, allow the local owner to use the
-    given capabilities. An existing store is left untouched, so rules
-    that were later removed are not silently restored.
+    Allow the local owner to use a default set of capabilities, once
+    per named set.
     """
-    revision, _ = engine.state()
-
-    if revision != 0 or engine.list_rules():
-        return False
-
-    for capability in capabilities:
-        engine.add_rule(
-            subject=actor,
-            capability=capability,
-            effect="allow",
-            reason="Alpha default: local owner may use this capability.",
-        )
-
-    return True
+    return engine.apply_seed(
+        name,
+        actor,
+        capabilities,
+        ALPHA_DEFAULT_REASON,
+    )

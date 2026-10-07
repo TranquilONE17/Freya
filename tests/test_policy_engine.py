@@ -2,7 +2,8 @@ import sqlite3
 
 import pytest
 
-from freya.core.persistence import ControlStore
+from freya.core.persistence import ControlStore, control_store
+from freya.core.persistence.control_store import MIGRATIONS
 from freya.core.policy import SqlitePolicyEngine, seed_alpha_policy
 
 
@@ -28,10 +29,63 @@ def test_store_creates_schema_and_reopens(tmp_path):
 
     second = ControlStore(path)
 
-    assert version == 1
-    assert second.schema_version == 1
+    assert version == len(MIGRATIONS)
+    assert second.schema_version == len(MIGRATIONS)
     assert len(SqlitePolicyEngine(second).list_rules()) == 1
     second.close()
+
+
+def make_version_1_store(path, monkeypatch, seeded):
+    """Create a control database as it was before the seed table existed."""
+    monkeypatch.setattr(control_store, "MIGRATIONS", MIGRATIONS[:1])
+    store = ControlStore(path)
+    if seeded:
+        engine = SqlitePolicyEngine(store)
+        for name in ("system.info", "system.disk", "system.gpu"):
+            engine.add_rule("local-owner", name, "allow", "v1 seed")
+    store.close()
+    monkeypatch.undo()
+
+
+def test_upgrade_keeps_removed_default_rules_removed(tmp_path, monkeypatch):
+    path = tmp_path / "control.db"
+    make_version_1_store(path, monkeypatch, seeded=True)
+
+    store = ControlStore(path)
+    policy = SqlitePolicyEngine(store)
+    gpu_rule = next(
+        r for r in policy.list_rules() if r["capability"] == "system.gpu"
+    )
+    policy.remove_rule(gpu_rule["rule_id"])
+
+    system_seed = seed_alpha_policy(
+        policy, "alpha-system-tools", "local-owner", ["system.gpu"]
+    )
+    model_seed = seed_alpha_policy(
+        policy, "alpha-model-runtime", "local-owner", ["llm.chat"]
+    )
+
+    assert store.schema_version == len(MIGRATIONS)
+    assert system_seed is False
+    assert model_seed is True
+    assert policy.decide("local-owner", "system.gpu").allow is False
+    assert policy.decide("local-owner", "system.info").allow is True
+    assert policy.decide("local-owner", "llm.chat").allow is True
+    store.close()
+
+
+def test_upgrade_of_unseeded_store_still_gets_defaults(tmp_path, monkeypatch):
+    path = tmp_path / "control.db"
+    make_version_1_store(path, monkeypatch, seeded=False)
+
+    store = ControlStore(path)
+    policy = SqlitePolicyEngine(store)
+
+    assert seed_alpha_policy(
+        policy, "alpha-system-tools", "local-owner", ["system.info"]
+    ) is True
+    assert policy.decide("local-owner", "system.info").allow is True
+    store.close()
 
 
 def test_store_refuses_newer_schema(tmp_path):
@@ -140,13 +194,38 @@ def test_decide_raises_when_policy_state_is_unreadable(store, policy):
         policy.decide("local-owner", "system.info")
 
 
-def test_seed_only_applies_to_a_new_store(policy):
-    assert seed_alpha_policy(policy, "local-owner", ["system.info"]) is True
+def test_seed_applies_once_per_name(policy):
+    names = ["system.info", "system.disk"]
+
+    assert seed_alpha_policy(policy, "tools", "Local-Owner", names) is True
     assert policy.decide("local-owner", "system.info").allow is True
+    assert policy.decide("local-owner", "system.disk").allow is True
+    # One seed is one policy revision, however many rules it adds.
+    assert policy.state() == (1, 1)
 
     rule_id = policy.list_rules()[0]["rule_id"]
     policy.remove_rule(rule_id)
 
     # A removed rule must not come back on the next start.
-    assert seed_alpha_policy(policy, "local-owner", ["system.info"]) is False
+    assert seed_alpha_policy(policy, "tools", "local-owner", names) is False
     assert policy.decide("local-owner", "system.info").allow is False
+    assert policy.state() == (2, 2)
+
+
+def test_seeds_with_different_names_are_independent(policy):
+    assert seed_alpha_policy(policy, "tools", "local-owner", ["system.info"])
+    assert seed_alpha_policy(policy, "models", "local-owner", ["llm.chat"])
+
+    assert policy.state() == (2, 1)
+    assert policy.decide("local-owner", "llm.chat").allow is True
+
+
+def test_seed_does_not_duplicate_an_existing_rule(policy):
+    policy.add_rule("local-owner", "system.info", "allow", "Added by owner.")
+
+    assert seed_alpha_policy(policy, "tools", "local-owner", ["system.info"])
+
+    rules = policy.list_rules()
+    assert len(rules) == 1
+    assert rules[0]["reason"] == "Added by owner."
+    assert policy.state() == (1, 1)

@@ -34,7 +34,10 @@ Rules for the spec:
 - `src/freya/main.py` — CLI entry point (text, voice, image commands).
 - `src/freya/control_plane.py` — assembles providers, capabilities, policy, audit, and
   the broker for the single-workstation alpha.
-- `src/freya/core/` — `assistant.py`, `llm.py` (Ollama calls and memory prompts),
+- `src/freya/providers/model/ollama.py` — the `ollama-local` provider and its
+  `llm.chat`, `llm.chat_stream`, and `llm.embed` capabilities.
+- `src/freya/core/` — `assistant.py`, `llm.py` (memory prompts; model calls go through
+  `model_runtime.py`, which asks the broker),
   `capabilities/` (CapabilityRegistry, CapabilityBroker), `providers/`
   (ProviderRegistry), `policy/` (deny-by-default SQLite policy engine), `audit/`
   (hash-chained SQLite audit log, checkpoint sinks), `persistence/` (ControlStore and
@@ -45,14 +48,18 @@ Rules for the spec:
 - `src/freya/gpu/resource_manager.py` — Ollama/ComfyUI VRAM handoff.
 - `src/freya/voice/` — faster-whisper STT, Kokoro TTS. `src/freya/image/` — ComfyUI client.
 
-Known state: `main.py` runs the system tools only through `CapabilityBroker`, which
-checks policy (deny by default), checks availability, writes an audit record before
-executing, and records the outcome. A capability is available only while its provider
-is running and healthy. The broker attributes everything to a fixed `local-owner`
-principal because there are no authenticated sessions yet. Ollama, Whisper, Kokoro,
-ComfyUI, and memory are still called directly, not through the broker, and
-`tool_selector.py`/`tool_executor.py` are not yet wired into `main.py` (the executor
-calls the registry, not the broker). `CapabilityDefinition` is far smaller than the
+Known state: the system tools and every chat and embedding call run only through
+`CapabilityBroker`, which checks policy (deny by default), checks availability, writes
+an audit record before executing, and records the outcome (for a streamed reply, when
+the stream ends). A capability is available only while its provider is running and
+healthy; the Ollama provider's health is re-checked when a model call is unavailable or
+fails. The broker attributes everything to a fixed `local-owner` principal because
+there are no authenticated sessions yet. `core/llm.py` and `memory_manager.py` reach the
+model through a process-wide `ModelRuntime` set up by `build_local_control_plane()`, so
+the control plane must be built before `FreyaAssistant`. Still calling their backends
+directly: Whisper, Kokoro, ComfyUI, the memory store, the GPU manager's Ollama unload,
+the startup model warm-up, and the unwired `tool_selector.py`. `tool_executor.py` is
+also unwired and calls the registry, not the broker. `CapabilityDefinition` is far smaller than the
 baseline's capability schema; its `destructive`/`requires_gpu` flags are interim.
 
 Audit log: `data/freya_control.db` holds policy rules and the append-only, hash-chained
@@ -60,9 +67,12 @@ Audit log: `data/freya_control.db` holds policy rules and the append-only, hash-
 refuses every invocation. Checkpoints of the chain head go to the file named by
 `FREYA_AUDIT_CHECKPOINT_PATH` when set, which only adds tamper evidence if that file is
 somewhere this machine cannot rewrite. This does not protect against a host
-administrator. SQLite durability settings are provisional pending ADR-015.
+administrator. SQLite durability settings are provisional pending ADR-015; each audited
+invocation currently costs roughly 30–60 ms in synchronous writes. Default policy rules
+are applied once per named seed (`policy_seed` table), so removed rules stay removed.
 
-`tests/` covers the registries, tool modules, policy, audit, and broker; `voice/stt_test.py` and
+`tests/` covers the registries, tool modules, policy, audit, broker, and model runtime,
+using a fake Ollama client (`tests/conftest.py`); `voice/stt_test.py` and
 `voice/tts_test.py` are manual scripts, not automated tests. `memory_manager.py` locates
 `data/` relative to the source tree, so it only works from an editable install.
 
@@ -105,7 +115,9 @@ Done: `pyproject.toml`, the lockfile, the package layout, tests for the registri
 `ToolRegistry` merge, linking provider health to capability availability, and the SQLite
 audit log and policy table in front of capability execution.
 
-Not yet started: routing the LLM, voice, image, and memory paths through providers and
+Also done: Ollama behind a provider, with chat and embeddings through the broker.
+
+Not yet started: routing the voice, image, and memory paths through providers and
 the broker; authenticated sessions to replace the fixed `local-owner` principal; a
 dedicated Windows service identity and ACLs for the control database (owner action); an
 off-host checkpoint sink.
