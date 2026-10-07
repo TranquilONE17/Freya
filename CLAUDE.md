@@ -32,22 +32,37 @@ Rules for the spec:
 ## Repository layout (current)
 
 - `src/freya/main.py` — CLI entry point (text, voice, image commands).
+- `src/freya/control_plane.py` — assembles providers, capabilities, policy, audit, and
+  the broker for the single-workstation alpha.
 - `src/freya/core/` — `assistant.py`, `llm.py` (Ollama calls and memory prompts),
-  `capabilities/` (CapabilityRegistry), `providers/` (ProviderRegistry).
+  `capabilities/` (CapabilityRegistry, CapabilityBroker), `providers/`
+  (ProviderRegistry), `policy/` (deny-by-default SQLite policy engine), `audit/`
+  (hash-chained SQLite audit log, checkpoint sinks), `persistence/` (ControlStore and
+  its migrations).
 - `src/freya/memory/memory_manager.py` — SQLite memory with embeddings and history.
 - `src/freya/tools/` — system tools (registered as capabilities), regex router, LLM
   selector/executor.
 - `src/freya/gpu/resource_manager.py` — Ollama/ComfyUI VRAM handoff.
 - `src/freya/voice/` — faster-whisper STT, Kokoro TTS. `src/freya/image/` — ComfyUI client.
 
-Known state: `main.py` registers the system tools in `CapabilityRegistry` (the former
-`ToolRegistry` was merged into it) behind the `system-tools-local` provider in
-`ProviderRegistry`. A capability is available only while its provider is running and
-healthy. Ollama, Whisper, Kokoro, and ComfyUI are still called directly, not through
-providers or capabilities, and `tool_selector.py`/`tool_executor.py` are not yet wired
-into `main.py`. `CapabilityDefinition` is far smaller
-than the baseline's capability schema; its `destructive`/`requires_gpu` flags are interim.
-`tests/` covers the registries and the tool modules only; `voice/stt_test.py` and
+Known state: `main.py` runs the system tools only through `CapabilityBroker`, which
+checks policy (deny by default), checks availability, writes an audit record before
+executing, and records the outcome. A capability is available only while its provider
+is running and healthy. The broker attributes everything to a fixed `local-owner`
+principal because there are no authenticated sessions yet. Ollama, Whisper, Kokoro,
+ComfyUI, and memory are still called directly, not through the broker, and
+`tool_selector.py`/`tool_executor.py` are not yet wired into `main.py` (the executor
+calls the registry, not the broker). `CapabilityDefinition` is far smaller than the
+baseline's capability schema; its `destructive`/`requires_gpu` flags are interim.
+
+Audit log: `data/freya_control.db` holds policy rules and the append-only, hash-chained
+`audit_event` table. It is verified at startup; if verification fails, the broker
+refuses every invocation. Checkpoints of the chain head go to the file named by
+`FREYA_AUDIT_CHECKPOINT_PATH` when set, which only adds tamper evidence if that file is
+somewhere this machine cannot rewrite. This does not protect against a host
+administrator. SQLite durability settings are provisional pending ADR-015.
+
+`tests/` covers the registries, tool modules, policy, audit, and broker; `voice/stt_test.py` and
 `voice/tts_test.py` are manual scripts, not automated tests. `memory_manager.py` locates
 `data/` relative to the source tree, so it only works from an editable install.
 
@@ -72,6 +87,9 @@ than the baseline's capability schema; its `destructive`/`requires_gpu` flags ar
 - Work on a branch and open a pull request; never commit directly to `main`.
 - `data/freya_memory.db` holds the owner's personal memories. Never commit it, print its
   contents, or change its schema without first making a backup copy.
+- `data/freya_control.db` holds policy and the audit log. Never edit or delete its
+  rows, drop its triggers, or change shipped entries in `MIGRATIONS`; add a new
+  migration instead. Policy changes are owner actions.
 - No secrets, API keys, or tokens in code, config, commits, or logs.
 - Generated or untrusted code must never run inside Freya Core or with access to Core
   storage or credentials (ARCH-017).
@@ -83,7 +101,11 @@ than the baseline's capability schema; its `destructive`/`requires_gpu` flags ar
 
 ## Next planned work (alpha step 1)
 
-`pyproject.toml`, the lockfile, the package layout, tests for the registries, the
-`ToolRegistry` merge, and linking provider health to capability availability are done.
-Remaining: the SQLite audit log and policy table in front of
-capability execution.
+Done: `pyproject.toml`, the lockfile, the package layout, tests for the registries, the
+`ToolRegistry` merge, linking provider health to capability availability, and the SQLite
+audit log and policy table in front of capability execution.
+
+Not yet started: routing the LLM, voice, image, and memory paths through providers and
+the broker; authenticated sessions to replace the fixed `local-owner` principal; a
+dedicated Windows service identity and ACLs for the control database (owner action); an
+off-host checkpoint sink.

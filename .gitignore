@@ -41,6 +41,8 @@ desktop.ini
 
 # Databases / local memory
 *.db
+*.db-wal
+*.db-shm
 *.sqlite
 *.sqlite3
 
