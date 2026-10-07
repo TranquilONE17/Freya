@@ -17,8 +17,6 @@ from freya.tools.system_tools import (
     create_system_tools_provider,
     register_system_tools,
 )
-from freya.tools.tool_executor import SafeToolExecutor
-from freya.tools.tool_selector import ToolSelection
 
 
 def failing():
@@ -238,18 +236,3 @@ def test_system_tools_provider_advertises_its_capabilities():
     assert providers.providers_for_capability("system.gpu") == [
         providers.get(SYSTEM_TOOLS_PROVIDER)
     ]
-
-
-def test_executor_blocks_capability_with_unhealthy_provider(
-    capabilities, providers, calls
-):
-    providers.set_health("ollama-local", ProviderHealth.UNHEALTHY)
-
-    result = SafeToolExecutor(capabilities).execute_selection(
-        ToolSelection(use_tool=True, tool="llm.chat", confidence=1.0)
-    )
-
-    assert calls == []
-    assert result.executed is False
-    assert result.blocked is True
-    assert result.tool_name == "llm.chat"

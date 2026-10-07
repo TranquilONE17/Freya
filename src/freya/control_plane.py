@@ -37,6 +37,9 @@ from freya.providers.model.ollama import (
     register_ollama_capabilities,
     warm_ollama_models,
 )
+from freya.tools.model_tools import (
+    ModelToolHost,
+)
 from freya.tools.system_tools import (
     SYSTEM_TOOL_CAPABILITIES,
     SYSTEM_TOOLS_PROVIDER,
@@ -59,6 +62,7 @@ class ControlPlane:
     broker: CapabilityBroker
     audit_startup: AuditStartup
     model_runtime: ModelRuntime
+    model_tools: ModelToolHost
 
     def warm_models(self) -> None:
         """
@@ -196,6 +200,7 @@ def build_local_control_plane(
 
     return ControlPlane(
         model_runtime=model_runtime,
+        model_tools=ModelToolHost(capabilities, broker),
         store=store,
         providers=providers,
         capabilities=capabilities,
