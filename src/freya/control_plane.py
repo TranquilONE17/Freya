@@ -59,6 +59,11 @@ from freya.tools.model_tools import (
 
 
 IMAGE_SERVICE_PROVIDER = "image-service-local"
+
+# Freya's own record of past conversations, and the one thing the
+# model may do with it: look passages up.
+CONVERSATION_PROVIDER = "conversation-memory-local"
+CONVERSATION_RECALL = "conversation.recall"
 from freya.tools.system_tools import (
     SYSTEM_TOOL_CAPABILITIES,
     SYSTEM_TOOLS_PROVIDER,
@@ -159,6 +164,59 @@ class ControlPlane:
             "alpha-image-generate",
             LOCAL_OWNER.actor,
             [IMAGE_GENERATE],
+        )
+
+    def register_conversation_recall(self, recall) -> None:
+        """
+        Offer the model a way to look up what was said in earlier
+        conversations. It only reads Freya's own record of them.
+        """
+        self.providers.register(
+            ProviderDefinition(
+                provider_id=CONVERSATION_PROVIDER,
+                name="Freya conversation memory",
+                capabilities=[CONVERSATION_RECALL],
+                start_handler=lambda: None,
+                health_handler=lambda: True,
+            )
+        )
+        self.providers.start(CONVERSATION_PROVIDER)
+        self.providers.check_health(CONVERSATION_PROVIDER)
+
+        self.capabilities.register(
+            CapabilityDefinition(
+                name=CONVERSATION_RECALL,
+                description=(
+                    "Searches the word-for-word record of your earlier "
+                    "conversations with the user and returns the "
+                    "matching passages. Use it when the user asks what "
+                    "was said, decided, or mentioned before, or refers "
+                    "to an earlier conversation, and you need the exact "
+                    "details. Search with a few distinctive words."
+                ),
+                provider=CONVERSATION_PROVIDER,
+                handler=recall,
+                category="memory",
+                metadata={
+                    MODEL_TOOL: True,
+                    TOOL_PARAMETERS: {
+                        "query": {
+                            "description": (
+                                "A few words that would appear in the "
+                                "conversation being looked for."
+                            ),
+                            "max_length": 200,
+                        },
+                    },
+                },
+            )
+        )
+
+        seed_alpha_policy(
+            self.policy,
+            "alpha-conversation-recall",
+            LOCAL_OWNER.actor,
+            [CONVERSATION_RECALL],
         )
 
     def register_avatar(self, avatar) -> None:

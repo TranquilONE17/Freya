@@ -15,6 +15,7 @@
       <button class="tab" role="tab" id="tab-images" aria-selected="false" aria-controls="view-images" data-view="images">Images <span class="badge" id="images-badge" hidden></span></button>
       <button class="tab" role="tab" id="tab-voice" aria-selected="false" aria-controls="view-voice" data-view="voice">Voice</button>
       <button class="tab" role="tab" id="tab-avatar" aria-selected="false" aria-controls="view-avatar" data-view="avatar">Avatar</button>
+      <button class="tab" role="tab" id="tab-memory" aria-selected="false" aria-controls="view-memory" data-view="memory">Memory</button>
       <button class="tab" role="tab" id="tab-console" aria-selected="false" aria-controls="view-console" data-view="console" hidden>Console</button>
     </nav>
 
@@ -304,6 +305,47 @@
           <h2>What the avatar is allowed to do</h2>
           <p class="panel-note">Each of these is a separate permission. The ones marked Exists are all there is; the rest have not been built, so nothing can use them.</p>
           <ul class="engine-list" id="avatar-permissions"></ul>
+        </article>
+      </div>
+    </section>
+
+    <section class="view" id="view-memory" role="tabpanel" aria-labelledby="tab-memory">
+      <div class="voice-scroll">
+        <div class="voice-bar">
+          <p class="voice-message" id="memory-message" role="status"></p>
+        </div>
+
+        <article class="panel">
+          <h2>Search what Freya remembers</h2>
+          <p class="panel-note">Searches her saved memories and the word-for-word record of your conversations. Leave it empty to see everything she has saved about you. It is all kept on this computer only.</p>
+          <form class="actions" id="memory-form">
+            <input type="search" id="memory-query" placeholder="Words to look for" maxlength="200" aria-label="Words to look for">
+            <button type="submit" class="primary">Search</button>
+            <button type="button" class="ghost" id="memory-all">Show everything</button>
+          </form>
+        </article>
+
+        <article class="panel">
+          <h2>Saved memories <span class="panel-note" id="memory-count"></span></h2>
+          <p class="panel-note">Facts she keeps about you. A deleted memory is kept in her history so it can be restored with /memory-restore.</p>
+          <ul class="memory-list" id="memory-memories"></ul>
+        </article>
+
+        <article class="panel" id="memory-passages-panel" hidden>
+          <h2>In past conversations</h2>
+          <p class="panel-note">The matching messages, with what was said around them. Deleting a message removes it and the other half of its exchange (what was asked and what was answered) for good; so does deleting a conversation.</p>
+          <ul class="memory-list" id="memory-passages"></ul>
+        </article>
+
+        <article class="panel">
+          <h2>Conversations</h2>
+          <p class="panel-note">Each time Freya runs is one conversation. She starts each new one knowing the summaries of the last few.</p>
+          <ul class="memory-list" id="memory-conversations"></ul>
+          <div id="memory-opened" hidden>
+            <h3 id="memory-opened-title"></h3>
+            <p class="panel-note" id="memory-opened-summary"></p>
+            <ul class="memory-list" id="memory-opened-messages"></ul>
+          </div>
         </article>
       </div>
     </section>

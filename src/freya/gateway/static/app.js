@@ -164,6 +164,10 @@ function showEvent(event) {
       avatarResult(event);
       break;
 
+    case "memory":
+      memoryResult(event);
+      break;
+
     case "status":
       showStatus(event.status);
       break;
@@ -1148,6 +1152,221 @@ function showAvatar(next) {
   if (!avatarPending) avatarMessage(avatarSummary(), Boolean(avatar.error));
 }
 
+// -- memory ----------------------------------------------------------
+//
+// Searching, correcting, and deleting what Freya has saved. Everything
+// shown here is text someone typed or said, so it is only ever placed
+// on the page as text.
+
+let memoryRequests = 0;
+let memoryPending = null;
+let memoryQuery = "";
+let memoryLoaded = false;
+
+function memoryMessage(text, isError) {
+  const line = $("memory-message");
+  line.textContent = text;
+  line.classList.toggle("is-error", Boolean(isError));
+}
+
+function memorySend(action, fields, working) {
+  memoryRequests += 1;
+  const request = "m" + memoryRequests;
+  if (send({ type: "memory", action, request, query: memoryQuery, ...fields })) {
+    memoryPending = request;
+    memoryMessage(working || "Looking…");
+  }
+}
+
+function memoryButton(label, title, onClick) {
+  const button = element("button", "ghost", label);
+  button.type = "button";
+  if (title) button.title = title;
+  button.addEventListener("click", onClick);
+  return button;
+}
+
+function shortDate(text) {
+  return String(text || "").slice(0, 16).replace("T", " ");
+}
+
+function memoryRow(memory) {
+  const row = element("li");
+  const about = element("div", "about");
+  about.appendChild(element("span", "said", memory.content));
+  about.appendChild(
+    element(
+      "span",
+      "detail",
+      memory.type + (memory.key ? " · " + memory.key : "") + " · memory " + memory.id,
+    ),
+  );
+  row.appendChild(about);
+
+  row.appendChild(
+    memoryButton("Edit", "Change what this memory says.", () => {
+      const editor = element("textarea");
+      editor.value = memory.content;
+      editor.maxLength = 2000;
+      editor.rows = 3;
+      editor.setAttribute("aria-label", "The memory's new text");
+      const save = memoryButton("Save", "", () => {
+        memorySend("memory-edit", { id: memory.id, content: editor.value }, "Saving…");
+      });
+      save.className = "primary";
+      const cancel = memoryButton("Cancel", "", () => row.replaceWith(memoryRow(memory)));
+      row.replaceChildren(editor, save, cancel);
+      editor.focus();
+    }),
+  );
+  row.appendChild(
+    memoryButton("Delete", "Delete this memory.", () => {
+      memorySend("memory-delete", { id: memory.id }, "Deleting…");
+    }),
+  );
+  return row;
+}
+
+function messageRow(turn, isMatch) {
+  const row = element("li", isMatch ? "is-match" : "");
+  const about = element("div", "about");
+  about.appendChild(element("span", "who", turn.role === "user" ? "You" : "Freya"));
+  about.appendChild(element("span", "said", turn.content));
+  row.appendChild(about);
+  row.appendChild(
+    memoryButton("Delete", "Delete this message and the other half of its exchange, for good.", () => {
+      memorySend("turn-delete", { id: turn.id }, "Deleting…");
+    }),
+  );
+  return row;
+}
+
+function passageRow(passage) {
+  const row = element("li", "passage");
+  const head = element("div", "passage-head");
+  head.appendChild(
+    element(
+      "span",
+      "detail",
+      "Conversation " + passage.conversation + " · " + shortDate(passage.started_at),
+    ),
+  );
+  head.appendChild(
+    memoryButton("Open", "Read the whole conversation.", () => {
+      memorySend("conversation-read", { id: passage.conversation }, "Opening…");
+    }),
+  );
+  row.appendChild(head);
+  const list = element("ul", "memory-list");
+  passage.turns.forEach((turn) => list.appendChild(messageRow(turn, turn.id === passage.match)));
+  row.appendChild(list);
+  return row;
+}
+
+function conversationRow(conversation) {
+  const row = element("li");
+  const about = element("div", "about");
+  about.appendChild(
+    element(
+      "span",
+      "said",
+      conversation.summary || "Not summarised yet.",
+    ),
+  );
+  about.appendChild(
+    element(
+      "span",
+      "detail",
+      "Conversation " + conversation.id + " · " + shortDate(conversation.started_at) +
+        " · " + conversation.turns + " messages" + (conversation.current ? " · this one" : ""),
+    ),
+  );
+  row.appendChild(about);
+  row.appendChild(
+    memoryButton("Open", "Read the whole conversation.", () => {
+      memorySend("conversation-read", { id: conversation.id }, "Opening…");
+    }),
+  );
+  row.appendChild(
+    memoryButton("Delete", "Delete this whole conversation for good.", () => {
+      memorySend("conversation-delete", { id: conversation.id }, "Deleting…");
+    }),
+  );
+  return row;
+}
+
+function fillRows(id, items, make, empty) {
+  const list = $(id);
+  list.replaceChildren();
+  items.forEach((item) => list.appendChild(make(item)));
+  if (!items.length && empty) list.appendChild(element("li", "", empty));
+}
+
+function memoryResult(event) {
+  if (event.request !== memoryPending) return;
+  memoryPending = null;
+  memoryLoaded = true;
+
+  const memories = event.memories || [];
+  const passages = event.passages || [];
+  const searching = Boolean(event.query);
+
+  $("memory-count").textContent = memories.length ? "(" + memories.length + ")" : "";
+  fillRows(
+    "memory-memories",
+    memories,
+    memoryRow,
+    searching ? "No saved memory matches." : "No memories saved yet.",
+  );
+
+  $("memory-passages-panel").hidden = !searching;
+  fillRows("memory-passages", passages, passageRow, "Nothing in past conversations matches.");
+  fillRows(
+    "memory-conversations",
+    event.conversations || [],
+    conversationRow,
+    "No conversations saved yet.",
+  );
+
+  const opened = event.opened;
+  $("memory-opened").hidden = !opened;
+  if (opened) {
+    $("memory-opened-title").textContent =
+      "Conversation " + opened.id + " · " + shortDate(opened.started_at);
+    $("memory-opened-summary").textContent = opened.summary
+      ? "Summary: " + opened.summary
+      : "";
+    fillRows("memory-opened-messages", opened.messages || [], (turn) => messageRow(turn, false));
+    $("memory-opened").scrollIntoView({ block: "nearest" });
+  }
+
+  memoryMessage(
+    event.error ||
+      (searching
+        ? memories.length + " memories and " + passages.length +
+          " conversation passages match."
+        : ""),
+    Boolean(event.error),
+  );
+}
+
+function wireMemory() {
+  $("memory-form").addEventListener("submit", (submitted) => {
+    submitted.preventDefault();
+    memoryQuery = $("memory-query").value.trim();
+    memorySend("search", {});
+  });
+  $("memory-all").addEventListener("click", () => {
+    memoryQuery = "";
+    $("memory-query").value = "";
+    memorySend("search", {});
+  });
+  // Look once, the first time the tab is opened.
+  $("tab-memory").addEventListener("click", () => {
+    if (!memoryLoaded) memorySend("search", {});
+  });
+}
+
 // -- avatar models ---------------------------------------------------
 //
 // Everything shown about a model came out of a file someone else made,
@@ -1924,7 +2143,8 @@ function showView(name) {
     view.classList.toggle("is-active", view.id === "view-" + name);
   });
   if (name === "images") $("images-badge").hidden = true;
-  $(VIEW_INPUT[name]).focus();
+  const input = $(VIEW_INPUT[name] || (name === "memory" ? "memory-query" : ""));
+  if (input) input.focus();
 }
 
 document.querySelectorAll(".tab").forEach((tab) => {
@@ -1963,6 +2183,7 @@ if (recall(CONSOLE_SHOWN_KEY)) $("tab-console").hidden = false;
 wireVoice();
 wireAvatar();
 wireLibrary();
+wireMemory();
 wireCloneAndDesign();
 wireImport();
 
