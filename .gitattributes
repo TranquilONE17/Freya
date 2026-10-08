@@ -1,0 +1,3 @@
+# Third-party files are kept byte-for-byte as published, so that the
+# checksums recorded beside them stay true on every platform.
+src/freya/gateway/static/vendor/** -text

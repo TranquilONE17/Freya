@@ -1039,6 +1039,9 @@ function avatarResult(event) {
 
 function avatarSummary() {
   if (!avatar) return "";
+  if (avatar.config && avatar.config.enabled === false) {
+    return "The avatar is turned off. Nothing will show or start it until you turn it on.";
+  }
   if (avatar.error) return avatar.error;
   if (!avatar.running || !avatar.state || !avatar.state.visible) {
     return "The avatar is not showing.";
@@ -1110,6 +1113,14 @@ function showAvatar(next) {
     setRange("avatar-bound-" + edge, config.boundary[edge] * 100);
   });
 
+  // While she is turned off, nothing that would show her can be asked for.
+  const off = config.enabled === false;
+  $("avatar-power").textContent = off ? "Turn on" : "Turn off";
+  ["avatar-show", "avatar-hide", "avatar-stop", "avatar-point", "avatar-wave",
+    "avatar-idle", "avatar-rest"].forEach((id) => {
+    $(id).disabled = off;
+  });
+
   const chosen = avatar.appearances.find((a) => a.id === config.appearance);
   $("avatar-summary").textContent =
     (chosen ? chosen.summary + " " : "") + (avatar.notes || []).join(" ");
@@ -1133,7 +1144,438 @@ function showAvatar(next) {
   });
 
   showAvatarMap();
+  showLibrary();
   if (!avatarPending) avatarMessage(avatarSummary(), Boolean(avatar.error));
+}
+
+// -- avatar models ---------------------------------------------------
+//
+// Everything shown about a model came out of a file someone else made,
+// so it is only ever placed on the page as text.
+
+let previewed = null;
+let libraryScanned = false;
+
+function megabytes(bytes) {
+  return (bytes / (1024 * 1024)).toFixed(1) + " MB";
+}
+
+function modelFacts(model) {
+  const stats = model.stats || {};
+  return [
+    "VRM " + model.spec,
+    megabytes(model.size),
+    (stats.triangles || 0).toLocaleString() + " triangles",
+    (model.expressions || []).length + " expressions",
+  ].join(" · ");
+}
+
+function modelRow(model) {
+  const row = element("li");
+
+  if (model.has_thumbnail) {
+    const picture = element("img");
+    picture.src = "/avatar-thumbnails/" + encodeURIComponent(model.sha256);
+    picture.alt = "";
+    picture.loading = "lazy";
+    row.appendChild(picture);
+  } else {
+    row.appendChild(element("div", "no-thumbnail"));
+  }
+
+  const about = element("div", "about");
+  about.appendChild(element("span", "name", model.name));
+  about.appendChild(
+    element(
+      "span",
+      "detail",
+      (model.authors.length ? "By " + model.authors.join(", ") + " · " : "") +
+        model.file_name,
+    ),
+  );
+  about.appendChild(element("span", "detail", modelFacts(model)));
+  about.appendChild(element("span", "detail", model.licence_summary[0]));
+  row.appendChild(about);
+
+  if (model.warnings.length) {
+    row.appendChild(element("span", "state is-cloud", model.warnings.length + " to check"));
+  }
+
+  const preview = element("button", "ghost", "Preview");
+  preview.type = "button";
+  preview.addEventListener("click", () => previewModel(model.sha256));
+  row.appendChild(preview);
+
+  return row;
+}
+
+function fillList(id, items) {
+  const list = $(id);
+  list.replaceChildren();
+  items.forEach((text) => list.appendChild(element("li", "", text)));
+}
+
+function previewModel(sha256) {
+  const model = avatar.library.models.find((m) => m.sha256 === sha256);
+  if (!model) return;
+  previewed = model;
+
+  $("library-preview").hidden = false;
+  $("preview-name").textContent = model.name;
+  fillList("preview-terms", model.licence_summary);
+  fillList("preview-warnings", model.warnings);
+  $("preview-facts").textContent =
+    modelFacts(model) +
+    (model.authors.length ? " · by " + model.authors.join(", ") : "") +
+    (model.licence.licence_url ? " · terms: " + model.licence.licence_url : "");
+
+  $("preview-confirm-row").hidden = model.use.allowed;
+  $("preview-confirm").checked = false;
+  $("preview-confirm-text").textContent = model.use.confirmation;
+  if (!$("preview-save-name").value) $("preview-save-name").value = model.name.slice(0, 40);
+
+  showTester(null);
+
+  const status = $("preview-status");
+  const view = window.freyaAvatarView;
+
+  if (!view) {
+    status.textContent = "The 3D preview is not available in this window.";
+    return;
+  }
+  if (!model.can_preview) {
+    view.clear();
+    status.textContent = "This model is too large to preview here.";
+    return;
+  }
+
+  status.textContent = "Loading the model…";
+  view
+    .show("/avatar-models/" + encodeURIComponent(model.sha256), (done) => {
+      status.textContent = "Loading the model… " + Math.round(done * 100) + "%";
+    })
+    .then((loaded) => {
+      if (loaded && previewed === model) {
+        status.textContent = "Drag to turn her, scroll to zoom.";
+        showTester(loaded);
+      }
+    })
+    .catch((error) => {
+      status.textContent = error.message;
+    });
+}
+
+// -- trying a model's expressions ---------------------------------------
+//
+// One button per expression the loaded model has. A button switches its
+// expression on at the chosen strength and off again; several can be on
+// together. The names come from the model file, so they are only ever
+// shown as text.
+
+const testerOn = new Set();
+
+// The standard expressions, in the order their buttons are shown:
+// feelings, then eyes, then the mouth shapes used for speech.
+const EXPRESSION_LABELS = {
+  neutral: "Neutral",
+  happy: "Happy",
+  relaxed: "Relaxed",
+  sad: "Sad",
+  angry: "Angry",
+  surprised: "Surprised",
+  blink: "Blink",
+  blinkLeft: "Wink left",
+  blinkRight: "Wink right",
+  lookUp: "Look up",
+  lookDown: "Look down",
+  lookLeft: "Look left",
+  lookRight: "Look right",
+  aa: "Mouth: ah",
+  ih: "Mouth: ih",
+  ou: "Mouth: oo",
+  ee: "Mouth: eh",
+  oh: "Mouth: oh",
+};
+
+// "mouthSmileLeft" reads better as "mouth smile left".
+function plainName(name) {
+  return String(name).replace(/([a-z0-9])([A-Z])/g, "$1 $2").replace(/_/g, " ").toLowerCase();
+}
+
+function testerStrength() {
+  return Number($("preview-strength").value) / 100;
+}
+
+function testerButton(name, label) {
+  const button = element("button", "ghost", label);
+  button.type = "button";
+  button.setAttribute("aria-pressed", "false");
+  button.addEventListener("click", () => {
+    const view = window.freyaAvatarView;
+    if (!view) return;
+
+    const on = !testerOn.has(name);
+    if (on) testerOn.add(name);
+    else testerOn.delete(name);
+
+    button.classList.toggle("is-on", on);
+    button.setAttribute("aria-pressed", String(on));
+    view.setExpression(name, on ? testerStrength() : 0);
+  });
+  return button;
+}
+
+function showTester(loaded) {
+  testerOn.clear();
+  const main = $("preview-expressions");
+  const shapes = $("preview-shapes");
+  main.replaceChildren();
+  shapes.replaceChildren();
+
+  const order = Object.keys(EXPRESSION_LABELS);
+  const place = (name) => (order.indexOf(name) + 1) || order.length + 1;
+  const standard = ((loaded && loaded.standard) || [])
+    .slice()
+    .sort((a, b) => place(a) - place(b));
+  const extra = (loaded && loaded.extra) || [];
+
+  standard.forEach((name) => {
+    main.appendChild(testerButton(name, EXPRESSION_LABELS[name] || plainName(name)));
+  });
+  extra.forEach((name) => shapes.appendChild(testerButton(name, plainName(name))));
+
+  $("preview-shapes-box").hidden = extra.length === 0;
+  $("preview-shapes-title").textContent =
+    "Individual face shapes (" + extra.length + ")";
+  $("preview-expression-note").textContent = !loaded
+    ? ""
+    : standard.length + extra.length === 0
+      ? "This model has no expressions."
+      : "Click one to switch it on and again to switch it off. Several can be on together.";
+}
+
+function resetTester() {
+  testerOn.clear();
+  document.querySelectorAll(".tester button.is-on").forEach((button) => {
+    button.classList.remove("is-on");
+    button.setAttribute("aria-pressed", "false");
+  });
+  if (window.freyaAvatarView) window.freyaAvatarView.resetExpressions();
+}
+
+// -- finding files that could become avatars -----------------------------
+
+const SOURCE_STATES = {
+  ready: ["Ready", "is-ready"],
+  archive: ["Needs converting", "is-cloud"],
+  convertible: ["Needs converting", "is-cloud"],
+  unsuitable: ["Cannot be used", ""],
+};
+
+function sourceRow(source, creator) {
+  const row = element("li");
+  const about = element("div", "about");
+  about.appendChild(element("span", "name", source.name));
+  about.appendChild(
+    element("span", "detail", source.megabytes + " MB · " + source.folder),
+  );
+  about.appendChild(element("span", "detail", source.note));
+  if (source.inside && source.inside.length) {
+    about.appendChild(element("span", "detail", "Inside: " + source.inside.join(", ")));
+  }
+  row.appendChild(about);
+
+  const [label, style] = SOURCE_STATES[source.status] || ["", ""];
+  row.appendChild(element("span", "state " + style, label));
+
+  if (source.status !== "unsuitable") {
+    const needsBlender = source.status !== "ready";
+    const button = element(
+      "button",
+      "ghost",
+      source.status === "ready" ? "Add" : "Make ready",
+    );
+    button.type = "button";
+    button.disabled =
+      Boolean(creator.job && creator.job.running) || (needsBlender && !creator.blender);
+    if (needsBlender && !creator.blender) {
+      button.title = "Converting needs Blender, which is not installed.";
+    }
+    button.addEventListener("click", () => {
+      avatarSend(
+        "prepare",
+        { value: { source: source.id, author: $("creator-author").value } },
+        "Starting…",
+      );
+    });
+    row.appendChild(button);
+  }
+
+  return row;
+}
+
+function showCreator() {
+  const creator = avatar.creator;
+  if (!creator) return;
+
+  $("creator-folders").textContent = creator.folders.join(", ");
+
+  const list = $("creator-sources");
+  list.replaceChildren();
+  const sources = creator.sources;
+  if (sources) {
+    sources.forEach((source) => list.appendChild(sourceRow(source, creator)));
+    if (!sources.length) list.appendChild(element("li", "", "Nothing found there."));
+    $("creator-count").textContent =
+      sources.length + (sources.length === 1 ? " file" : " files");
+  }
+
+  const job = creator.job || {};
+  const line = $("creator-job");
+  line.classList.toggle("is-error", Boolean(job.error));
+  if (job.running) {
+    line.textContent = job.name + ": " + job.progress;
+  } else if (job.error) {
+    line.textContent = job.name + ": " + job.error;
+  } else if (job.file) {
+    line.textContent =
+      job.name + " is ready as " + job.file + ". It is in the list below: preview it there.";
+  } else {
+    line.textContent = "";
+  }
+  fillList("creator-notes", job.running || job.error ? [] : job.notes || []);
+}
+
+function avatarRow(saved) {
+  const row = element("li");
+  const about = element("div", "about");
+  about.appendChild(element("span", "name", saved.name));
+  about.appendChild(
+    element(
+      "span",
+      "detail",
+      "Model: " + saved.model_name +
+        (saved.model_present ? "" : " · its file is no longer in the folder") +
+        (saved.licence_confirmed ? " · you confirmed you may use it" : ""),
+    ),
+  );
+  row.appendChild(about);
+
+  const look = element("button", "ghost", "Preview");
+  look.type = "button";
+  look.disabled = !saved.model_present;
+  look.addEventListener("click", () => {
+    previewModel(saved.model);
+    $("library-preview").scrollIntoView({ block: "nearest" });
+  });
+  row.appendChild(look);
+
+  const isActive = avatar.library.active_profile === saved.id;
+  const use = element(
+    "button",
+    isActive ? "primary" : "ghost",
+    isActive ? "Freya's avatar" : "Use for Freya",
+  );
+  use.type = "button";
+  use.disabled = !saved.model_present;
+  use.title = isActive
+    ? "Click to go back to the placeholder figure."
+    : "Mark this as Freya's avatar.";
+  use.addEventListener("click", () => {
+    avatarSend("library-use", { value: { avatar: isActive ? null : saved.id } });
+  });
+  row.appendChild(use);
+
+  const remove = element("button", "ghost", "Delete");
+  remove.type = "button";
+  remove.title = "Deletes the saved avatar, not the model file.";
+  remove.addEventListener("click", () => {
+    avatarSend("library-delete", { value: { avatar: saved.id } });
+  });
+  row.appendChild(remove);
+
+  return row;
+}
+
+function showLibrary() {
+  const library = avatar.library;
+  if (!library) return;
+
+  showCreator();
+
+  $("library-folder").textContent = library.folder;
+  $("library-count").textContent = libraryScanned || library.models.length
+    ? library.models.length + (library.models.length === 1 ? " model" : " models")
+    : "";
+
+  const models = $("library-models");
+  models.replaceChildren();
+  library.models.forEach((model) => models.appendChild(modelRow(model)));
+
+  fillList(
+    "library-errors",
+    library.errors.map((problem) => problem.file + ": " + problem.error),
+  );
+
+  const saved = $("library-avatars");
+  saved.replaceChildren();
+  library.profiles.forEach((profile) => saved.appendChild(avatarRow(profile)));
+  if (!library.profiles.length) {
+    saved.appendChild(element("li", "", "No saved avatars yet."));
+  }
+
+  // The model being previewed may have gone from the folder.
+  if (previewed && !library.models.some((m) => m.sha256 === previewed.sha256)) {
+    previewed = null;
+    $("library-preview").hidden = true;
+    if (window.freyaAvatarView) window.freyaAvatarView.clear();
+  }
+}
+
+function scanLibrary() {
+  libraryScanned = true;
+  avatarSend("library-scan", {}, "Looking for models…");
+}
+
+function wireLibrary() {
+  $("library-scan").addEventListener("click", scanLibrary);
+
+  // Look once, the first time the Avatar tab is opened.
+  $("tab-avatar").addEventListener("click", () => {
+    if (!libraryScanned) scanLibrary();
+  });
+
+  $("creator-search").addEventListener("click", () => {
+    avatarSend("search", {}, "Searching…");
+  });
+
+  $("preview-strength").addEventListener("input", () => {
+    $("preview-strength-value").textContent = $("preview-strength").value + "%";
+    const view = window.freyaAvatarView;
+    if (view) testerOn.forEach((name) => view.setExpression(name, testerStrength()));
+  });
+  $("preview-reset").addEventListener("click", resetTester);
+  $("preview-view-body").addEventListener("click", () => {
+    if (window.freyaAvatarView) window.freyaAvatarView.setView("body");
+  });
+  $("preview-view-face").addEventListener("click", () => {
+    if (window.freyaAvatarView) window.freyaAvatarView.setView("face");
+  });
+
+  $("preview-save").addEventListener("click", () => {
+    if (!previewed) return;
+    avatarSend(
+      "library-save",
+      {
+        value: {
+          name: $("preview-save-name").value,
+          model: previewed.sha256,
+          confirmed: $("preview-confirm").checked,
+        },
+      },
+      "Saving…",
+    );
+  });
 }
 
 function avatarDisplay() {
@@ -1180,6 +1622,10 @@ function wireAvatar() {
   $("avatar-show").addEventListener("click", () => avatarSend("show", {}, "Starting the avatar…"));
   $("avatar-hide").addEventListener("click", () => avatarSend("hide", {}));
   $("avatar-stop").addEventListener("click", () => avatarSend("stop", {}, "Closing…"));
+  $("avatar-power").addEventListener("click", () => {
+    const off = avatar && avatar.config && avatar.config.enabled === false;
+    avatarSend(off ? "enable" : "disable", {}, off ? "Turning on…" : "Turning off…");
+  });
   $("avatar-wave").addEventListener("click", () => avatarSend("wave", {}));
   $("avatar-idle").addEventListener("click", () => avatarSend("idle", {}));
   $("avatar-rest").addEventListener("click", () => avatarSend("rest", {}));
@@ -1366,6 +1812,13 @@ function showStatus(next) {
     unavailable: ["Images unavailable", "bad"],
   }[status.images] || ["Images", ""];
   setPill("pill-images", images[0], images[1]);
+
+  // Leave the slider alone while it is being dragged.
+  const volume = $("voice-volume");
+  if (typeof status.volume === "number" && document.activeElement !== volume) {
+    volume.value = status.volume;
+    $("voice-volume-value").textContent = status.volume + "%";
+  }
 }
 
 // -- connection --------------------------------------------------------
@@ -1484,6 +1937,15 @@ wireComposer("image-form", "image-input", (text) => send({ type: "image", text }
 
 $("stop-speaking").addEventListener("click", () => send({ type: "interrupt" }));
 
+// The label follows the slider as it moves; Freya is told when it is let go.
+$("voice-volume").addEventListener("input", () => {
+  $("voice-volume-value").textContent = $("voice-volume").value + "%";
+});
+$("voice-volume").addEventListener("change", () => {
+  send({ type: "volume", value: Number($("voice-volume").value) });
+  $("voice-volume").blur();
+});
+
 $("console-hide").addEventListener("click", () => showConsoleTab(false));
 
 $("pill-mic").addEventListener("click", () => {
@@ -1500,6 +1962,7 @@ if (recall(CONSOLE_SHOWN_KEY)) $("tab-console").hidden = false;
 
 wireVoice();
 wireAvatar();
+wireLibrary();
 wireCloneAndDesign();
 wireImport();
 

@@ -120,6 +120,157 @@ renderer announcing a different version is not used. Unknown fields are ignored.
 - "Realistic" is a coloured placeholder, not a photorealistic character.
 - GPU utilisation reporting: not implemented (the placeholder uses none).
 
+## 3a. Avatar library and preview (added after Phase 1)
+
+The first two stages of an avatar creation system. They let the owner bring in
+VRM avatar models and look at them; they do not yet put a model on the desktop.
+
+**Implemented**
+
+- **Reading VRM files** (`vrm.py`): a VRM file is a glTF binary file with an avatar
+  description. Freya reads the description only: name, authors, the terms of use,
+  expressions and mouth shapes, skeleton, a thumbnail, and size. Both VRM 0.x and
+  1.0 are read, and their differently-named terms are put into one plain form.
+- **Library** (`library.py`): the `.vrm` files directly inside
+  `data/avatar_models/`, which the owner fills. Freya never changes, moves, or
+  deletes them. A model is known by the SHA-256 of its contents. Files that are not
+  usable are listed with the reason.
+- **Saved avatars**: a named choice of one model, one of which can be marked as
+  Freya's. Kept in `data/avatar_library.json`.
+- **Terms of use**: every model's own terms are shown in plain words. A model whose
+  terms let only its author, or only licensed people, use it, or that states no
+  terms, can be saved as an avatar only with the owner's confirmation that they
+  may; what was confirmed, and when, is kept with the avatar.
+- **3D preview** (`gateway/static/avatar-view.js`): the model is drawn in the Avatar
+  tab, can be turned and zoomed, and its expressions tried. Drawing stops while the
+  tab is not showing.
+- A fourth capability, `avatar.library`, with its own policy seed
+  `alpha-avatar-library`. Looking at the folder and changing saved avatars go
+  through the broker and are audited.
+
+**Downloaded files are untrusted.** The format contains no code and nothing in a
+file is executed. Sizes and offsets are checked before reading; text is cut to
+length and stripped of control characters, and is only ever placed on the page as
+text; a thumbnail is served only if its bytes really begin as the PNG or JPEG the
+file claims; only models found by scanning the folder can be fetched, by their
+hash; links and files outside the folder are ignored.
+
+**Third-party code.** The preview uses three.js 0.186.1 and @pixiv/three-vrm 3.5.5,
+both MIT-licensed, copied unmodified into `gateway/static/vendor/` with their
+licences. Each package was checked against the npm registry's published SHA-512,
+and the SHA-256 of every copied file is recorded in `vendor/README.txt` and checked
+by a test. They run only in the window's page.
+
+**Content security policy.** Two narrow additions were needed: the page's import map
+(its one inline script, which only says where the page's own library files are) is
+allowed by the hash of its exact text; and `blob:` is allowed for images and
+fetches, because a model's textures are unpacked inside the page. Inline scripts in
+general, `eval`, and loading from anywhere else remain refused.
+
+### Finding models and making them ready
+
+- **Search** (`sources.py`, capability `avatar.search`): pressing Search in the
+  Avatar tab looks in the owner's Downloads folder (or the folders named in
+  `FREYA_AVATAR_SEARCH`, separated by `;`) and two levels below it. Each 3D file is
+  listed as *ready* (a VRM), *needs converting* (`.blend`, `.fbx`, `.glb`, `.gltf`,
+  or a `.zip`/`.7z`/`.rar` containing one), or *cannot be used* (`.stl`, `.obj`
+  and other surface-only formats, with the reason). Only names and sizes are read,
+  and the list of names inside an archive; no model is opened and nothing is
+  unpacked.
+- **Make ready** (`converter.py`, capability `avatar.prepare`): a VRM is copied into
+  the avatar folder. Anything else is unpacked if needed, the most promising file is
+  chosen (one named as rigged before one named as unrigged or posed), and Blender
+  inspects it (`blender/inspect_model.py`) and reports its skeleton, size, and face
+  shapes. From that report Freya decides what is needed and says so in plain words,
+  then converts it (`blender/convert_model.py`): a production animation rig
+  (Auto-Rig Pro) is replaced by a plain humanoid skeleton and every part re-attached
+  to it; a model not made in metres is resized; hair pieces are joined; clear eye
+  coatings that a simple renderer would draw as white are removed; materials are
+  reduced to what an avatar file can hold; and the standard expressions and mouth
+  shapes are built from the model's face shapes. Every one of the 52 standard face
+  shapes the model has is also kept as a named expression of its own, for finer
+  animation later; this adds nothing to the file's size.
+- **Expression tester**: the preview has a button for every expression the loaded
+  model has (the standard ones, then the individual face shapes), a strength
+  slider, whole-figure and face views, and a button that rests the face. Several
+  expressions can be on together. Saved avatars can be previewed the same way.
+
+**Safeguards.** Only a file the last search found can be made ready, named by an
+opaque id, never by a path from the window. The original is never changed; output
+goes only to `data/avatar_models/`, under a new name (an existing avatar is never
+overwritten), and work files to `data/avatar_work/`, removed afterwards. An archive
+is refused if it would write outside its folder, holds links, or unpacks to more
+than 8 GB or 5,000 files. Blender runs as a separate program with no window, on
+Freya's own two scripts, with `--disable-autoexec` so that scripts embedded in a
+model file are not run, and is ended if it runs too long (5 minutes to inspect, 20
+to convert) or when Freya exits. One conversion runs at a time, on its own thread;
+the window is told how it is going. A converted file is marked with the most
+cautious terms (use only by someone its author has licensed, no redistribution),
+because Freya does not know the terms it was obtained under: the owner still has to
+confirm they may use it before it becomes an avatar.
+
+**Limits.** Blender (with its VRM add-on) must be installed by the owner;
+`FREYA_BLENDER` names it if it is not in the usual place. A model with no skeleton
+cannot be converted. Only the Auto-Rig Pro route has been tried with a real model;
+the route for other skeletons relies on the VRM add-on recognising the bones and is
+untested. Hair is attached to the head and does not swing. Opening a model file in
+Blender is safer than running it but is not a sandbox: a flaw in Blender's own file
+reading would run with the owner's rights. Models bought or downloaded under terms
+that forbid passing them on stay under `data/`, which is not in the repository.
+
+### Her face on the desktop (the `web` renderer)
+
+When a saved avatar is marked as Freya's, the overlay is started with the `web`
+renderer (`renderers/web.py`) instead of the placeholder, and goes back to the
+placeholder when the mark is removed, the model file goes, or the renderer cannot
+run. It shows **her face only**, in a small square tile with rounded corners at the
+top of the space the figure would take. The face blinks, shows the overlay's five
+expressions, moves its mouth while Freya speaks, turns toward what she is pointing
+at, and has a tinted holographic look.
+
+It is the placeholder renderer with the body replaced. The pointing line, the
+handle, its menu, sizes, boundaries, and every rule in `AvatarModel` are unchanged.
+The tile is moved by dragging the handle and resized by scrolling over it; a click
+on the handle opens the menu. With click-through on, clicks pass through the tile.
+
+The face is drawn by a page (`renderers/web_page/`) in a WebView2 window opened
+with `pywebview`, using the same vendored three.js and three-vrm as the preview.
+The overlay serves that page, the libraries, and the one model file to its own
+window from `127.0.0.1` on a random port, under a random key in the address, with a
+strict content security policy. The page is told what to draw (expression,
+speaking, a direction to look in) and sends nothing back. The model path reaches
+the overlay in the `FREYA_AVATAR_MODEL` environment variable; the overlay still
+opens none of Freya's databases.
+
+**What was tried and did not work.** A transparent web view window showing her
+whole body was the aim. On Windows the page's empty areas come out solid: neither
+a transparent web view background nor a colour-keyed window shows the desktop
+through it. Cutting the window to a circle does not work either: the web view
+draws past the cut, leaving a visible box. Rounded corners drawn by Windows itself
+are honoured, which is why she is in a rounded tile. A whole-body figure standing
+on the desktop needs a renderer with real per-pixel transparency (Godot, or a
+browser shell such as Electron), which is a later decision.
+
+**The converted model's arms deform badly** when lowered from the pose it was made
+in: the shoulders stay up while the arms bend below them. This is a fault in how
+`convert_model.py` re-attaches the upper arm and shoulder to the rebuilt skeleton,
+and is the other reason only her face is shown. It must be fixed before a
+whole-body renderer is worth building.
+
+**Not implemented**
+
+- **Her whole body on the desktop.** See above.
+- Customising a model (scale, colours, the holographic material, expression
+  mapping) is stage 3.
+- Creating a character from scratch is stage 5 and may never be built here; VRoid
+  Studio already does it and exports VRM.
+- Choosing a file from anywhere on the computer through the window. A file has to be
+  in a search folder, or be put in the avatar folder by hand.
+- **Tried with few real models.** The reader and preview were tested with VRM files
+  generated for the purpose, and then with two real ones made on this machine (one
+  built in Blender, one converted from a bought model). Toon shading, spring bones,
+  and VRM 0.x quirks in models from elsewhere are still unexercised.
+
 ## 4. Security and privacy
 
 **The avatar cannot see the screen or send input, because no such code exists.** It
@@ -134,6 +285,9 @@ Each permission is a separate capability, granted or withheld on its own by poli
 | `avatar.display` | Built | Show, hide, move, resize, restyle her |
 | `screen.geometry.read` | Built | Positions, sizes, usable areas, scale factors of displays. Nothing shown on them. |
 | `avatar.point` | Built | Point at or outline a place. Does not click, type, or change anything. |
+| `avatar.library` | Built | Read VRM model files from the avatar folder; keep the owner's saved avatars. Never changes a model file. |
+| `avatar.search` | Built | List files in the search folders that are or could become avatars. Reads names and sizes only. |
+| `avatar.prepare` | Built | Copy or convert a file the last search found into the avatar folder, using Blender. Never changes the original. |
 | `screen.accessibility.read` | Not built | Read what programs report about their windows and controls |
 | `screen.capture` | Not built | Capture screen content |
 | `screen.analyze` | Not built | Analyse captured content |
@@ -165,6 +319,12 @@ same Windows user as Freya; it is isolated against crashes, not against a malici
 renderer.
 
 ## 5. Settings
+
+**Turning her off completely.** "Turn off" in the Avatar tab sets `enabled` to
+false: the overlay program is closed, she is not started with Freya, and every
+request that would show, move, or point her is refused with a message saying she
+is turned off. Other settings can still be changed. Only "Turn on" (the `enable`
+action) brings her back, and it allows her to be shown without showing her.
 
 Stored per user. All are changeable while running.
 

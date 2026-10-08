@@ -151,6 +151,7 @@ def test_status_for_the_window(plane, tmp_path):
         "names": ["Freya", "Computer"],
         "model": "healthy",
         "images": "startable",
+        "volume": 100,
     }
     assert build_status(FakeListener(muted=True), settings, plane)[
         "microphone"
@@ -330,3 +331,72 @@ def test_app_window_falls_back_to_the_browser(tmp_path, monkeypatch):
     monkeypatch.setattr(window_module.webbrowser, "open", lambda url: False)
 
     assert window_module.open_app_window("http://127.0.0.1:1/x") == "none"
+
+
+# -- how loudly she speaks ----------------------------------------------
+
+
+def test_voice_volume_is_remembered_and_kept_in_range(tmp_path):
+    path = tmp_path / "settings.json"
+    settings = Settings(path)
+
+    assert settings.voice_volume == 100
+    assert settings.set_voice_volume(35) == 35
+    assert settings.set_voice_volume(250) == 100
+    assert settings.set_voice_volume(-4) == 0
+    assert settings.set_voice_volume(42.6) == 43
+
+    for bad in ("loud", None, True, float("nan"), [50]):
+        with pytest.raises(ValueError):
+            settings.set_voice_volume(bad)
+
+    # It survives a restart, and changing it does not lose her names.
+    settings.add_wake_name("computer")
+    again = Settings(path)
+    assert again.voice_volume == 43
+    assert again.wake_names == ["freya", "computer"]
+
+
+def test_damaged_volume_setting_falls_back_to_full(tmp_path):
+    path = tmp_path / "settings.json"
+    path.write_text('{"wake_names": ["freya", "nova"], "voice_volume": "eleven"}', encoding="utf-8")
+
+    settings = Settings(path)
+
+    assert settings.voice_volume == 100
+    assert settings.wake_names == ["freya", "nova"]
+
+
+def test_speech_is_played_at_the_chosen_volume(monkeypatch):
+    import threading
+
+    import numpy as np
+
+    from freya.voice import tts
+
+    played = []
+
+    class Stream:
+        active = False
+
+    monkeypatch.setattr(tts.sd, "play", lambda audio, rate, blocking=False: played.append(np.array(audio)))
+    monkeypatch.setattr(tts.sd, "get_stream", lambda: Stream())
+
+    voice = tts.FreyaVoice.__new__(tts.FreyaVoice)
+    voice.volume = 1.0
+    voice.speech_listener = None
+    voice._speaking_event = threading.Event()
+    voice._interrupt_event = threading.Event()
+    audio = np.full(8, 0.5, dtype=np.float32)
+
+    voice._play_audio(audio)
+    voice.set_volume(40)
+    voice._play_audio(audio)
+    voice.set_volume(0)
+    voice._play_audio(audio)
+    voice.set_volume(900)
+    voice._play_audio(audio)
+
+    assert [round(float(clip[0]), 3) for clip in played] == [0.5, 0.2, 0.0, 0.5]
+    # The generated audio itself is left as it was.
+    assert float(audio[0]) == 0.5

@@ -79,7 +79,8 @@ Rules for the spec:
   in `data/images/`.
 - `src/freya/hands_free.py` — starts background listening and handles `/mute`,
   `/unmute`, `/names`, `/name add|remove`. `src/freya/settings.py` — owner preferences
-  in `data/freya_settings.json` (currently the names Freya answers to).
+  in `data/freya_settings.json` (the names Freya answers to, and how loudly she
+  speaks).
   `src/freya/turn_gate.py` — lets one turn run at a time, typed or spoken.
 - `src/freya/image/` — ComfyUI client. `src/freya/providers/image/comfyui.py` — the
   `comfyui-local` provider. When an image is requested and ComfyUI is not answering,
@@ -160,7 +161,7 @@ baseline: there is no pairing, no per-client scope, and window turns are attribu
 the same fixed `local-owner` principal. The page shows everything with `textContent`
 and a strict Content-Security-Policy, because replies and tool results are untrusted.
 The window can only ask for a chat turn, an image, mute/unmute, stopping speech, a
-command, or a Voice tab request (with a recording sent as binary messages);
+voice volume, a command, or a Voice tab request (with a recording sent as binary messages);
 add new message types deliberately. `main.py` publishes conversation and image events
 on a module-level `EVENTS` bus; the console still prints as before. The bus calls its
 subscribers in publish order while it is locked, so a subscriber must never block: the
@@ -179,7 +180,7 @@ Spatial avatar: a client-side capability, not part of Core. Core must not import
 `freya.spatial_avatar`, and the overlay program must not import Core or open Freya's
 data; tests enforce both. The overlay is a separate process so that a renderer crash
 cannot affect Freya; all behaviour lives in `AvatarModel`, so a renderer only draws.
-Everything asked of the avatar is a broker call to one of three capabilities,
+Everything asked of the avatar on screen is a broker call to one of three capabilities,
 `avatar.display`, `screen.geometry.read`, and `avatar.point` (policy seed
 `alpha-avatar`); they are not offered to the model. **The avatar has no code for
 capturing the screen, reading other programs' windows, or sending input, and a test
@@ -190,8 +191,46 @@ and an owner decision first. What the user does directly to the overlay (drag,
 resize, hide, close) is honoured without a policy check so she can always be
 dismissed. Her size is always within the user's limits and she is always inside the
 user's boundary, on every frame. Targets are revalidated before each use. The
+avatar can be turned off completely (`enabled` in her settings, the "Turn off"
+button): her program is closed and showing, pointing, and starting her are refused
+until the owner turns her on, which only the `enable` action does. The
 placeholder renderer uses `tkinter` and no GPU. Settings are in
 `data/avatar_settings.json`, keyed by user (one user today).
+
+Avatar models: `spatial_avatar/vrm.py` reads the description inside a VRM file and
+`library.py` keeps the models in `data/avatar_models/` (filled by the owner; Freya
+never changes those files) and the owner's saved avatars. Downloaded VRM files are
+untrusted: keep every length and offset check, show text from them only as text, and
+serve a thumbnail only when its bytes match its claimed type. A model whose terms
+restrict who may use it needs the owner's recorded confirmation before it becomes an
+avatar. The 3D preview is `gateway/static/avatar-view.js`, using three.js and
+three-vrm copied unmodified into `static/vendor/` (checksums in `vendor/README.txt`,
+checked by a test; `.gitattributes` keeps them byte-exact). Every served file is
+listed in `STATIC_FILES`. The page's one inline script is its import map, allowed in
+the content security policy by hash; do not add `unsafe-inline` or `unsafe-eval`. A
+model marked as Freya's is shown on the desktop by the `web` renderer
+(`renderers/web.py`, a WebView2 window through `pywebview`): her face only, in a
+rounded tile, with the placeholder's handle and pointing line. The overlay serves
+the page, the libraries, and the one model file to its own window on loopback under
+a random key; the page only draws and sends nothing back. A web view window cannot
+be made see-through or cut to a shape on Windows (both were tried), so a whole-body
+figure needs a different renderer, and the converted model's shoulders need fixing
+first. With no model marked, the placeholder figure is used.
+
+Finding and converting models: `spatial_avatar/sources.py` lists files in the
+owner's Downloads folder (`FREYA_AVATAR_SEARCH` overrides) that are or could become
+avatars, reading names only (`avatar.search`). `converter.py` makes one ready
+(`avatar.prepare`, policy seed `alpha-avatar-creator`): it copies a VRM, or unpacks
+and converts a character file by running Blender on the two scripts in
+`spatial_avatar/blender/`. Those scripts run inside Blender's own Python, not
+Freya's, and import nothing from Freya. Keep these rules: only a file the last
+search found may be prepared; Blender is always started with `--disable-autoexec`
+and the scripts never enable scripts from a model file; the original is never
+changed and an existing avatar is never overwritten; archive limits and the
+outside-the-folder check stay. Blender and its VRM add-on are installed by the
+owner (`FREYA_BLENDER` names the program). Converted models may be under terms that
+forbid passing them on: they live under `data/` and must never be committed or
+shipped to other nodes.
 
 Voice studio: the Voice tab offers each kind of voice work only through engines that
 declare that role, and shows only the controls an engine reports. Kokoro runs inside
@@ -288,7 +327,10 @@ and Qwen3-TTS as helper-process engines for cloning and voice design; a benchmar
 Also done: the spatial avatar, Phase 1 (placeholder overlay, scaling, boundaries,
 pointing at made-up or user-chosen targets).
 
-Not yet started: avatar Phases 2 to 5 (real screen awareness, 3D rendering, lip
+Also done: an avatar library, search and conversion of downloaded models, and the
+chosen model's face on the desktop.
+
+Not yet started: avatar Phases 2 to 5 (real screen awareness, whole-body 3D rendering, lip
 synchronisation, other devices), each needing its own decision; the ElevenLabs engine; speech for devices other than this PC (needs
 the authenticated gateway); routing the voice, image, and memory paths through providers and
 the broker; authenticated sessions to replace the fixed `local-owner` principal; a

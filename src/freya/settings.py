@@ -11,6 +11,22 @@ DATA_DIR = Path(__file__).resolve().parents[2] / "data"
 SETTINGS_PATH = DATA_DIR / "freya_settings.json"
 
 DEFAULT_WAKE_NAMES = ["freya"]
+# How loudly Freya speaks, as a percentage of the audio as generated.
+DEFAULT_VOICE_VOLUME = 100
+
+
+def clamp_volume(value) -> int:
+    """
+    A volume as a whole percentage from 0 to 100. Raises ValueError for
+    anything that is not a number.
+    """
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        raise ValueError("A volume is a number from 0 to 100.")
+
+    if value != value:
+        raise ValueError("A volume is a number from 0 to 100.")
+
+    return int(round(min(max(value, 0), 100)))
 
 
 class Settings:
@@ -26,6 +42,7 @@ class Settings:
         self.path = Path(path)
         self._lock = threading.Lock()
         self._wake_names = list(DEFAULT_WAKE_NAMES)
+        self._voice_volume = DEFAULT_VOICE_VOLUME
         self._load()
 
     def _load(self):
@@ -34,11 +51,15 @@ class Settings:
         except (OSError, ValueError):
             return
 
-        stored = (
-            data.get("wake_names")
-            if isinstance(data, dict)
-            else None
-        )
+        if not isinstance(data, dict):
+            return
+
+        try:
+            self._voice_volume = clamp_volume(data.get("voice_volume"))
+        except ValueError:
+            pass
+
+        stored = data.get("wake_names")
 
         if not isinstance(stored, list):
             return
@@ -65,7 +86,13 @@ class Settings:
 
         temporary = self.path.with_suffix(".tmp")
         temporary.write_text(
-            json.dumps({"wake_names": self._wake_names}, indent=2),
+            json.dumps(
+                {
+                    "wake_names": self._wake_names,
+                    "voice_volume": self._voice_volume,
+                },
+                indent=2,
+            ),
             encoding="utf-8",
         )
         os.replace(temporary, self.path)
@@ -74,6 +101,25 @@ class Settings:
     def wake_names(self) -> List[str]:
         with self._lock:
             return list(self._wake_names)
+
+    @property
+    def voice_volume(self) -> int:
+        with self._lock:
+            return self._voice_volume
+
+    def set_voice_volume(self, value) -> int:
+        """
+        Remember how loudly Freya speaks. Returns the stored
+        percentage; raises ValueError if it is not a number.
+        """
+        value = clamp_volume(value)
+
+        with self._lock:
+            if value != self._voice_volume:
+                self._voice_volume = value
+                self._save()
+
+        return value
 
     def add_wake_name(self, name: str) -> str:
         """

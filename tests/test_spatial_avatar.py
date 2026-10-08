@@ -38,12 +38,14 @@ from freya.spatial_avatar.geometry import (
     single_display_layout,
 )
 from freya.spatial_avatar.host import STOPPED, AvatarError, AvatarHost
+from freya.spatial_avatar.library import AvatarLibrary
 from freya.spatial_avatar.model import AvatarModel
 from freya.spatial_avatar.placement import aim, keep_inside, place_beside
 from freya.spatial_avatar.renderers import choose_renderer, load_renderer
 from freya.spatial_avatar.service import (
     AVATAR_CAPABILITIES,
     AVATAR_DISPLAY,
+    AVATAR_LIBRARY,
     AVATAR_POINT,
     FUTURE_PERMISSIONS,
     SCREEN_GEOMETRY,
@@ -1144,6 +1146,7 @@ def service(plane, tmp_path):
         host=AvatarHost("null", log_path=tmp_path / "overlay.log"),
         publish=lambda kind, **fields: published({"event": kind, **fields}),
         probe=single_display_layout,
+        library=AvatarLibrary(tmp_path / "avatar_models", tmp_path / "avatar_library.json"),
     )
     service.published = published
     plane.register_avatar(service)
@@ -1161,8 +1164,11 @@ def audited(plane, capability):
     ]
 
 
-def test_only_three_avatar_capabilities_exist(plane, service):
-    assert AVATAR_CAPABILITIES == [AVATAR_DISPLAY, SCREEN_GEOMETRY, AVATAR_POINT]
+def test_only_the_listed_avatar_capabilities_exist(plane, service):
+    assert AVATAR_CAPABILITIES == [
+        AVATAR_DISPLAY, SCREEN_GEOMETRY, AVATAR_POINT, AVATAR_LIBRARY,
+        "avatar.search", "avatar.prepare",
+    ]
 
     for name in AVATAR_CAPABILITIES:
         assert plane.broker.exists(name)
@@ -1525,3 +1531,69 @@ def test_page_has_an_avatar_tab_that_only_asks():
     assert "innerHTML" not in script
     # The click-through setting says how she can still be reached.
     assert "still works" in page
+
+
+# -- turning her off completely ------------------------------------------
+
+
+def test_turned_off_avatar_cannot_be_shown_or_started(plane, service):
+    assert service.handle({"action": "show"})["error"] is None
+    assert service.running
+
+    answer = service.handle({"action": "disable"})
+    assert answer["error"] is None
+    assert answer["state"]["config"]["enabled"] is False
+    assert answer["state"]["config"]["visible"] is False
+    assert not service.running
+
+    for request in (
+        {"action": "show"},
+        {"action": "wave"},
+        {"action": "resize", "value": 30},
+        {"action": "expression", "value": "happy"},
+        {"action": "point", "display": "display-1", "target": "top-left"},
+        # Settings may change, but not so as to bring her back.
+        {"action": "configure", "value": {"visible": True}},
+        {"action": "configure", "value": {"enabled": True, "visible": True}},
+    ):
+        answer = service.handle(request)
+        assert not service.running, request
+        assert answer["state"]["config"]["enabled"] is False, request
+
+        if request["action"] != "configure":
+            assert "turned off" in answer["error"], request
+
+    # Speech is not passed to a program that is not there.
+    service.speech_started("hello")
+    service.speech_completed()
+    assert not service.running
+
+    # Hiding and closing are harmless while she is off.
+    assert service.handle({"action": "hide"})["error"] is None
+    assert service.handle({"action": "stop"})["error"] is None
+
+
+def test_turning_her_off_is_remembered_and_on_does_not_show_her(plane, service, tmp_path):
+    service.handle({"action": "show"})
+    service.handle({"action": "disable"})
+
+    stored = AvatarConfigStore(tmp_path / "avatar.json").load("local-owner")
+    assert stored.enabled is False and stored.visible is False
+
+    answer = service.handle({"action": "enable"})
+    assert answer["error"] is None
+    assert answer["state"]["config"]["enabled"] is True
+    # Turning her on allows her to be shown; it does not show her.
+    assert not service.running
+
+    assert service.handle({"action": "show"})["error"] is None
+    assert service.running
+
+
+def test_settings_cannot_say_off_and_showing_at_once():
+    config = AvatarConfig.from_value({"enabled": False, "visible": True})
+    assert config.enabled is False and config.visible is False
+
+    # Settings saved before this existed mean she is on.
+    assert AvatarConfig.from_value({"visible": True}).enabled is True
+    assert AvatarConfig().updated({"enabled": False}).as_dict()["enabled"] is False

@@ -18,6 +18,8 @@ class FreyaVoice:
         self.enabled = VOICE_ENABLED
         self.voice = FREYA_VOICE
         self.speed = VOICE_SPEED
+        # How loud speech is played, from 0 (silent) to 1 (as generated).
+        self.volume = 1.0
         self.pipeline = None
 
         self._speech_queue = queue.Queue()
@@ -79,6 +81,13 @@ class FreyaVoice:
         self.voice = voice
         self.speed = speed
 
+    def set_volume(self, percent):
+        """
+        Set how loudly Freya speaks, as a percentage from 0 to 100. It
+        applies from the next sentence she starts.
+        """
+        self.volume = min(max(float(percent), 0.0), 100.0) / 100.0
+
     def reset_voice(self):
         self.set_voice(FREYA_VOICE, VOICE_SPEED, "a")
 
@@ -131,6 +140,11 @@ class FreyaVoice:
         interrupted = False
 
         try:
+            volume = self.volume
+
+            if volume != 1.0:
+                audio = np.asarray(audio, dtype=np.float32) * volume
+
             sd.play(
                 audio,
                 SAMPLE_RATE,
