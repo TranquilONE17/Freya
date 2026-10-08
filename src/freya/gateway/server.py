@@ -104,6 +104,9 @@ class Gateway:
         self._sessions = set()
 
         self._work = queue.Queue()
+        # Requests about the avatar have a queue of their own, so that
+        # she can be moved or hidden while a long reply is under way.
+        self._avatar_work = queue.Queue()
         self._worker = None
         self._stopping = threading.Event()
         self._server = None
@@ -132,6 +135,7 @@ class Gateway:
 
         for target, name in (
             (self._serve, "FreyaGateway"),
+            (self._run_avatar_work, "FreyaGatewayAvatar"),
             (self._run_work, "FreyaGatewayWork"),
         ):
             thread = threading.Thread(target=target, name=name, daemon=True)
@@ -185,6 +189,7 @@ class Gateway:
                 break
 
         self._work.put(None)
+        self._avatar_work.put(None)
 
         if self._server is not None:
             self._server.shutdown()
@@ -379,6 +384,7 @@ class Gateway:
                         "status": self._actions.status(),
                         "console": self._actions.console_history(),
                         "voice": self._actions.voice_state(),
+                        "avatar": self._actions.avatar_state(),
                     }
                 )
             )
@@ -458,6 +464,13 @@ class Gateway:
                 return reject("Freya is shutting down.")
 
             self._work.put((kind, message))
+        elif kind == "avatar":
+            # The avatar service checks every field itself and sends
+            # each request through the broker.
+            if self._stopping.is_set():
+                return reject("Freya is shutting down.")
+
+            self._avatar_work.put(message)
         elif kind == "mute":
             self._actions.set_muted(message.get("muted") is True)
         elif kind == "interrupt":
@@ -470,6 +483,24 @@ class Gateway:
             )
         else:
             reject("Freya's window sent something she did not expect.")
+
+    def _run_avatar_work(self) -> None:
+        while True:
+            message = self._avatar_work.get()
+
+            if message is None or self._stopping.is_set():
+                return
+
+            try:
+                answer = self._actions.avatar_request(message)
+            except Exception as exc:
+                answer = {"state": None, "error": f"That did not work: {exc}"}
+
+            self._bus.publish(
+                "avatar",
+                request=message.get("request"),
+                **answer,
+            )
 
     def _run_work(self) -> None:
         """
