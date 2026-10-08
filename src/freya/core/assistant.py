@@ -1,4 +1,5 @@
 from freya.config import SYSTEM_PROMPT
+from freya.core.conversation_memory import ConversationMemory
 from freya.core.llm import (
     chat,
     chat_stream,
@@ -13,7 +14,7 @@ from freya.memory.memory_manager import MemoryManager
 MAX_TOOL_ROUNDS = 3
 
 
-class FreyaAssistant:
+class FreyaAssistant(ConversationMemory):
     def __init__(self, tool_host=None):
         self.memory = MemoryManager()
 
@@ -27,6 +28,8 @@ class FreyaAssistant:
                 "content": SYSTEM_PROMPT,
             }
         ]
+
+        self._start_conversations()
 
     def respond(self, user_input):
         command_response = (
@@ -92,6 +95,18 @@ class FreyaAssistant:
                 }
             )
 
+        past_note = self.past_search_note(
+            user_input
+        )
+
+        if past_note is not None:
+            messages_for_model.append(
+                {
+                    "role": "system",
+                    "content": past_note,
+                }
+            )
+
         messages_for_model.append(
             {
                 "role": "user",
@@ -115,6 +130,11 @@ class FreyaAssistant:
                 "role": "assistant",
                 "content": reply,
             }
+        )
+
+        self._keep_exchange(
+            user_input,
+            reply,
         )
 
         self._process_automatic_memory(
@@ -185,6 +205,18 @@ class FreyaAssistant:
                         "Relevant long-term memories:\n"
                         f"{memory_text}"
                     ),
+                }
+            )
+
+        past_note = self.past_search_note(
+            user_input
+        )
+
+        if past_note is not None:
+            messages_for_model.append(
+                {
+                    "role": "system",
+                    "content": past_note,
                 }
             )
 
@@ -288,6 +320,11 @@ class FreyaAssistant:
                 "role": "assistant",
                 "content": reply,
             }
+        )
+
+        self._keep_exchange(
+            user_input,
+            reply,
         )
 
         self._process_automatic_memory(
@@ -1193,9 +1230,20 @@ class FreyaAssistant:
         stripped_input = user_input.strip()
         lower_input = stripped_input.lower()
 
+        conversation_answer = self._conversation_command(
+            stripped_input
+        )
+
+        if conversation_answer is not None:
+            return conversation_answer
+
         if lower_input == "/memory-help":
             return (
                 "Memory commands:\n"
+                "/find <words> - Search memories and past conversations\n"
+                "/history - List past conversations\n"
+                "/history <number> - Read a past conversation\n"
+                "/history forget <number>|all - Delete past conversations\n"
                 "/memories - Show saved memories\n"
                 "/remember <text> - Save a memory\n"
                 "/edit <ID> <text> - Edit a memory\n"

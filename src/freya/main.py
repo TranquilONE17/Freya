@@ -723,6 +723,12 @@ def handle_normal_input(
 
     )
 
+    # Kept with the record of the conversation.
+
+    if freya is not None:
+
+        freya.source = source
+
     tool_was_used = handle_tool_request(
 
         tool_router,
@@ -1279,6 +1285,18 @@ def main(window_only=False):
 
 
 
+    def memory_from_window(message):
+
+        # Searching and changing what she has saved waits its turn
+
+        # like anything else that touches her memory.
+
+        with gate.turn():
+
+            return freya.memory_request(message)
+
+
+
     def say_from_window(text):
 
         # Runs on the window's worker thread; waits for any turn
@@ -1409,6 +1427,12 @@ def main(window_only=False):
 
     )
 
+    control_plane.register_conversation_recall(
+
+        freya.recall,
+
+    )
+
 
     def command_from_window(text):
 
@@ -1476,6 +1500,8 @@ def main(window_only=False):
             generate_image=image_from_window,
 
             set_muted=mute_from_window,
+
+            memory_request=memory_from_window,
 
             set_volume=volume_from_window,
 
@@ -2085,6 +2111,16 @@ def main(window_only=False):
                 "Freya: A turn was still running when I shut down."
 
             )
+
+        # Note what this conversation was about, for next time. If a
+
+        # turn is still running, it is done at the next start instead.
+
+        if finished:
+
+            freya.finish_conversation()
+
+
 
         # Generated clips are only kept while Freya is running.
 
