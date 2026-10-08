@@ -446,6 +446,29 @@ select,
   font-size: 13px;
 }
 
+.map-note {
+  margin: 14px 0 8px;
+}
+
+.screen-map {
+  position: relative;
+  width: min(100%, 420px);
+  aspect-ratio: 16 / 9;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--panel-raised);
+  cursor: crosshair;
+  touch-action: none;
+  user-select: none;
+}
+
+.screen-map-choice {
+  position: absolute;
+  border: 2px dashed var(--accent);
+  background: rgba(124, 156, 255, 0.18);
+  pointer-events: none;
+}
+
 .check {
   display: flex;
   align-items: center;

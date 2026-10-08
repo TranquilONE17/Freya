@@ -51,6 +51,11 @@ class WindowActions:
     voice_request: Callable[[dict], dict] = lambda message: {}
     voice_clip: Callable[[str], Optional[bytes]] = lambda clip_id: None
 
+    # The Avatar tab: its current state, and a request made from it
+    # (which returns the new state and an error message, if any).
+    avatar_state: Callable[[], dict] = lambda: {}
+    avatar_request: Callable[[dict], dict] = lambda message: {}
+
 
 def build_status(listener, settings, control_plane) -> dict:
     """

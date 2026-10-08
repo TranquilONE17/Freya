@@ -161,6 +161,31 @@ class ControlPlane:
             [IMAGE_GENERATE],
         )
 
+    def register_avatar(self, avatar) -> None:
+        """
+        Offer the spatial avatar's capabilities: showing her, reading
+        the layout of the displays, and pointing.
+
+        These are not offered to the model as tools. They are reached
+        from the window, through the broker. The avatar has no
+        capability for capturing the screen or sending input, and this
+        seeds no permission for either.
+        """
+        definition = avatar.provider()
+        self.providers.register(definition)
+        self.providers.start(definition.provider_id)
+        self.providers.check_health(definition.provider_id)
+
+        for capability in avatar.capabilities():
+            self.capabilities.register(capability)
+
+        seed_alpha_policy(
+            self.policy,
+            "alpha-avatar",
+            LOCAL_OWNER.actor,
+            [capability.name for capability in avatar.capabilities()],
+        )
+
     def ensure_image_backend(self, announce=print) -> None:
         """
         Make sure ComfyUI is running, starting it if needed. Raises

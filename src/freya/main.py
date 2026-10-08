@@ -35,6 +35,10 @@ from freya.console_tee import ConsoleOutput
 from freya.window_commands import CommandContext
 from freya.window_commands import run_window_command
 from freya.speech.setup import build_voice_studio
+
+from freya.spatial_avatar.service import AvatarService
+
+from freya.core.capabilities import LOCAL_OWNER
 from freya.single_instance import claim as claim_single_instance
 from freya.single_instance import show_message
 from freya.tools.tool_router import FreyaToolRouter
@@ -1036,6 +1040,32 @@ def main(window_only=False):
 
     voice_studio.restore_live_voice()
 
+    # The on-screen avatar: a separate overlay program. Its
+
+    # capabilities go through the broker like any others, and it
+
+    # is told when Freya starts and stops speaking.
+
+    avatar = AvatarService(
+
+        control_plane.broker,
+
+        LOCAL_OWNER.actor,
+
+        publish=EVENTS.publish,
+
+    )
+
+    control_plane.register_avatar(avatar)
+
+    voice.speech_listener = avatar
+
+    # Show her again if she was on screen when Freya last closed.
+
+    if avatar.config.visible:
+
+        avatar.handle({"action": "show"})
+
     stt = load_speech_recognition()
 
     settings = Settings()
@@ -1440,6 +1470,10 @@ def main(window_only=False):
             voice_request=voice_studio.handle,
 
             voice_clip=voice_studio.clips.read,
+
+            avatar_state=avatar.describe,
+
+            avatar_request=avatar.handle,
 
         ),
 
@@ -2037,6 +2071,12 @@ def main(window_only=False):
         voice_studio.free_memory()
 
         voice_studio.forget_unsaved_recordings()
+
+        # Close the avatar overlay. Whether she was showing is
+
+        # remembered, so she comes back next time if she was.
+
+        avatar.stop()
 
         console_output.uninstall()
 

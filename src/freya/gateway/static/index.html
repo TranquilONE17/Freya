@@ -14,6 +14,7 @@
       <button class="tab is-active" role="tab" id="tab-chat" aria-selected="true" aria-controls="view-chat" data-view="chat">Chat</button>
       <button class="tab" role="tab" id="tab-images" aria-selected="false" aria-controls="view-images" data-view="images">Images <span class="badge" id="images-badge" hidden></span></button>
       <button class="tab" role="tab" id="tab-voice" aria-selected="false" aria-controls="view-voice" data-view="voice">Voice</button>
+      <button class="tab" role="tab" id="tab-avatar" aria-selected="false" aria-controls="view-avatar" data-view="avatar">Avatar</button>
       <button class="tab" role="tab" id="tab-console" aria-selected="false" aria-controls="view-console" data-view="console" hidden>Console</button>
     </nav>
 
@@ -170,6 +171,76 @@
           <h2>Saved Voices</h2>
           <p class="panel-note">Each saved voice works only with the engine that made it.</p>
           <ul class="profile-list" id="profile-list"></ul>
+        </article>
+      </div>
+    </section>
+
+    <section class="view" id="view-avatar" role="tabpanel" aria-labelledby="tab-avatar">
+      <div class="voice-scroll">
+        <div class="voice-bar">
+          <p class="voice-message" id="avatar-message" role="status"></p>
+          <button type="button" class="primary" id="avatar-show">Show avatar</button>
+          <button type="button" class="ghost" id="avatar-hide">Hide</button>
+          <button type="button" class="ghost" id="avatar-stop" title="Close the avatar's overlay program">Close</button>
+        </div>
+
+        <article class="panel">
+          <h2>Appearance and size</h2>
+          <p class="panel-note" id="avatar-summary"></p>
+          <div class="fields">
+            <label>Appearance <select id="avatar-appearance"></select></label>
+            <label>Expression <select id="avatar-expression"></select></label>
+            <label>Size now <span class="value" id="avatar-size-value"></span>
+              <input type="range" id="avatar-size" step="1"></label>
+            <label>Smallest allowed <span class="value" id="avatar-min-value"></span>
+              <input type="range" id="avatar-min" step="1"></label>
+            <label>Largest allowed <span class="value" id="avatar-max-value"></span>
+              <input type="range" id="avatar-max" step="1"></label>
+            <label>Preferred <span class="value" id="avatar-preferred-value"></span>
+              <input type="range" id="avatar-preferred" step="1"></label>
+          </div>
+          <label class="check"><input type="checkbox" id="avatar-ontop"> Stay above other windows</label>
+          <label class="check"><input type="checkbox" id="avatar-clickthrough"> Click-through: mouse clicks pass through her to what is underneath. The small round button beside her still works, and so does this tab.</label>
+          <label class="check"><input type="checkbox" id="avatar-smooth"> Smooth movement</label>
+          <label class="check"><input type="checkbox" id="avatar-autoscale"> Choose her size automatically (her preferred size) until I resize her</label>
+        </article>
+
+        <article class="panel">
+          <h2>Movement and pointing</h2>
+          <p class="panel-note">A demonstration. The targets are made-up places on the screen; Freya is not looking at what is on it. Pointing never clicks anything.</p>
+          <div class="fields">
+            <label>Display <select id="avatar-display"></select></label>
+            <label>Demonstration target <select id="avatar-target"></select></label>
+          </div>
+          <div class="actions">
+            <button type="button" class="primary" id="avatar-point">Point at it</button>
+            <button type="button" class="ghost" id="avatar-wave">Wave</button>
+            <button type="button" class="ghost" id="avatar-idle">Stop pointing</button>
+            <button type="button" class="ghost" id="avatar-rest">Return to resting place</button>
+          </div>
+          <p class="panel-note map-note">Or drag across this map of the display to choose a place for her to point at:</p>
+          <div class="screen-map" id="avatar-map" role="img" aria-label="Map of the chosen display"><div class="screen-map-choice" id="avatar-map-choice" hidden></div></div>
+        </article>
+
+        <article class="panel">
+          <h2>Where she may go</h2>
+          <p class="panel-note">The part of each display she is allowed in, as percentages from its left and top edges. She never leaves it.</p>
+          <div class="fields">
+            <label>Left edge <span class="value" id="avatar-bound-left-value"></span>
+              <input type="range" id="avatar-bound-left" min="0" max="90" step="5"></label>
+            <label>Right edge <span class="value" id="avatar-bound-right-value"></span>
+              <input type="range" id="avatar-bound-right" min="10" max="100" step="5"></label>
+            <label>Top edge <span class="value" id="avatar-bound-top-value"></span>
+              <input type="range" id="avatar-bound-top" min="0" max="90" step="5"></label>
+            <label>Bottom edge <span class="value" id="avatar-bound-bottom-value"></span>
+              <input type="range" id="avatar-bound-bottom" min="10" max="100" step="5"></label>
+          </div>
+        </article>
+
+        <article class="panel">
+          <h2>What the avatar is allowed to do</h2>
+          <p class="panel-note">Each of these is a separate permission. Only the first three exist; the rest have not been built, so nothing can use them.</p>
+          <ul class="engine-list" id="avatar-permissions"></ul>
         </article>
       </div>
     </section>
