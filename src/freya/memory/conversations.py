@@ -17,10 +17,25 @@ def now() -> str:
     return datetime.now().astimezone().isoformat(timespec="seconds")
 
 
+# Words too common to find anything by. A search made only of these
+# is run with them anyway.
+COMMON_WORDS = frozenset(
+    """
+    a about again all already also am an and any anything are as at be been before
+    but by can could did do does done ever for from had has have having he her
+    here him his how i i'm i've if in into is it it's its just know last like me
+    mention mentioned mentioning my no not of on once or our out previously recall
+    remember said say saying she so some something tell that the their them then
+    there they thing things this time to told us was we we've were what when where
+    which who why will with would you you've your
+    """.split()
+)
+
+
 def search_terms(query) -> List[str]:
     """
     The words of a search, without anything the search index would
-    read as an instruction.
+    read as an instruction, and without words too common to help.
     """
     words = re.findall(r"[\w']+", str(query or "").lower())
     seen = []
@@ -31,7 +46,9 @@ def search_terms(query) -> List[str]:
         if len(word) > 1 and word not in seen:
             seen.append(word)
 
-    return seen[:MAX_SEARCH_TERMS]
+    useful = [word for word in seen if word not in COMMON_WORDS]
+
+    return (useful or seen)[:MAX_SEARCH_TERMS]
 
 
 class ConversationStore:
