@@ -1,0 +1,23 @@
+html,
+body {
+  margin: 0;
+  height: 100%;
+  overflow: hidden;
+}
+
+/* What is behind her face. The window's rounded corners and border are
+   drawn by Windows, not here. */
+body {
+  background: radial-gradient(circle at 50% 38%, #2b3550 0%, #141821 80%);
+}
+
+canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+/* The holographic appearance: a cool tint over the same face. */
+canvas.is-holographic {
+  filter: grayscale(0.8) sepia(0.7) hue-rotate(155deg) saturate(1.7) brightness(1.15);
+}

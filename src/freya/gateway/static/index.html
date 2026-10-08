@@ -35,6 +35,8 @@
 
       <form class="composer" id="chat-form">
         <textarea id="chat-input" rows="1" placeholder="Message Freya, or type /help for commands" aria-label="Message Freya" maxlength="4000"></textarea>
+        <label class="volume" title="How loudly Freya speaks. A change applies from her next sentence.">Voice <span class="value" id="voice-volume-value">100%</span>
+          <input type="range" id="voice-volume" min="0" max="100" step="5" value="100" aria-label="Voice volume"></label>
         <button type="button" class="ghost" id="stop-speaking" title="Stop her speaking">Stop voice</button>
         <button type="submit" class="primary">Send</button>
       </form>
@@ -182,7 +184,68 @@
           <button type="button" class="primary" id="avatar-show">Show avatar</button>
           <button type="button" class="ghost" id="avatar-hide">Hide</button>
           <button type="button" class="ghost" id="avatar-stop" title="Close the avatar's overlay program">Close</button>
+          <button type="button" class="ghost" id="avatar-power" title="Turn the avatar off completely, or back on">Turn off</button>
         </div>
+
+        <article class="panel">
+          <h2>Find models</h2>
+          <p class="panel-note">Freya looks in <span id="creator-folders"></span> for files that are avatars or could be made into one. She reads file names only until you ask her to make one ready. Making a file ready never changes the original: the avatar is written to her own folder, on this computer only.</p>
+          <div class="actions">
+            <button type="button" class="primary" id="creator-search">Search</button>
+            <input type="text" id="creator-author" placeholder="Who made it or where it is from (optional)" maxlength="120" aria-label="Who made the model or where it is from">
+            <span class="panel-note" id="creator-count"></span>
+          </div>
+          <p class="voice-message" id="creator-job" role="status"></p>
+          <ul class="terms" id="creator-notes"></ul>
+          <ul class="engine-list" id="creator-sources"></ul>
+        </article>
+
+        <article class="panel">
+          <h2>Avatar models</h2>
+          <p class="panel-note">The VRM avatar files in <span id="library-folder"></span>: ones you put there and ones Freya made ready. Freya never changes a model once it is there. The avatar on your desktop is still the placeholder figure; a chosen model is previewed here.</p>
+          <div class="actions">
+            <button type="button" class="primary" id="library-scan">Look for models</button>
+            <span class="panel-note" id="library-count"></span>
+          </div>
+          <ul class="engine-list model-list" id="library-models"></ul>
+          <ul class="engine-list" id="library-errors"></ul>
+
+          <div class="preview" id="library-preview" hidden>
+            <canvas id="avatar-canvas" aria-label="3D preview of the avatar model"></canvas>
+            <div class="preview-side">
+              <h2 id="preview-name"></h2>
+              <p class="panel-note" id="preview-status" role="status"></p>
+              <ul class="terms" id="preview-terms"></ul>
+              <p class="panel-note" id="preview-facts"></p>
+              <ul class="terms" id="preview-warnings"></ul>
+              <div class="actions">
+                <button type="button" class="ghost" id="preview-view-body">Whole figure</button>
+                <button type="button" class="ghost" id="preview-view-face">Face</button>
+                <button type="button" class="ghost" id="preview-reset">Rest the face</button>
+              </div>
+              <h3 class="tester-title">Try her expressions</h3>
+              <p class="panel-note" id="preview-expression-note"></p>
+              <label class="tester-strength">Strength <span class="value" id="preview-strength-value">100%</span>
+                <input type="range" id="preview-strength" min="0" max="100" step="5" value="100"></label>
+              <div class="tester" id="preview-expressions"></div>
+              <details class="tester-more" id="preview-shapes-box" hidden>
+                <summary id="preview-shapes-title">Individual face shapes</summary>
+                <div class="tester" id="preview-shapes"></div>
+              </details>
+              <label class="check" id="preview-confirm-row" hidden><input type="checkbox" id="preview-confirm"> <span id="preview-confirm-text"></span></label>
+              <div class="actions">
+                <input type="text" id="preview-save-name" placeholder="Name for this avatar" maxlength="40" aria-label="Name for this avatar">
+                <button type="button" class="ghost" id="preview-save">Save as an avatar</button>
+              </div>
+            </div>
+          </div>
+        </article>
+
+        <article class="panel">
+          <h2>Saved avatars</h2>
+          <p class="panel-note">Avatars you have made from models. One can be marked as Freya's.</p>
+          <ul class="profile-list" id="library-avatars"></ul>
+        </article>
 
         <article class="panel">
           <h2>Appearance and size</h2>
@@ -239,7 +302,7 @@
 
         <article class="panel">
           <h2>What the avatar is allowed to do</h2>
-          <p class="panel-note">Each of these is a separate permission. Only the first three exist; the rest have not been built, so nothing can use them.</p>
+          <p class="panel-note">Each of these is a separate permission. The ones marked Exists are all there is; the rest have not been built, so nothing can use them.</p>
           <ul class="engine-list" id="avatar-permissions"></ul>
         </article>
       </div>
@@ -264,6 +327,8 @@
     </figure>
   </div>
 
+  <script type="importmap">{"imports":{"three":"/vendor/three/three.module.js","three/addons/":"/vendor/three/addons/","@pixiv/three-vrm":"/vendor/three-vrm/three-vrm.module.min.js"}}</script>
   <script src="/app.js"></script>
+  <script type="module" src="/avatar-view.js"></script>
 </body>
 </html>

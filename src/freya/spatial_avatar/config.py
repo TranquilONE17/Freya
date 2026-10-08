@@ -150,6 +150,9 @@ class AvatarConfig:
     One user's avatar settings.
     """
 
+    # Off means there is no avatar at all: nothing may show or start
+    # her until the owner turns her back on.
+    enabled: bool = True
     visible: bool = False
     appearance: str = DEFAULT_APPEARANCE
     size: SizeLimits = field(default_factory=SizeLimits)
@@ -223,7 +226,9 @@ class AvatarConfig:
         rest_display = value.get("rest_display")
 
         return cls(
-            visible=value.get("visible") is True,
+            enabled=value.get("enabled") is not False,
+            # She cannot be both turned off and showing.
+            visible=value.get("visible") is True and value.get("enabled") is not False,
             appearance=appearance if appearance in APPEARANCES else default.appearance,
             size=size,
             current_size=(
@@ -249,6 +254,7 @@ class AvatarConfig:
     def as_dict(self) -> dict:
         return {
             "version": CONFIG_VERSION,
+            "enabled": self.enabled,
             "visible": self.visible,
             "appearance": self.appearance,
             "size": self.size.as_dict(),

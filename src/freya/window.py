@@ -38,6 +38,9 @@ class WindowActions:
     interrupt: Callable[[], None]
     status: Callable[[], dict]
 
+    # How loudly Freya speaks, as a percentage from 0 to 100.
+    set_volume: Callable[[float], None] = lambda percent: None
+
     # Run one of Freya's slash commands, as typed in the terminal.
     run_command: Callable[[str], None] = lambda text: None
 
@@ -55,6 +58,9 @@ class WindowActions:
     # (which returns the new state and an error message, if any).
     avatar_state: Callable[[], dict] = lambda: {}
     avatar_request: Callable[[dict], dict] = lambda message: {}
+    # An avatar model's file ("model") or thumbnail ("thumbnail"), as
+    # (media type, bytes), by the model's identifier.
+    avatar_file: Callable[[str, str], Optional[tuple]] = lambda kind, model: None
 
 
 def build_status(listener, settings, control_plane) -> dict:
@@ -83,6 +89,7 @@ def build_status(listener, settings, control_plane) -> dict:
         "names": [name.title() for name in settings.wake_names],
         "model": providers.get(OLLAMA_PROVIDER).health.value,
         "images": images,
+        "volume": getattr(settings, "voice_volume", 100),
     }
 
 

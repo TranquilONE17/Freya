@@ -12,6 +12,7 @@ dependencies = [
     "numpy>=2.0",
     "ollama>=0.6",
     "psutil>=7",
+    "pywebview>=6.2; sys_platform == 'win32'",
     "sounddevice>=0.5",
     "soundfile>=0.13",
     "websockets>=15",
@@ -42,7 +43,14 @@ where = ["src"]
 
 [tool.setuptools.package-data]
 "freya.image" = ["workflows/*.json"]
-"freya.gateway" = ["static/*"]
+"freya.spatial_avatar" = ["blender/*.py", "renderers/web_page/*"]
+"freya.gateway" = [
+    "static/*",
+    "static/vendor/*",
+    "static/vendor/three/*",
+    "static/vendor/three/addons/*/*",
+    "static/vendor/three-vrm/*",
+]
 
 # voice/stt_test.py and voice/tts_test.py are manual scripts, so only collect
 # from tests/.

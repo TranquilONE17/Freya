@@ -32,6 +32,9 @@ class AvatarRenderer:
     name = ""
     cost = 0
     needs_gpu = False
+    # True for a renderer that is used only when asked for by name,
+    # never picked as the most capable one that happens to run.
+    on_request = False
     appearances: Tuple[str, ...] = ()
 
     @classmethod
@@ -65,6 +68,7 @@ RENDERERS: Dict[str, Tuple[str, str]] = {
         "TkPlaceholderRenderer",
     ),
     "null": ("freya.spatial_avatar.renderers.null", "NullRenderer"),
+    "web": ("freya.spatial_avatar.renderers.web", "WebRenderer"),
 }
 
 DEFAULT_RENDERER = "tk-placeholder"
@@ -106,6 +110,9 @@ def choose_renderer(preferred: Optional[str] = None, gpu_available=False, max_co
             renderer = load_renderer(renderer_id)
         except ValueError as exc:
             notes.append(str(exc))
+            continue
+
+        if renderer.on_request and renderer_id != preferred:
             continue
 
         problem = renderer.available()
