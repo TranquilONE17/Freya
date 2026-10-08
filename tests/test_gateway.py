@@ -333,6 +333,34 @@ def test_failure_in_a_turn_is_reported_to_the_window(gateway, freya, bus):
     assert "the model fell over" in notice["text"]
 
 
+def test_generated_images_are_part_of_the_replayed_conversation(
+    gateway, bus, gallery
+):
+    image = gallery.add("a red fox", PNG)
+    bus.publish("user", text="draw a fox", source="window")
+    bus.publish("image_started", prompt="a red fox")
+    bus.publish("image_ready", image=image)
+    bus.publish("assistant_chunk", text="Here it is.")
+
+    cookie = sign_in(gateway)
+
+    with open_socket(gateway, cookie) as socket:
+        hello = receive(socket, "hello")
+
+    _, script = get(gateway, "/app.js", cookie=cookie)
+
+    # The image sits in the conversation where it was asked for...
+    assert [e["type"] for e in hello["history"]] == [
+        "user",
+        "image_ready",
+        "assistant_chunk",
+    ]
+    assert hello["history"][1]["image"]["id"] == image["id"]
+    # ...and is still listed once in the gallery.
+    assert [i["id"] for i in hello["images"]] == [image["id"]]
+    assert b"addChatImage" in script and b"replaying" in script
+
+
 def test_console_history_and_commands(gateway, freya):
     with open_socket(gateway, sign_in(gateway)) as socket:
         hello = receive(socket, "hello")

@@ -12,6 +12,9 @@ CONVERSATION_EVENTS = {
     "assistant_chunk",
     "assistant_end",
     "notice",
+    # A finished image is part of the conversation: it is shown in the
+    # chat where it was asked for, as well as in the gallery.
+    "image_ready",
 }
 
 
