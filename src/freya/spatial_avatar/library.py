@@ -393,6 +393,28 @@ class AvatarLibrary:
             self._active = profile_id
             self._save()
 
+    def active_model_path(self) -> Optional[Path]:
+        """
+        The model file of the avatar marked as Freya's, or None when
+        there is none or its file has gone.
+        """
+        with self._lock:
+            profile = next(
+                (p for p in self._profiles if p["id"] == self._active), None
+            )
+
+        if profile is None:
+            return None
+
+        path = self._path(profile["model"])
+
+        if path is None:
+            # The folder may not have been looked at yet this run.
+            self.scan()
+            path = self._path(profile["model"])
+
+        return path
+
     def describe(self) -> dict:
         return {
             "folder": str(self.models_dir),

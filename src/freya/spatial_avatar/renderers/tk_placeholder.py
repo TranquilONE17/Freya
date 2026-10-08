@@ -144,11 +144,18 @@ class TkPlaceholderRenderer(AvatarRenderer):
         self._handle_canvas.bind("<Button-1>", self._open_menu)
         self._handle_canvas.bind("<Button-3>", self._open_menu)
 
+        self._prepare()
         session.on_configure = self._configured
         self._configured(self._model.config)
 
         self._root.after(0, self._frame)
         self._root.mainloop()
+
+    def _prepare(self) -> None:
+        """
+        For a renderer built on this one: called once its windows
+        exist, before the first frame.
+        """
 
     def _configured(self, config) -> None:
         for window in (self._body, self._pointer, self._handle):

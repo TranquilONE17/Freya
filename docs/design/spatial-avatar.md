@@ -218,11 +218,48 @@ Blender is safer than running it but is not a sandbox: a flaw in Blender's own f
 reading would run with the owner's rights. Models bought or downloaded under terms
 that forbid passing them on stay under `data/`, which is not in the repository.
 
+### Her face on the desktop (the `web` renderer)
+
+When a saved avatar is marked as Freya's, the overlay is started with the `web`
+renderer (`renderers/web.py`) instead of the placeholder, and goes back to the
+placeholder when the mark is removed, the model file goes, or the renderer cannot
+run. It shows **her face only**, in a small square tile with rounded corners at the
+top of the space the figure would take. The face blinks, shows the overlay's five
+expressions, moves its mouth while Freya speaks, turns toward what she is pointing
+at, and has a tinted holographic look.
+
+It is the placeholder renderer with the body replaced. The pointing line, the
+handle, its menu, sizes, boundaries, and every rule in `AvatarModel` are unchanged.
+The tile is moved by dragging the handle and resized by scrolling over it; a click
+on the handle opens the menu. With click-through on, clicks pass through the tile.
+
+The face is drawn by a page (`renderers/web_page/`) in a WebView2 window opened
+with `pywebview`, using the same vendored three.js and three-vrm as the preview.
+The overlay serves that page, the libraries, and the one model file to its own
+window from `127.0.0.1` on a random port, under a random key in the address, with a
+strict content security policy. The page is told what to draw (expression,
+speaking, a direction to look in) and sends nothing back. The model path reaches
+the overlay in the `FREYA_AVATAR_MODEL` environment variable; the overlay still
+opens none of Freya's databases.
+
+**What was tried and did not work.** A transparent web view window showing her
+whole body was the aim. On Windows the page's empty areas come out solid: neither
+a transparent web view background nor a colour-keyed window shows the desktop
+through it. Cutting the window to a circle does not work either: the web view
+draws past the cut, leaving a visible box. Rounded corners drawn by Windows itself
+are honoured, which is why she is in a rounded tile. A whole-body figure standing
+on the desktop needs a renderer with real per-pixel transparency (Godot, or a
+browser shell such as Electron), which is a later decision.
+
+**The converted model's arms deform badly** when lowered from the pose it was made
+in: the shoulders stay up while the arms bend below them. This is a fault in how
+`convert_model.py` re-attaches the upper arm and shoulder to the rebuilt skeleton,
+and is the other reason only her face is shown. It must be fixed before a
+whole-body renderer is worth building.
+
 **Not implemented**
 
-- **The desktop avatar is still the placeholder figure.** Marking a saved avatar as
-  Freya's records the choice; nothing draws it on the desktop yet. That needs a 3D
-  renderer for the overlay (stage 4).
+- **Her whole body on the desktop.** See above.
 - Customising a model (scale, colours, the holographic material, expression
   mapping) is stage 3.
 - Creating a character from scratch is stage 5 and may never be built here; VRoid
