@@ -6,7 +6,7 @@ decisions settle how this design should proceed. They do not approve any ADR, ad
 the pending amendments into the architecture, or assign requirement IDs; those
 remain matters for reconciliation.
 
-- Requirements in this document carry provisional labels **NEW-M to NEW-Z and NEW-AA**. They
+- Requirements in this document carry provisional labels **NEW-M to NEW-Z, NEW-AA, and NEW-AB**. They
   continue from the pending amendments NEW-A to NEW-L and, like them, get final IDs
   only at reconciliation. No existing requirement or ADR ID is reused.
 - Where this document cites NEW-A to NEW-L it is citing **pending proposals**, not
@@ -150,6 +150,26 @@ to upgrade.
   stays on its version. A signature shows where a release came from; it is not
   permission to install it. Being connected to a node gives no authority over it
   (DIST-003, SEC-035, SEC-037).
+
+### Added requirement: uploading her code automatically
+
+Stated by the owner on 2026-10-08: the upload of her new code to git should be
+automatic, as long as she can roll back to an earlier version if needed.
+
+- **NEW-AB — Publishing her own code is automatic under a standing grant.** Pushing
+  Freya's own committed changes to her designated remote does not need an approval
+  each time. It happens under a standing authorization the owner gives once and can
+  withdraw, recorded as policy, naming the repository, the remote, and the branches
+  it covers. Each push is still a broker invocation with an audit record. The
+  condition the owner attached is part of the requirement: an automatic push is
+  allowed only while an earlier version can be returned to, locally and on the
+  remote.
+
+  **This changes an earlier decision.** NEW-T and decision D7 said every push needs
+  its own approval. For Freya's own code, the owner has replaced that with a standing
+  grant. It also departs from the original brief, which asked for separate approval
+  of pushes. Per-action approval still applies to everything NEW-AB does not name:
+  changing files, promoting a candidate, merging, and other repositories.
 
 ## 4. Design
 
@@ -369,7 +389,53 @@ question D11 below.
   model could reach would prove nothing.
 - The separate installed copy (prerequisite 7).
 
-### 4.8 Open item: starting with no internet
+### 4.8 Automatic upload, and going back (NEW-AB)
+
+**What is pushed, and when.** Only commits that came from changes the owner
+approved, in Freya's own working copy. Nothing is pushed from anywhere else. Whether
+a push happens as soon as a change is committed, or only once its candidate has been
+promoted after a trial, is decision D15.
+
+**Where it goes.** A branch (or branches) named in the standing grant. Whether that
+may include the main branch, or only a branch of Freya's own with the main branch
+still reached by an approved merge, is decision D16. `CLAUDE.md` currently says never
+to commit directly to `main`.
+
+**What "roll back" can and cannot mean.** This is the condition the owner set, so it
+is worth being exact:
+
+- *Locally*, going back is complete: the previous installed version is kept
+  (NEW-Z), and every earlier commit is in the local repository.
+- *On the remote*, going back means publishing a new commit that undoes the change,
+  or moving the release marker back to an earlier version. Earlier versions are
+  marked (tagged) when promoted so there is always a named one to return to.
+- *What cannot be undone*: once code is uploaded, it has left this computer. It can
+  be reverted, but not reliably un-published; copies may exist. History is never
+  rewritten or force-pushed to hide a change, because that would also destroy the
+  record needed to go back.
+
+So the safeguard that matters most happens **before** the push:
+
+- **Nothing sensitive is uploaded.** The excluded targets (NEW-N) are never in a
+  commit. Each automatic push is preceded by a check for secrets, credentials, and
+  personal data in what is about to be sent; a finding stops the push and asks the
+  owner. Uploading is a disclosure outside this computer (pending NEW-B), which is
+  why it gets this check even though it no longer gets a per-push approval.
+- **The way back is verified first.** No automatic push happens unless a previous
+  version is installed or installable locally and a marked earlier version exists.
+
+**Offline, and after a restart.** While the remote cannot be reached, pushes wait and
+Freya says so. NEW-W says recovery must not silently run queued changes or treat
+restored state as new authority. An automatic push is consistent with that only
+because its authority is the standing grant, checked again at the moment of
+sending, not the queued item: when the connection returns Freya re-reads the grant,
+re-runs the checks above, reconciles what the remote already has (NEW-X), and
+announces the push. If the grant has been withdrawn, nothing is sent.
+
+**Withdrawing it.** The owner can turn the standing grant off at any time from the
+local interface; pushes then go back to needing approval each time.
+
+### 4.9 Open item: starting with no internet
 
 Freya's speech components load models through libraries that can contact a model
 hub. During the speech benchmark such a contact was observed from Freya's own
@@ -469,6 +535,11 @@ means an approval can be used later than it was given, so the binding in section
 4.4 carries the weight: whatever the lifetime, an approval is good for one use, of
 one exact patch, on a target whose files are still exactly what was shown.
 
+**Changed afterwards.** D7 said a push needs its own approval each time. The owner
+later decided that uploading Freya's own code should be automatic provided she can
+return to an earlier version (NEW-AB, section 4.8). D7 still stands for opening a
+pull request, merge, deploy, and restart, and for repositories other than her own.
+
 ### Open after the decisions above
 
 - **D11. When are local merge, update, and restart built?** NEW-Y requires that they
@@ -484,6 +555,12 @@ one exact patch, on a target whose files are still exactly what was shown.
   independently administered nodes it is always that node's own decision.
 - **D14. Who signs a release, and with what.** A key the owner holds and uses at an
   approval step, kept where no agent, model, or guest can reach it.
+- **D15. When an automatic push happens.** As soon as an approved change is
+  committed, or only after its candidate has been tried and promoted.
+- **D16. Which branches the standing grant covers.** A branch of Freya's own only
+  (the main branch still reached by an approved merge), or the main branch as well.
+- **D17. What the pre-push check must catch, and what it does on a finding.**
+  Proposed: secrets, credentials, and personal data; stop and ask.
 
 ## 9. Not covered
 
