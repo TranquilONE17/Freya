@@ -262,11 +262,12 @@ function voiceMessage(text, isError) {
   line.classList.toggle("is-error", Boolean(isError));
 }
 
-function voiceSend(action, fields, working) {
+// `then` runs with the answer when the request succeeds.
+function voiceSend(action, fields, working, then) {
   voiceRequests += 1;
   const request = "v" + voiceRequests;
   if (send({ type: "voice", action, request, ...fields })) {
-    voicePending = request;
+    voicePending = { request, then };
     voiceMessage(working || "Working…");
   }
 }
@@ -275,7 +276,8 @@ function voiceResult(event) {
   showVoice(event.state);
 
   // Another window's request only refreshes what is shown here.
-  if (event.request !== voicePending) return;
+  if (!voicePending || event.request !== voicePending.request) return;
+  const then = voicePending.then;
   voicePending = null;
 
   if (event.error) {
@@ -296,6 +298,8 @@ function voiceResult(event) {
   } else {
     voiceMessage("Done.");
   }
+
+  if (then) then(event);
 }
 
 function languageOptions(engine) {
@@ -433,9 +437,283 @@ function profileRow(profile) {
   return row;
 }
 
+// -- cloning and designing ---------------------------------------------
+
+// A recording is decoded here, in the page, and sent to Freya as plain
+// mono samples, so she never has to parse an audio file she was given.
+const RECORDING_RATE = 24000;
+const RECORDING_CHUNK = 48 * 1024;
+const CLONE_SLIDERS = ["temperature", "exaggeration", "cfg_weight"];
+const SLOW_NOTE = " The first time takes longer while the engine loads.";
+
+// The recording Freya already holds for the chosen file, and the voice
+// that was last designed.
+let cloneReference = null;
+let designReference = null;
+
+function readyEngines(section) {
+  return ((voice && voice.sections[section]) || [])
+    .map(engineById)
+    .filter((engine) => engine && engine.status === "ready");
+}
+
+function engineOptions(engines) {
+  return engines.map((engine) => ({ value: engine.id, label: engine.name }));
+}
+
+function cloneModel() {
+  const engine = engineById($("clone-engine").value);
+  const models = (engine && engine.controls.models) || [];
+  return models.find((model) => model.id === $("clone-model").value) || models[0];
+}
+
+function refreshCloneControls() {
+  const engine = engineById($("clone-engine").value);
+  const model = cloneModel();
+  if (!engine || !model) return;
+
+  fillSelect(
+    $("clone-language"),
+    model.languages.map((l) => ({ value: l.code, label: l.name })),
+  );
+
+  CLONE_SLIDERS.forEach((name) => {
+    const range = engine.controls[name];
+    const shown = Boolean(range) && model.controls.includes(name);
+    $("clone-" + name + "-field").hidden = !shown;
+    if (!shown) return;
+
+    const input = $("clone-" + name);
+    input.min = range.min;
+    input.max = range.max;
+    input.step = range.step;
+    if (!input.dataset.touched) input.value = range.default;
+    $("clone-" + name + "-value").textContent = Number(input.value).toFixed(2);
+  });
+
+  const reference = engine.controls.reference || {};
+  $("clone-transcript-field").hidden = !reference.transcript;
+}
+
+function refreshCloneModels() {
+  const engine = engineById($("clone-engine").value);
+  if (!engine) return;
+  fillSelect(
+    $("clone-model"),
+    (engine.controls.models || []).map((m) => ({ value: m.id, label: m.name })),
+  );
+  refreshCloneControls();
+}
+
+function refreshDesignControls() {
+  const engine = engineById($("design-engine").value);
+  if (!engine) return;
+  fillSelect(
+    $("design-language"),
+    (engine.controls.languages || []).map((l) => ({ value: l.code, label: l.name })),
+  );
+  fillSelect(
+    $("design-model"),
+    (engine.controls.models || []).map((m) => ({ value: m.id, label: m.name })),
+  );
+}
+
+async function recordingSamples(file) {
+  const context = new AudioContext();
+  try {
+    const decoded = await context.decodeAudioData(await file.arrayBuffer());
+    const longest = (voice.reference_seconds || { max: 30 }).max;
+    const frames = Math.floor(Math.min(decoded.duration, longest) * RECORDING_RATE);
+    const offline = new OfflineAudioContext(1, Math.max(frames, 1), RECORDING_RATE);
+    const source = offline.createBufferSource();
+    source.buffer = decoded;
+    source.connect(offline.destination);
+    source.start();
+    const samples = (await offline.startRendering()).getChannelData(0);
+    const pcm = new Int16Array(samples.length);
+    for (let i = 0; i < samples.length; i += 1) {
+      pcm[i] = Math.max(-1, Math.min(1, samples[i])) * 32767;
+    }
+    return pcm;
+  } finally {
+    context.close();
+  }
+}
+
+// Make sure Freya holds the chosen recording, then carry on with its id.
+function withCloneRecording(next) {
+  const file = $("clone-file").files[0];
+  if (!file) {
+    voiceMessage("Choose a recording first.", true);
+    return;
+  }
+  if (!$("clone-consent").checked) {
+    voiceMessage("Confirm that you have the right to use this voice first.", true);
+    return;
+  }
+
+  const transcript = $("clone-transcript").value;
+  const key = [file.name, file.size, file.lastModified, transcript].join("|");
+  if (cloneReference && cloneReference.key === key) {
+    next(cloneReference.id);
+    return;
+  }
+
+  voiceMessage("Reading the recording…");
+  recordingSamples(file)
+    .then((pcm) => {
+      const bytes = pcm.buffer;
+      for (let at = 0; at < bytes.byteLength; at += RECORDING_CHUNK) {
+        socket.send(bytes.slice(at, at + RECORDING_CHUNK));
+      }
+      voiceSend(
+        "reference",
+        { sample_rate: RECORDING_RATE, consent: true, transcript },
+        "Sending the recording…",
+        (event) => {
+          cloneReference = { key, id: event.reference.id };
+          next(event.reference.id);
+        },
+      );
+    })
+    .catch(() => {
+      voiceMessage("That file could not be read as audio.", true);
+    });
+}
+
+function cloneSettings(reference) {
+  const model = cloneModel();
+  const settings = {
+    model: model.id,
+    language: $("clone-language").value,
+    reference,
+  };
+  CLONE_SLIDERS.forEach((name) => {
+    if (!$("clone-" + name + "-field").hidden) {
+      settings[name] = Number($("clone-" + name).value);
+    }
+  });
+  return settings;
+}
+
+function wireCloneAndDesign() {
+  $("clone-engine").addEventListener("change", refreshCloneModels);
+  $("clone-model").addEventListener("change", refreshCloneControls);
+  $("design-engine").addEventListener("change", refreshDesignControls);
+
+  CLONE_SLIDERS.forEach((name) => {
+    const input = $("clone-" + name);
+    input.addEventListener("input", () => {
+      input.dataset.touched = "1";
+      $("clone-" + name + "-value").textContent = Number(input.value).toFixed(2);
+    });
+  });
+
+  $("clone-preview").addEventListener("click", () => {
+    withCloneRecording((reference) => {
+      voiceSend(
+        "preview",
+        {
+          engine: $("clone-engine").value,
+          kind: "clone",
+          settings: cloneSettings(reference),
+          text: $("clone-text").value,
+        },
+        "Generating speech in the cloned voice…" + SLOW_NOTE,
+      );
+    });
+  });
+
+  $("clone-save").addEventListener("click", () => {
+    withCloneRecording((reference) => {
+      voiceSend(
+        "save",
+        {
+          engine: $("clone-engine").value,
+          kind: "clone",
+          settings: cloneSettings(reference),
+          name: $("clone-name").value,
+        },
+        "Saving…",
+      );
+    });
+  });
+
+  $("design-generate").addEventListener("click", () => {
+    const description = $("design-description").value;
+    const language = $("design-language").value;
+    const engine = $("design-engine").value;
+    voiceSend(
+      "design",
+      {
+        engine,
+        settings: { description, language },
+        text: $("design-text").value,
+      },
+      "Designing the voice…" + SLOW_NOTE,
+      (event) => {
+        designReference = { id: event.reference.id, engine, description, language };
+        $("design-save").disabled = false;
+        $("design-save").title = "";
+      },
+    );
+  });
+
+  $("design-save").addEventListener("click", () => {
+    if (!designReference) return;
+    voiceSend(
+      "save",
+      {
+        engine: designReference.engine,
+        kind: "design",
+        name: $("design-name").value,
+        settings: {
+          description: designReference.description,
+          language: designReference.language,
+          reference: designReference.id,
+          model: $("design-model").value,
+        },
+      },
+      "Saving…",
+      () => {
+        designReference = null;
+        $("design-save").disabled = true;
+      },
+    );
+  });
+
+  $("voice-free").addEventListener("click", () => {
+    voiceSend("free", {}, "Unloading…");
+  });
+}
+
+function showCloneAndDesign() {
+  const cloners = readyEngines("clone");
+  $("clone-form").hidden = !cloners.length;
+  if (cloners.length) {
+    fillSelect($("clone-engine"), engineOptions(cloners));
+    refreshCloneModels();
+    const limits = voice.reference_seconds || { min: 6, max: 30 };
+    $("clone-file-note").textContent =
+      limits.min + " to " + limits.max + " seconds of one person speaking";
+    if (!$("clone-text").value) $("clone-text").value = voice.sample_text;
+  }
+
+  const designers = readyEngines("design");
+  $("design-form").hidden = !designers.length;
+  if (designers.length) {
+    fillSelect($("design-engine"), engineOptions(designers));
+    refreshDesignControls();
+    if (!$("design-text").value) $("design-text").value = voice.sample_text;
+  }
+
+  $("voice-free").hidden = !voice.engines.some((engine) => engine.loaded);
+}
+
 function showVoice(next) {
   if (!next || !next.engines) return;
   voice = next;
+  showCloneAndDesign();
 
   const preset = presetEngine();
   $("panel-preset").hidden = !preset;
@@ -804,6 +1082,7 @@ document.addEventListener("keydown", (event) => {
 if (recall(CONSOLE_SHOWN_KEY)) $("tab-console").hidden = false;
 
 wireVoice();
+wireCloneAndDesign();
 
 connect();
 $("chat-input").focus();

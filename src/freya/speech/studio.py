@@ -10,6 +10,11 @@ from freya.speech.engines import (
     SpeechError,
     find_engine,
 )
+from freya.speech.references import (
+    MAX_SECONDS,
+    MIN_SECONDS,
+    ReferenceStore,
+)
 from freya.speech.store import ClipStore, VoiceProfileStore
 
 
@@ -46,16 +51,22 @@ class VoiceStudio:
         profiles: Optional[VoiceProfileStore] = None,
         clips: Optional[ClipStore] = None,
         apply_live_voice: Optional[Callable[[Optional[dict]], None]] = None,
+        references: Optional[ReferenceStore] = None,
     ):
         self._engines = engines
         self.profiles = profiles or VoiceProfileStore()
         self.clips = clips or ClipStore()
+        self.references = references or ReferenceStore()
         self._apply_live_voice = apply_live_voice
 
     # -- what the window shows -------------------------------------------
 
     def describe(self) -> dict:
         infos = [engine.info() for engine in self._engines]
+        loaded = {
+            engine.id: bool(getattr(engine, "loaded", False))
+            for engine in self._engines
+        }
 
         sections = {
             section: [info.id for info in infos if role in info.roles]
@@ -66,7 +77,10 @@ class VoiceStudio:
         ]
 
         return {
-            "engines": [info.as_dict() for info in infos],
+            "engines": [
+                {**info.as_dict(), "loaded": loaded[info.id]}
+                for info in infos
+            ],
             "sections": sections,
             "profiles": [
                 {
@@ -78,6 +92,7 @@ class VoiceStudio:
             "active_profile": self.profiles.active_id,
             "sample_text": DEFAULT_SAMPLE_TEXT,
             "max_text_length": MAX_TEXT_LENGTH,
+            "reference_seconds": {"min": MIN_SECONDS, "max": MAX_SECONDS},
         }
 
     @staticmethod
@@ -100,7 +115,21 @@ class VoiceStudio:
         if info.status != STATUS_READY:
             raise SpeechError(f"{info.name} is not set up yet.")
 
+        self._make_way_for(engine)
+
         return engine
+
+    def _make_way_for(self, engine: SpeechEngine) -> None:
+        """
+        The large engines do not fit in memory together, so the
+        others are unloaded before one of them is used.
+        """
+        if not getattr(engine, "exclusive", False):
+            return
+
+        for other in self._engines:
+            if other is not engine and getattr(other, "exclusive", False):
+                other.unload()
 
     @staticmethod
     def _text(text) -> str:
@@ -173,9 +202,20 @@ class VoiceStudio:
 
     def delete_profile(self, profile_id) -> None:
         was_active = self.profiles.active_id == profile_id
+        profile = self.profiles.get(profile_id)
 
         if not self.profiles.delete(profile_id):
             raise SpeechError("That saved voice no longer exists.")
+
+        # The recording the voice was made from goes with it, unless
+        # another saved voice still uses it.
+        reference = profile["settings"].get("reference")
+
+        if reference and not any(
+            other["settings"].get("reference") == reference
+            for other in self.profiles.list()
+        ):
+            self.references.delete(reference)
 
         if was_active and self._apply_live_voice is not None:
             self._apply_live_voice(None)
@@ -221,6 +261,67 @@ class VoiceStudio:
         for engine in self._engines:
             engine.unload()
 
+    def free_memory(self) -> None:
+        """
+        Unload the large engines. Kokoro stays, because Freya's own
+        voice uses it.
+        """
+        for engine in self._engines:
+            if getattr(engine, "exclusive", False):
+                engine.unload()
+
+    # -- recordings ------------------------------------------------------
+
+    @staticmethod
+    def _public_reference(reference: dict) -> dict:
+        return {
+            "id": reference["id"],
+            "origin": reference["origin"],
+            "seconds": reference["seconds"],
+        }
+
+    def add_reference(self, pcm, sample_rate, consent, transcript="") -> dict:
+        """
+        Take a recording to clone a voice from. Refused unless the
+        owner states they have the right to use that voice.
+        """
+        return self._public_reference(
+            self.references.add_upload(pcm, sample_rate, consent, transcript)
+        )
+
+    def design(self, engine_id, settings, text=None):
+        """
+        Have an engine invent a voice from a description. Returns the
+        sample as a clip, and the recording a voice can be saved from.
+        """
+        engine = self._ready_engine(engine_id)
+
+        if ROLE_DESIGN not in engine.info().roles:
+            raise SpeechError(
+                f"{engine.info().name} cannot design a voice from a "
+                "description."
+            )
+
+        text = self._text(text or DEFAULT_SAMPLE_TEXT)
+        audio, sample_rate = engine.design(text, settings)
+        reference = self.references.add_designed(
+            audio, sample_rate, engine.id, text
+        )
+
+        return (
+            self.clips.add(audio, sample_rate, engine.id, text),
+            self._public_reference(reference),
+        )
+
+    def forget_unsaved_recordings(self) -> None:
+        """
+        Delete every recording that no saved voice uses.
+        """
+        self.references.keep_only(
+            profile["settings"].get("reference")
+            for profile in self.profiles.list()
+        )
+
     # -- requests from the window ----------------------------------------
 
     def handle(self, message: dict) -> dict:
@@ -233,6 +334,7 @@ class VoiceStudio:
         checked by the method it is passed to.
         """
         clip = None
+        reference = None
         error = None
 
         try:
@@ -261,6 +363,21 @@ class VoiceStudio:
                 self.delete_profile(message.get("profile"))
             elif action == "use":
                 self.use_profile(message.get("profile"))
+            elif action == "reference":
+                reference = self.add_reference(
+                    message.get("upload"),
+                    message.get("sample_rate"),
+                    message.get("consent"),
+                    message.get("transcript"),
+                )
+            elif action == "design":
+                clip, reference = self.design(
+                    message.get("engine"),
+                    message.get("settings"),
+                    message.get("text"),
+                )
+            elif action == "free":
+                self.free_memory()
             elif action != "state":
                 raise SpeechError("The Voice tab asked for something unknown.")
         except SpeechError as exc:
@@ -268,4 +385,9 @@ class VoiceStudio:
         except Exception as exc:
             error = f"That did not work: {exc}"
 
-        return {"state": self.describe(), "clip": clip, "error": error}
+        return {
+            "state": self.describe(),
+            "clip": clip,
+            "reference": reference,
+            "error": error,
+        }

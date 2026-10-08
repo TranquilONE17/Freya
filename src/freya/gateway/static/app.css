@@ -416,6 +416,26 @@ select,
   resize: vertical;
 }
 
+.panel form,
+#clone-form,
+#design-form {
+  margin-top: 14px;
+}
+
+.check {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 12px;
+  font-size: 14px;
+}
+
+input[type="file"] {
+  color: var(--muted);
+  font: inherit;
+  font-size: 13px;
+}
+
 input[type="range"] {
   accent-color: var(--accent);
 }
