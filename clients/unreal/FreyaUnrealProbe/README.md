@@ -172,3 +172,43 @@ Still **not** verified:
 - Offline operation (network blocked).
 - Whether the leftover subject value and the unused blueprint path matter for
   the eventual design, or the direct approach is simply the right one.
+
+## Live connection to Freya, 2026-10-08 (Claude)
+
+The project now lives in the Freya repository at `clients/unreal/FreyaUnrealProbe`
+(source, config, and scripts only; `Content`, builds, and fixtures are ignored).
+
+When Freya starts this window (`FREYA_UNREAL_CLIENT` names the program to run),
+she passes her gateway's port and a single-use pairing key in the environment.
+The probe component then connects instead of playing a fixture:
+
+- `FreyaLink` opens a WebSocket to `ws://127.0.0.1:<port>/ws` with the key in an
+  `Authorization` header, says which protocol version it speaks, and asks to play
+  her speech.
+- Freya's speech arrives a sentence at a time (24 kHz, 16-bit, in frames of at
+  most a tenth of a second) and goes to the solver and the speakers together.
+  The window reports back when each sentence has finished sounding; Freya keeps
+  her microphone ignoring it until then.
+- A chat overlay at the bottom of the window shows the conversation (read-only,
+  selectable) and has a box to type in. A line starting with `/` is sent as one
+  of Freya's commands.
+- The window opens at about three fifths of the display's height, resizable, and
+  never fullscreen unless `-fullscreen` is given.
+
+Verified by running real Freya (scratch data) with this window started from the
+Editor's program in game mode: paired, playback granted, four sentences spoken
+through the window and each reported finished.
+
+Not verified: how the chat overlay looks (nobody has looked at it yet), typing in
+it, reconnection, and cancelling mid-sentence.
+
+**Packaging is currently blocked on this PC.** Windows Smart App Control (on)
+refuses to load the small rules file Unreal's packaging tool compiles each run
+(`UATRules-*.dll`, "An Application Control policy has blocked this file"). It
+packaged three times earlier the same day. This is a Windows security setting
+and the owner's to decide; until then use `Run-FromEditor.cmd`.
+
+To try it:
+
+    $env:FREYA_UNREAL_CLIENT = "C:\Dev\Freya\clients\unreal\FreyaUnrealProbe\Run-FromEditor.cmd"
+    freya

@@ -1,5 +1,5 @@
 import unreal, traceback
-OUT = r"C:\Temp\freya_ue\ue_assemble_out.txt"
+OUT = unreal.Paths.project_saved_dir() + "ue_assemble_out.txt"
 def say(*a):
     line = " ".join(str(x) for x in a)
     unreal.log("FREYAASSEMBLE " + line)

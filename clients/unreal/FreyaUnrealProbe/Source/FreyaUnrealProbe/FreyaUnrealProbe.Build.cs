@@ -7,7 +7,8 @@ public class FreyaUnrealProbe : ModuleRules
         PublicDependencyModuleNames.AddRange(new string[] { "Core", "CoreUObject", "Engine", "ApplicationCore" });
         PrivateDependencyModuleNames.AddRange(new string[] {
             "LiveLink", "LiveLinkInterface", "MetaHumanLocalLiveLinkSource",
-            "MetaHumanPipelineCore", "MetaHumanCoreTech"
+            "MetaHumanPipelineCore", "MetaHumanCoreTech",
+            "WebSockets", "Json", "Slate", "SlateCore", "InputCore"
         });
     }
 }

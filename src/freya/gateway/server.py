@@ -208,9 +208,9 @@ class Gateway:
             self._handle_socket,
             sock=listener,
             process_request=self._process_request,
-            # None lets a program with no Origin header begin the
-            # handshake; _process_request then demands its pairing.
-            origins=self._origins() + [None],
+            # Where a connection comes from is checked in
+            # _process_request, which knows a web page from a program.
+            origins=None,
             max_size=MAX_MESSAGE_BYTES,
         )
 
@@ -378,17 +378,25 @@ class Gateway:
         if url.path == "/open":
             return self._open(url)
 
-        if url.path == "/ws" and "Origin" not in request.headers:
-            # Not a web page. Only a program Freya started and paired
-            # may connect this way; a cookie is not enough.
-            session = self._native_session(request.headers.get("Authorization", ""))
+        if url.path == "/ws":
+            authorization = request.headers.get("Authorization", "")
 
-            if session is None:
-                return _response(403, "This program has not been paired with Freya.")
+            if authorization.split(" ", 1)[0] in (PAIR_SCHEME, SESSION_SCHEME):
+                # A program Freya started, proving it with the key she
+                # gave it. A web page cannot set this header on a
+                # WebSocket, so the Origin does not matter here.
+                session = self._native_session(authorization)
 
-            connection.freya_native_session = session
+                if session is None:
+                    return _response(403, "This program has not been paired with Freya.")
 
-            return None
+                connection.freya_native_session = session
+
+                return None
+
+            # Otherwise it must be Freya's own page, from this server.
+            if request.headers.get("Origin") not in self._origins():
+                return _response(403, "Forbidden.")
 
         if not self._has_session(request):
             return _response(
