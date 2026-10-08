@@ -193,6 +193,12 @@ class ControlPlane:
             LOCAL_OWNER.actor,
             ["avatar.library"],
         )
+        seed_alpha_policy(
+            self.policy,
+            "alpha-avatar-creator",
+            LOCAL_OWNER.actor,
+            ["avatar.search", "avatar.prepare"],
+        )
 
     def ensure_image_backend(self, announce=print) -> None:
         """

@@ -167,6 +167,57 @@ allowed by the hash of its exact text; and `blob:` is allowed for images and
 fetches, because a model's textures are unpacked inside the page. Inline scripts in
 general, `eval`, and loading from anywhere else remain refused.
 
+### Finding models and making them ready
+
+- **Search** (`sources.py`, capability `avatar.search`): pressing Search in the
+  Avatar tab looks in the owner's Downloads folder (or the folders named in
+  `FREYA_AVATAR_SEARCH`, separated by `;`) and two levels below it. Each 3D file is
+  listed as *ready* (a VRM), *needs converting* (`.blend`, `.fbx`, `.glb`, `.gltf`,
+  or a `.zip`/`.7z`/`.rar` containing one), or *cannot be used* (`.stl`, `.obj`
+  and other surface-only formats, with the reason). Only names and sizes are read,
+  and the list of names inside an archive; no model is opened and nothing is
+  unpacked.
+- **Make ready** (`converter.py`, capability `avatar.prepare`): a VRM is copied into
+  the avatar folder. Anything else is unpacked if needed, the most promising file is
+  chosen (one named as rigged before one named as unrigged or posed), and Blender
+  inspects it (`blender/inspect_model.py`) and reports its skeleton, size, and face
+  shapes. From that report Freya decides what is needed and says so in plain words,
+  then converts it (`blender/convert_model.py`): a production animation rig
+  (Auto-Rig Pro) is replaced by a plain humanoid skeleton and every part re-attached
+  to it; a model not made in metres is resized; hair pieces are joined; clear eye
+  coatings that a simple renderer would draw as white are removed; materials are
+  reduced to what an avatar file can hold; and the standard expressions and mouth
+  shapes are built from the model's face shapes. Every one of the 52 standard face
+  shapes the model has is also kept as a named expression of its own, for finer
+  animation later; this adds nothing to the file's size.
+- **Expression tester**: the preview has a button for every expression the loaded
+  model has (the standard ones, then the individual face shapes), a strength
+  slider, whole-figure and face views, and a button that rests the face. Several
+  expressions can be on together. Saved avatars can be previewed the same way.
+
+**Safeguards.** Only a file the last search found can be made ready, named by an
+opaque id, never by a path from the window. The original is never changed; output
+goes only to `data/avatar_models/`, under a new name (an existing avatar is never
+overwritten), and work files to `data/avatar_work/`, removed afterwards. An archive
+is refused if it would write outside its folder, holds links, or unpacks to more
+than 8 GB or 5,000 files. Blender runs as a separate program with no window, on
+Freya's own two scripts, with `--disable-autoexec` so that scripts embedded in a
+model file are not run, and is ended if it runs too long (5 minutes to inspect, 20
+to convert) or when Freya exits. One conversion runs at a time, on its own thread;
+the window is told how it is going. A converted file is marked with the most
+cautious terms (use only by someone its author has licensed, no redistribution),
+because Freya does not know the terms it was obtained under: the owner still has to
+confirm they may use it before it becomes an avatar.
+
+**Limits.** Blender (with its VRM add-on) must be installed by the owner;
+`FREYA_BLENDER` names it if it is not in the usual place. A model with no skeleton
+cannot be converted. Only the Auto-Rig Pro route has been tried with a real model;
+the route for other skeletons relies on the VRM add-on recognising the bones and is
+untested. Hair is attached to the head and does not swing. Opening a model file in
+Blender is safer than running it but is not a sandbox: a flaw in Blender's own file
+reading would run with the owner's rights. Models bought or downloaded under terms
+that forbid passing them on stay under `data/`, which is not in the repository.
+
 **Not implemented**
 
 - **The desktop avatar is still the placeholder figure.** Marking a saved avatar as
@@ -176,11 +227,12 @@ general, `eval`, and loading from anywhere else remain refused.
   mapping) is stage 3.
 - Creating a character from scratch is stage 5 and may never be built here; VRoid
   Studio already does it and exports VRM.
-- Importing through the window. Files are put in the folder by hand.
-- **Not tried with a real downloaded model.** It was tested with VRM files generated
-  for the purpose: correct in structure, but simple box figures with one plain
-  material. Real models use toon shading, many textures, spring bones, and VRM 0.x
-  quirks that these do not exercise.
+- Choosing a file from anywhere on the computer through the window. A file has to be
+  in a search folder, or be put in the avatar folder by hand.
+- **Tried with few real models.** The reader and preview were tested with VRM files
+  generated for the purpose, and then with two real ones made on this machine (one
+  built in Blender, one converted from a bought model). Toon shading, spring bones,
+  and VRM 0.x quirks in models from elsewhere are still unexercised.
 
 ## 4. Security and privacy
 
@@ -197,6 +249,8 @@ Each permission is a separate capability, granted or withheld on its own by poli
 | `screen.geometry.read` | Built | Positions, sizes, usable areas, scale factors of displays. Nothing shown on them. |
 | `avatar.point` | Built | Point at or outline a place. Does not click, type, or change anything. |
 | `avatar.library` | Built | Read VRM model files from the avatar folder; keep the owner's saved avatars. Never changes a model file. |
+| `avatar.search` | Built | List files in the search folders that are or could become avatars. Reads names and sizes only. |
+| `avatar.prepare` | Built | Copy or convert a file the last search found into the avatar folder, using Blender. Never changes the original. |
 | `screen.accessibility.read` | Not built | Read what programs report about their windows and controls |
 | `screen.capture` | Not built | Capture screen content |
 | `screen.analyze` | Not built | Analyse captured content |
