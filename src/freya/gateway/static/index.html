@@ -15,6 +15,7 @@
       <button class="tab" role="tab" id="tab-images" aria-selected="false" aria-controls="view-images" data-view="images">Images <span class="badge" id="images-badge" hidden></span></button>
       <button class="tab" role="tab" id="tab-voice" aria-selected="false" aria-controls="view-voice" data-view="voice">Voice</button>
       <button class="tab" role="tab" id="tab-avatar" aria-selected="false" aria-controls="view-avatar" data-view="avatar">Avatar</button>
+      <button class="tab" role="tab" id="tab-media" aria-selected="false" aria-controls="view-media" data-view="media">Media</button>
       <button class="tab" role="tab" id="tab-memory" aria-selected="false" aria-controls="view-memory" data-view="memory">Memory</button>
       <button class="tab" role="tab" id="tab-console" aria-selected="false" aria-controls="view-console" data-view="console" hidden>Console</button>
     </nav>
@@ -350,6 +351,92 @@
       </div>
     </section>
 
+    <section class="view" id="view-media" role="tabpanel" aria-labelledby="tab-media">
+      <div class="media-scroll">
+        <p id="media-status" role="status">Connect to Freya to open the media library.</p>
+        <div class="actions">
+          <button id="media-refresh" class="ghost">Refresh library</button>
+          <button id="media-scan" class="primary">Find downloaded media</button>
+          <label class="check"><input type="checkbox" id="media-auto"> Analyze imported media when I play it</label>
+        </div>
+        <p id="media-setup" class="panel-note"></p>
+        <div class="media-layout">
+          <div>
+            <article class="panel">
+              <h2>Library</h2>
+              <label>Filter by tag <input id="media-tag-filter" maxlength="40"></label>
+              <button id="media-filter" class="ghost">Filter</button>
+              <div id="media-library"></div>
+              <div id="media-candidates"></div>
+            </article>
+            <article class="panel">
+              <h2>Find videos</h2>
+              <label>Search YouTube <input id="media-web-query" maxlength="200"></label>
+              <button id="media-discover" class="ghost">Search</button>
+              <div id="media-discovery"></div>
+              <label>YouTube link <input id="media-url" type="url" maxlength="2000"></label>
+              <label>Title <input id="media-title" maxlength="300"></label>
+              <button id="media-bookmark" class="primary">Add link</button>
+              <p class="panel-note">YouTube uses its visible player. Downloaded copies and supplied transcripts can be analyzed separately.</p>
+            </article>
+            <article class="panel">
+              <h2>Jellyfin</h2>
+              <button id="media-jellyfin-connect" class="ghost">Load libraries</button>
+              <select id="media-jellyfin-library" aria-label="Jellyfin library"></select>
+              <label>Search library <input id="media-jellyfin-query" maxlength="100"></label>
+              <button id="media-jellyfin-search" class="ghost">Browse</button>
+              <div id="media-jellyfin-results"></div>
+              <button id="media-jellyfin-next" class="ghost" hidden>Next page</button>
+            </article>
+          </div>
+          <div>
+            <article class="panel">
+              <h2 id="media-selected-title">Choose an item</h2>
+              <div id="media-player"></div>
+              <p id="media-coverage" class="panel-note"></p>
+              <div class="actions">
+                <button id="media-play" class="primary" disabled>Play</button>
+                <button id="media-analyze" class="ghost" disabled>Analyze speech</button>
+                <button id="media-export" class="ghost" disabled>Export memory</button>
+                <button id="media-delete" class="ghost" disabled>Remove from library</button>
+              </div>
+              <div id="media-exports"></div>
+              <label>Tags, separated by commas <input id="media-tags" maxlength="400"></label>
+              <button id="media-save-tags" class="ghost">Save tags</button>
+              <label>Time in seconds <input id="media-time" type="number" min="0" step="0.1" value="0"></label>
+              <button id="media-stamp" class="ghost">Use player time</button>
+              <label>Note <textarea id="media-note" rows="2" maxlength="2000"></textarea></label>
+              <button id="media-add-note" class="ghost">Add timestamped note</button>
+              <div id="media-notes"></div>
+              <details>
+                <summary>Skip a part of this local recording</summary>
+                <label>Start seconds <input id="media-skip-start" type="number" min="0" step="0.1"></label>
+                <label>End seconds <input id="media-skip-end" type="number" min="0" step="0.1"></label>
+                <label>Label <input id="media-skip-label" maxlength="80" value="Advertisement"></label>
+                <button id="media-add-skip" class="ghost">Confirm skip interval</button>
+                <div id="media-skips"></div>
+              </details>
+              <details>
+                <summary>Supply a transcript or subtitles</summary>
+                <input id="media-transcript-file" type="file" accept=".srt,.vtt,.txt" aria-label="Subtitle or transcript file">
+                <textarea id="media-transcript-text" rows="4" maxlength="50000" placeholder="Paste a transcript, optionally with timestamps" aria-label="Transcript"></textarea>
+                <button id="media-import-transcript" class="ghost">Replace transcript</button>
+              </details>
+              <h3>Summaries and transcript</h3>
+              <div id="media-text"></div>
+            </article>
+            <article class="panel">
+              <h2>Search media memory</h2>
+              <label>Words to find <input id="media-memory-query" maxlength="200"></label>
+              <button id="media-memory-search" class="ghost">Search memory</button>
+              <div id="media-memory-results"></div>
+              <h3>Analysis queue</h3>
+              <div id="media-jobs"></div>
+            </article>
+          </div>
+        </div>
+      </div>
+    </section>
     <section class="view" id="view-console" role="tabpanel" aria-labelledby="tab-console">
       <pre class="console" id="console-output" aria-live="off"></pre>
 
@@ -371,6 +458,7 @@
 
   <script type="importmap">{"imports":{"three":"/vendor/three/three.module.js","three/addons/":"/vendor/three/addons/","@pixiv/three-vrm":"/vendor/three-vrm/three-vrm.module.min.js"}}</script>
   <script src="/app.js"></script>
+  <script src="/media.js"></script>
   <script type="module" src="/avatar-view.js"></script>
 </body>
 </html>

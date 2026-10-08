@@ -166,6 +166,16 @@ class ControlPlane:
             [IMAGE_GENERATE],
         )
 
+    def register_media(self, media) -> None:
+        """Register media without granting policy permissions."""
+        provider = media.provider()
+        self.providers.register(provider)
+        self.providers.start(provider.provider_id)
+        self.providers.check_health(provider.provider_id)
+        allowed = self.policy.decide(LOCAL_OWNER.actor, "media.recall").allow
+        for capability in media.capabilities(offer_recall=allowed):
+            self.capabilities.register(capability)
+
     def register_conversation_recall(self, recall) -> None:
         """
         Offer the model a way to look up what was said in earlier

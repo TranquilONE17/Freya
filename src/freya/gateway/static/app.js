@@ -164,6 +164,10 @@ function showEvent(event) {
       avatarResult(event);
       break;
 
+    case "media":
+      window.dispatchEvent(new CustomEvent("freya-media", {detail: event}));
+      break;
+
     case "memory":
       memoryResult(event);
       break;
@@ -2074,6 +2078,7 @@ function connect() {
       showVoice(event.voice);
       showAvatar(event.avatar);
       showStatus(event.status);
+      window.dispatchEvent(new Event("freya-connected"));
       messages.scrollTop = messages.scrollHeight;
       consoleOutput.scrollTop = consoleOutput.scrollHeight;
       return;
@@ -2143,6 +2148,7 @@ function showView(name) {
     view.classList.toggle("is-active", view.id === "view-" + name);
   });
   if (name === "images") $("images-badge").hidden = true;
+  window.dispatchEvent(new CustomEvent("freya-view", {detail: name}));
   const input = $(VIEW_INPUT[name] || (name === "memory" ? "memory-query" : ""));
   if (input) input.focus();
 }

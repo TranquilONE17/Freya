@@ -17,7 +17,7 @@ from freya.gpu.resource_manager import GPUResourceManager
 from freya.image.image_generator import FreyaImageGenerator
 
 from freya.control_plane import build_local_control_plane
-from freya.config import OPEN_WINDOW
+from freya.config import OPEN_WINDOW, MODEL
 from freya.hands_free import LISTENING_COMMANDS
 from freya.hands_free import describe_listening
 from freya.hands_free import handle_listening_command
@@ -30,6 +30,7 @@ from freya.image.gallery import ImageGallery
 from freya.window import WINDOW_COMMAND
 from freya.window import FreyaWindow
 from freya.window import WindowActions
+from freya.media.setup import build_media_service
 from freya.window import build_status
 from freya.unreal_client import UnrealClient, configured_client
 from freya.console_tee import ConsoleOutput
@@ -38,6 +39,7 @@ from freya.window_commands import run_window_command
 from freya.speech.setup import build_voice_studio
 
 from freya.spatial_avatar.service import AvatarService
+from freya.media.service import MEDIA_CAPABILITIES
 
 from freya.core.capabilities import LOCAL_OWNER
 from freya.single_instance import claim as claim_single_instance
@@ -1461,6 +1463,31 @@ def main(window_only=False):
     )
 
 
+    def media_chat(messages):
+        with gate.turn():
+            return control_plane.model_runtime.chat(messages)
+
+    media = None
+    try:
+        media = build_media_service(
+            control_plane.broker,
+            chat=media_chat,
+            model_name=MODEL,
+            speech_model=lambda: stt if stt is not None else None,
+            admission=gate.turn,
+            permissions=lambda: {
+                name: control_plane.policy.decide(LOCAL_OWNER.actor, name).allow
+                for name in MEDIA_CAPABILITIES
+            },
+        )
+        control_plane.register_media(media)
+        freya.media_recall = lambda query: control_plane.broker.invoke("media.recall", query=query)
+    except Exception:
+        if media is not None:
+            media.stop()
+            media = None
+        print("Media could not start; chat remains available. See the media setup guide.")
+
     def command_from_window(text):
 
         with gate.turn():
@@ -1547,6 +1574,10 @@ def main(window_only=False):
             voice_request=voice_studio.handle,
 
             voice_clip=voice_studio.clips.read,
+
+            media_request=media.handle if media else (lambda message: {"error": "Media is unavailable."}),
+            media_stream=media.stream if media else (lambda ticket, header: None),
+            media_download=media.download if media else (lambda identifier, kind: None),
 
             avatar_state=avatar.describe,
 
@@ -2150,6 +2181,8 @@ def main(window_only=False):
         voice.interrupt()
 
         finished = window.stop()
+
+        finished = (media.stop() if media else True) and finished
 
         finished = gate.drain(SHUTDOWN_WAIT_SECONDS) and finished
 
