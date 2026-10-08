@@ -160,6 +160,10 @@ function showEvent(event) {
       voiceResult(event);
       break;
 
+    case "avatar":
+      avatarResult(event);
+      break;
+
     case "status":
       showStatus(event.status);
       break;
@@ -990,6 +994,281 @@ function wireVoice() {
   });
 }
 
+// -- avatar ----------------------------------------------------------
+//
+// The Avatar tab shows and changes the on-screen avatar's settings. It
+// only ever asks: every request is checked by Freya, and her answer is
+// what is shown.
+
+let avatar = null;
+let avatarRequests = 0;
+let avatarPending = null;
+let avatarMapStart = null;
+
+const AVATAR_CHECKS = {
+  "avatar-ontop": "always_on_top",
+  "avatar-clickthrough": "click_through",
+  "avatar-smooth": "smooth",
+  "avatar-autoscale": "auto_scale",
+};
+
+const AVATAR_BOUNDS = ["left", "right", "top", "bottom"];
+
+function avatarMessage(text, isError) {
+  const line = $("avatar-message");
+  line.textContent = text;
+  line.classList.toggle("is-error", Boolean(isError));
+}
+
+function avatarSend(action, fields, working) {
+  avatarRequests += 1;
+  const request = "a" + avatarRequests;
+  if (send({ type: "avatar", action, request, ...fields })) {
+    avatarPending = request;
+    avatarMessage(working || "Working…");
+  }
+}
+
+function avatarResult(event) {
+  if (event.state) showAvatar(event.state);
+
+  if (!event.request || event.request !== avatarPending) return;
+  avatarPending = null;
+  avatarMessage(event.error || avatarSummary(), Boolean(event.error));
+}
+
+function avatarSummary() {
+  if (!avatar) return "";
+  if (avatar.error) return avatar.error;
+  if (!avatar.running || !avatar.state || !avatar.state.visible) {
+    return "The avatar is not showing.";
+  }
+  const state = avatar.state;
+  let text =
+    "Showing at " + Math.round(state.size_percent) +
+    "% of the display's usable height.";
+  if (state.pointing > 0.5) {
+    text += state.covers_target
+      ? " Pointing, but there was nowhere to stand that left the target uncovered."
+      : " Pointing.";
+  }
+  return text;
+}
+
+function setRange(id, value, low, high) {
+  const input = $(id);
+  if (low !== undefined) input.min = low;
+  if (high !== undefined) input.max = high;
+  // Leave a slider alone while it is being dragged.
+  if (document.activeElement !== input) input.value = value;
+  $(id + "-value").textContent = Math.round(Number(input.value)) + "%";
+}
+
+function showAvatar(next) {
+  if (!next || !next.config) return;
+  avatar = next;
+  const config = avatar.config;
+  const range = avatar.size_range;
+
+  fillSelect(
+    $("avatar-appearance"),
+    avatar.appearances.map((a) => ({ value: a.id, label: a.name })),
+    config.appearance,
+  );
+  fillSelect(
+    $("avatar-expression"),
+    avatar.expressions.map((e) => ({ value: e, label: e })),
+    (avatar.state && avatar.state.expression) || undefined,
+  );
+  fillSelect(
+    $("avatar-display"),
+    avatar.displays.map((d, index) => ({
+      value: d.id,
+      label:
+        "Display " + (index + 1) + (d.primary ? " (main)" : "") + ", " +
+        Math.round(d.bounds.right - d.bounds.left) + " × " +
+        Math.round(d.bounds.bottom - d.bounds.top),
+    })),
+  );
+  fillSelect(
+    $("avatar-target"),
+    avatar.targets.map((target) => ({ value: target.id, label: target.label })),
+  );
+
+  const size = (avatar.state && avatar.state.size_percent) ||
+    config.current_size || config.size.preferred;
+  setRange("avatar-size", size, config.size.minimum, config.size.maximum);
+  setRange("avatar-min", config.size.minimum, range.smallest, range.largest);
+  setRange("avatar-max", config.size.maximum, range.smallest, range.largest);
+  setRange("avatar-preferred", config.size.preferred, config.size.minimum, config.size.maximum);
+
+  Object.entries(AVATAR_CHECKS).forEach(([id, key]) => {
+    $(id).checked = Boolean(config[key]);
+  });
+
+  AVATAR_BOUNDS.forEach((edge) => {
+    setRange("avatar-bound-" + edge, config.boundary[edge] * 100);
+  });
+
+  const chosen = avatar.appearances.find((a) => a.id === config.appearance);
+  $("avatar-summary").textContent =
+    (chosen ? chosen.summary + " " : "") + (avatar.notes || []).join(" ");
+
+  const list = $("avatar-permissions");
+  list.replaceChildren();
+  avatar.permissions.forEach((permission) => {
+    const row = element("li");
+    const about = element("div", "about");
+    about.appendChild(element("span", "name", permission.name));
+    about.appendChild(element("span", "detail", permission.id));
+    row.appendChild(about);
+    row.appendChild(
+      element(
+        "span",
+        "state" + (permission.built ? " is-ready" : ""),
+        permission.built ? "Exists" : "Not built",
+      ),
+    );
+    list.appendChild(row);
+  });
+
+  showAvatarMap();
+  if (!avatarPending) avatarMessage(avatarSummary(), Boolean(avatar.error));
+}
+
+function avatarDisplay() {
+  return (avatar.displays || []).find((d) => d.id === $("avatar-display").value);
+}
+
+function showAvatarMap() {
+  const display = avatarDisplay();
+  if (!display) return;
+  $("avatar-map").style.aspectRatio =
+    (display.work_area.right - display.work_area.left) + " / " +
+    (display.work_area.bottom - display.work_area.top);
+}
+
+function mapPoint(event) {
+  const box = $("avatar-map").getBoundingClientRect();
+  return {
+    x: Math.min(Math.max((event.clientX - box.left) / box.width, 0), 1),
+    y: Math.min(Math.max((event.clientY - box.top) / box.height, 0), 1),
+  };
+}
+
+function mapArea(a, b) {
+  return [
+    Math.min(a.x, b.x), Math.min(a.y, b.y),
+    Math.max(a.x, b.x), Math.max(a.y, b.y),
+  ];
+}
+
+function drawMapChoice(area) {
+  const choice = $("avatar-map-choice");
+  choice.hidden = false;
+  choice.style.left = area[0] * 100 + "%";
+  choice.style.top = area[1] * 100 + "%";
+  choice.style.width = (area[2] - area[0]) * 100 + "%";
+  choice.style.height = (area[3] - area[1]) * 100 + "%";
+}
+
+function avatarConfigure(changes, working) {
+  avatarSend("configure", { value: changes }, working || "Saving…");
+}
+
+function wireAvatar() {
+  $("avatar-show").addEventListener("click", () => avatarSend("show", {}, "Starting the avatar…"));
+  $("avatar-hide").addEventListener("click", () => avatarSend("hide", {}));
+  $("avatar-stop").addEventListener("click", () => avatarSend("stop", {}, "Closing…"));
+  $("avatar-wave").addEventListener("click", () => avatarSend("wave", {}));
+  $("avatar-idle").addEventListener("click", () => avatarSend("idle", {}));
+  $("avatar-rest").addEventListener("click", () => avatarSend("rest", {}));
+
+  $("avatar-appearance").addEventListener("change", () => {
+    avatarSend("appearance", { value: $("avatar-appearance").value });
+  });
+  $("avatar-expression").addEventListener("change", () => {
+    avatarSend("expression", { value: $("avatar-expression").value });
+  });
+  $("avatar-display").addEventListener("change", showAvatarMap);
+
+  $("avatar-point").addEventListener("click", () => {
+    avatarSend(
+      "point",
+      { display: $("avatar-display").value, target: $("avatar-target").value },
+      "Pointing…",
+    );
+  });
+
+  // Sliders show their value while dragged and are sent when let go.
+  const label = (id) => {
+    $(id).addEventListener("input", () => {
+      $(id + "-value").textContent = Math.round(Number($(id).value)) + "%";
+    });
+  };
+
+  label("avatar-size");
+  $("avatar-size").addEventListener("change", () => {
+    avatarSend("resize", { value: Number($("avatar-size").value) }, "Resizing…");
+  });
+
+  ["avatar-min", "avatar-max", "avatar-preferred"].forEach((id) => {
+    label(id);
+    $(id).addEventListener("change", () => {
+      avatarConfigure({
+        size: {
+          minimum: Number($("avatar-min").value),
+          maximum: Number($("avatar-max").value),
+          preferred: Number($("avatar-preferred").value),
+        },
+      });
+    });
+  });
+
+  Object.entries(AVATAR_CHECKS).forEach(([id, key]) => {
+    $(id).addEventListener("change", () => {
+      avatarConfigure({ [key]: $(id).checked });
+    });
+  });
+
+  AVATAR_BOUNDS.forEach((edge) => {
+    const id = "avatar-bound-" + edge;
+    label(id);
+    $(id).addEventListener("change", () => {
+      const at = (name) => Number($("avatar-bound-" + name).value) / 100;
+      avatarConfigure({
+        boundary: {
+          left: at("left"), top: at("top"), right: at("right"), bottom: at("bottom"),
+        },
+      });
+    });
+  });
+
+  const map = $("avatar-map");
+  map.addEventListener("pointerdown", (event) => {
+    avatarMapStart = mapPoint(event);
+    map.setPointerCapture(event.pointerId);
+  });
+  map.addEventListener("pointermove", (event) => {
+    if (avatarMapStart) drawMapChoice(mapArea(avatarMapStart, mapPoint(event)));
+  });
+  map.addEventListener("pointerup", (event) => {
+    if (!avatarMapStart) return;
+    const area = mapArea(avatarMapStart, mapPoint(event));
+    avatarMapStart = null;
+    if (area[2] - area[0] < 0.01 || area[3] - area[1] < 0.01) {
+      avatarMessage("Drag out a small box to choose a place.", true);
+      return;
+    }
+    drawMapChoice(area);
+    avatarSend(
+      "point",
+      { region: { display_id: $("avatar-display").value, area } },
+      "Pointing…",
+    );
+  });
+}
+
 // -- images ----------------------------------------------------------
 
 function addImage(image, newest) {
@@ -1121,6 +1400,7 @@ function connect() {
       event.images.forEach((image) => addImage(image, false));
       addConsoleLines(event.console || []);
       showVoice(event.voice);
+      showAvatar(event.avatar);
       showStatus(event.status);
       messages.scrollTop = messages.scrollHeight;
       consoleOutput.scrollTop = consoleOutput.scrollHeight;
@@ -1177,6 +1457,7 @@ const VIEW_INPUT = {
   chat: "chat-input",
   images: "image-input",
   voice: "preset-language",
+  avatar: "avatar-appearance",
   console: "console-input",
 };
 
@@ -1218,6 +1499,7 @@ document.addEventListener("keydown", (event) => {
 if (recall(CONSOLE_SHOWN_KEY)) $("tab-console").hidden = false;
 
 wireVoice();
+wireAvatar();
 wireCloneAndDesign();
 wireImport();
 

@@ -55,6 +55,12 @@ Rules for the spec:
 - `src/freya/voice/` — faster-whisper STT, Kokoro TTS, `wake.py` (deciding whether a
   heard sentence is addressed to Freya), `listener.py` (utterance segmenting, the
   attention window, and the background listener thread).
+- `src/freya/spatial_avatar/` — the on-screen avatar (Phase 1; design and manual
+  demonstration in `docs/design/spatial-avatar.md`). `service.py` (the three
+  capabilities and the window's requests) and `host.py` run in Freya; `overlay.py`
+  is a separate program holding `model.py` (all behaviour, no drawing) and a
+  renderer from `renderers/`. `geometry.py`, `config.py`, `targets.py`,
+  `commands.py`, `animation.py`, `placement.py`, `appearance.py`, `speech.py`.
 - `src/freya/speech/` — the voice studio behind the window's Voice tab: `engines.py`
   (the `SpeechEngine` contract and the roles preset / blend / clone / design),
   `kokoro_engine.py`, `store.py` (saved voice profiles in `data/voice_profiles.json`,
@@ -169,6 +175,24 @@ the listener thread: `TurnGate.close()` (no new turn may begin), then
 one), then `TurnGate.drain()` for a spoken turn, and only then are the voice and the
 control database closed. Each wait has a time limit.
 
+Spatial avatar: a client-side capability, not part of Core. Core must not import
+`freya.spatial_avatar`, and the overlay program must not import Core or open Freya's
+data; tests enforce both. The overlay is a separate process so that a renderer crash
+cannot affect Freya; all behaviour lives in `AvatarModel`, so a renderer only draws.
+Everything asked of the avatar is a broker call to one of three capabilities,
+`avatar.display`, `screen.geometry.read`, and `avatar.point` (policy seed
+`alpha-avatar`); they are not offered to the model. **The avatar has no code for
+capturing the screen, reading other programs' windows, or sending input, and a test
+fails if such calls appear in the package.** Six further permissions are named for
+later phases and deliberately not built. Do not add screen reading or input control
+as part of other work: each needs its own permission, a provider that declares it,
+and an owner decision first. What the user does directly to the overlay (drag,
+resize, hide, close) is honoured without a policy check so she can always be
+dismissed. Her size is always within the user's limits and she is always inside the
+user's boundary, on every frame. Targets are revalidated before each use. The
+placeholder renderer uses `tkinter` and no GPU. Settings are in
+`data/avatar_settings.json`, keyed by user (one user today).
+
 Voice studio: the Voice tab offers each kind of voice work only through engines that
 declare that role, and shows only the controls an engine reports. Kokoro runs inside
 Freya (preset voices, and an experimental blend of its own supplied voices — a blend is
@@ -261,7 +285,11 @@ Also done: Ollama behind a provider, with chat and embeddings through the broker
 Also done: the voice studio with Kokoro presets, blends, and saved voices; Chatterbox
 and Qwen3-TTS as helper-process engines for cloning and voice design; a benchmark.
 
-Not yet started: the ElevenLabs engine; speech for devices other than this PC (needs
+Also done: the spatial avatar, Phase 1 (placeholder overlay, scaling, boundaries,
+pointing at made-up or user-chosen targets).
+
+Not yet started: avatar Phases 2 to 5 (real screen awareness, 3D rendering, lip
+synchronisation, other devices), each needing its own decision; the ElevenLabs engine; speech for devices other than this PC (needs
 the authenticated gateway); routing the voice, image, and memory paths through providers and
 the broker; authenticated sessions to replace the fixed `local-owner` principal; a
 dedicated Windows service identity and ACLs for the control database (owner action); an
