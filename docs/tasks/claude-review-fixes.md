@@ -1,6 +1,8 @@
 # Claude task: fix the window review findings
 
-Status: implemented in https://github.com/TranquilONE17/Freya/pull/11 (not merged).
+Status: implemented in https://github.com/TranquilONE17/Freya/pull/11, merged to
+`main` by the owner's request on 2026-10-08. The full suite passed on the merged
+result (549 tests, including the voice work merged the same day).
 The rest of this file is the original implementation prompt, kept for reference.
 
 ## Outcome
@@ -38,9 +40,11 @@ Follow-up, in the same PR:
   window during a long reply, which stopped mid-sentence and exited cleanly.
 
 Related, and separate: a later brief also asked for a design for human-approved
-development capabilities and for offline operation and recovery. That is a proposal
-only, awaiting the owner's decisions, in
-https://github.com/TranquilONE17/Freya/pull/12. Nothing in it is implemented.
+development capabilities and for offline operation and recovery. That design, with
+the owner's decisions recorded, is in
+`docs/design/human-approved-development-and-offline-recovery.md`
+(https://github.com/TranquilONE17/Freya/pull/12, merged). It is a design only:
+nothing in it is implemented and no ADR is approved by it.
 
 Still true:
 
