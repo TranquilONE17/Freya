@@ -1,7 +1,7 @@
 # Design proposal: human-approved development, and working without the internet
 
-**Status: design proposal with the owner's decisions recorded (section 8, given
-2026-10-08). Nothing here is implemented, and no capability is enabled.** The
+**Status: design proposal with the owner's decisions recorded (section 8, two
+rounds, given 2026-10-08). Nothing here is implemented, and no capability is enabled.** The
 decisions settle how this design should proceed. They do not approve any ADR, adopt
 the pending amendments into the architecture, or assign requirement IDs; those
 remain matters for reconciliation.
@@ -342,7 +342,7 @@ question D11 below.
 - Two installed slots: *current* and *candidate*. Installing a candidate does not
   remove the current version.
 - A trial is the candidate actually running as Freya. Two kinds are possible, and
-  which to support is decision D12:
+  both are supported, in order (decision D12):
   - *Side by side*: the candidate runs as a second instance on scratch data, while
     the current version keeps serving. Nothing of the owner's is at risk, but it
     does not exercise real memory, policy, or voice.
@@ -393,13 +393,13 @@ question D11 below.
 
 **What is pushed, and when.** Only commits that came from changes the owner
 approved, in Freya's own working copy. Nothing is pushed from anywhere else. Whether
-a push happens as soon as a change is committed, or only once its candidate has been
-promoted after a trial, is decision D15.
+Both, to different places (decision D15): every commit is uploaded at once to a
+work-in-progress branch, and a promoted version is uploaded separately and marked.
 
-**Where it goes.** A branch (or branches) named in the standing grant. Whether that
-may include the main branch, or only a branch of Freya's own with the main branch
-still reached by an approved merge, is decision D16. `CLAUDE.md` currently says never
-to commit directly to `main`.
+**Where it goes.** Two branches of Freya's own, named in the standing grant: one for
+work in progress and one for promoted versions (decision D16). The main branch is
+never written by an automatic upload; it changes only by a merge the owner approves,
+as `CLAUDE.md` already requires.
 
 **What "roll back" can and cannot mean.** This is the condition the owner set, so it
 is worth being exact:
@@ -477,11 +477,11 @@ decision D2.
 | 2 | Grants and exclusions; `dev.inspect` (read-only) | No | Alpha |
 | 3 | Sessions, scopes, approval objects (prerequisites 1 to 3) | No | Alpha, already planned |
 | 4 | Staging, proposals, Core-computed diff and approval screen | No (staging only) | After alpha |
-| 5 | `dev.apply` and `dev.commit` to a dedicated worktree | Yes, after approval | After alpha |
+| 5 | `dev.apply` and `dev.commit` to a dedicated worktree; for Freya's own source, local merge, candidate install, side-by-side and real-data trials, promotion, restart, and the way back (NEW-Y, NEW-Z; D11, D12). Needs the separate installed copy. | Yes, after approval | After alpha |
 | 6 | `dev.check` in validated isolation | Runs repository code, isolated | After alpha, once isolation is validated |
-| 7 | Push and open a pull request, with reconciliation | Yes, remote effects | After alpha |
-| 8 | Merge, deploy, restart, one at a time; Freya's own source, with candidate and trial (NEW-Y, NEW-Z) | Yes | Later, each by a new owner decision (see D11) |
-| 9 | Releases offered to other nodes (NEW-AA) | Yes, on other nodes, by their own decision | Not before distributed features are enabled |
+| 7 | Automatic upload of her own code to her two branches under the standing grant, with the pre-upload check (NEW-AB; D15 to D17); approved push and pull request for other repositories; reconciliation | Yes, remote effects | After alpha |
+| 8 | Merge on the remote, each separately approved | Yes | Later, by a new owner decision |
+| 9 | Signed releases offered to other nodes, approved on each node (NEW-AA; D13, D14) | Yes, on other nodes, by their own decision | Not before distributed features are enabled |
 
 Phase 2 reads granted repositories with `git`, so it needs the restricted worker
 identity (prerequisite 4, an owner action) even though it changes nothing.
@@ -540,27 +540,34 @@ later decided that uploading Freya's own code should be automatic provided she c
 return to an earlier version (NEW-AB, section 4.8). D7 still stands for opening a
 pull request, merge, deploy, and restart, and for repositories other than her own.
 
-### Open after the decisions above
+### Second round of decisions
 
-- **D11. When are local merge, update, and restart built?** NEW-Y requires that they
-  exist and work offline. D7 placed merge, deploy, and restart "later, one at a
-  time". The owner's later statement (change local code, beta test it, then offer it
-  to other nodes) describes a path in which a local change does take effect locally,
-  which points to building the local steps with apply and commit. The owner has not
-  confirmed the timing; it is recorded here as open, not decided.
-- **D12. What a beta test is.** Side by side on scratch data, in place on real data
-  with a backup, or both (section 4.7).
-- **D13. Who approves an upgrade on another node.** For nodes the owner also
-  administers: one approval per node, or one approval covering several. For
-  independently administered nodes it is always that node's own decision.
-- **D14. Who signs a release, and with what.** A key the owner holds and uses at an
-  approval step, kept where no agent, model, or guest can reach it.
-- **D15. When an automatic push happens.** As soon as an approved change is
-  committed, or only after its candidate has been tried and promoted.
-- **D16. Which branches the standing grant covers.** A branch of Freya's own only
-  (the main branch still reached by an approved merge), or the main branch as well.
-- **D17. What the pre-push check must catch, and what it does on a finding.**
-  Proposed: secrets, credentials, and personal data; stop and ask.
+Given by the owner on 2026-10-08, one at a time, after the added requirements
+NEW-Y to NEW-AB. As before, they direct this design and approve no ADR.
+
+| | Question | Decision |
+|---|---|---|
+| D11 | When are local merge, update, and restart built? | Together with the ability to change code, so the change, beta test, use loop works from the first version, offline too. Each step is still separately approved. Remote merge stays later (D7). |
+| D12 | What is a beta test? | Both kinds, in order: a change first runs side by side on scratch data; only if that passes can the owner start a trial on real data, after a verified backup. |
+| D13 | Upgrades on other nodes the owner administers | Approved on each node, for that node, to begin with. One approval covering several named nodes may be added later by a separate decision. Independently administered nodes always decide for themselves. |
+| D14 | Who signs a release? | The owner, with a key kept in Windows' protected key storage, out of reach of any agent, model, or guest, and used only at the owner's approval of a release. A hardware security key may be adopted later by a separate decision. |
+| D15 | When does the automatic upload happen? | Both, to different places: every commit is uploaded at once to a work-in-progress branch as a backup; promoted versions are uploaded separately and marked as known-good. |
+| D16 | Which branch do promoted versions go to? | A dedicated branch of Freya's own. The main branch changes only by a merge the owner approves. `CLAUDE.md`'s rule against committing directly to `main` stands. |
+| D17 | What does the pre-upload check do on a finding? | It holds the upload and shows the owner what was found. Items the owner confirms as harmless are remembered and not flagged again; anything new still stops. |
+
+Two notes on these:
+
+- **D15 means unpromoted work is uploaded.** Changes that later fail a trial or are
+  rejected will be on the remote's work-in-progress branch, and stay in its history
+  after being undone. The owner chose this for the backup it gives. The pre-upload
+  check (D17) applies to both branches.
+- **D17's remembered items are a list the owner maintains.** An item cleared by
+  mistake stays cleared until removed, so the list is shown in the interface and
+  each entry can be withdrawn.
+
+### Still open
+
+- Nothing from the two rounds above. New questions will be numbered from D18.
 
 ## 9. Not covered
 
