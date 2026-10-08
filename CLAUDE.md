@@ -55,6 +55,10 @@ Rules for the spec:
 - `src/freya/voice/` — faster-whisper STT, Kokoro TTS, `wake.py` (deciding whether a
   heard sentence is addressed to Freya), `listener.py` (utterance segmenting, the
   attention window, and the background listener thread).
+- `src/freya/speech/` — the voice studio behind the window's Voice tab: `engines.py`
+  (the `SpeechEngine` contract and the roles preset / blend / clone / design),
+  `kokoro_engine.py`, `store.py` (saved voice profiles in `data/voice_profiles.json`,
+  generated clips in `data/voice_clips/`), `studio.py` (`VoiceStudio`), `setup.py`.
 - `src/freya/gateway/` — `server.py` (the loopback gateway: HTTP GET for the page and
   images, one WebSocket for everything interactive) and `static/` (the window's page:
   Chat and Images tabs). `src/freya/window.py` — opens that page in a standalone Edge
@@ -159,6 +163,20 @@ the listener thread: `TurnGate.close()` (no new turn may begin), then
 one), then `TurnGate.drain()` for a spoken turn, and only then are the voice and the
 control database closed. Each wait has a time limit.
 
+Voice studio: the Voice tab offers each kind of voice work only through engines that
+declare that role, and shows only the controls an engine reports. Kokoro is the one
+engine that works today (preset voices, and an experimental blend of its own supplied
+voices — a blend is never to be described as cloning or as voice design). Chatterbox,
+Qwen3-TTS, and ElevenLabs are listed as not installed / not set up; each local one
+needs its own environment because its pinned torch/transformers/numpy versions conflict
+with Freya's and with each other, so it must run as a helper process, never be
+installed into `.venv`. A saved profile belongs to the engine that made it and is never
+handed to another. Only an English Kokoro profile can become Freya's live voice. The
+studio is reached from the window directly, not yet through the broker, so it is not
+policy-checked or audited. Before adding cloning: require a statement that the owner
+has the right to use the recording, keep reference audio out of git, and leave
+Chatterbox's built-in watermark in place.
+
 Audit log: `data/freya_control.db` holds policy rules and the append-only, hash-chained
 `audit_event` table. It is verified at startup; if verification fails, the broker
 refuses every invocation. Checkpoints of the chain head go to the file named by
@@ -220,7 +238,10 @@ audit log and policy table in front of capability execution.
 
 Also done: Ollama behind a provider, with chat and embeddings through the broker.
 
-Not yet started: routing the voice, image, and memory paths through providers and
+Also done: the voice studio with Kokoro presets, blends, and saved voices.
+
+Not yet started: the Chatterbox, Qwen3-TTS, and ElevenLabs engines (cloning and voice
+design) and their benchmarks; routing the voice, image, and memory paths through providers and
 the broker; authenticated sessions to replace the fixed `local-owner` principal; a
 dedicated Windows service identity and ACLs for the control database (owner action); an
 off-host checkpoint sink.

@@ -3,7 +3,7 @@ import subprocess
 import webbrowser
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Callable
+from typing import Callable, Optional
 
 from freya.core.providers import ProviderHealth
 from freya.gateway.server import DEFAULT_PORT, Gateway
@@ -43,6 +43,13 @@ class WindowActions:
 
     # What the terminal has shown so far, one entry per line.
     console_history: Callable[[], list] = lambda: []
+
+    # The Voice tab: its current state, a request made from it (which
+    # returns the new state and, for speech, the clip that was made),
+    # and the bytes of a generated clip.
+    voice_state: Callable[[], dict] = lambda: {}
+    voice_request: Callable[[dict], dict] = lambda message: {}
+    voice_clip: Callable[[str], Optional[bytes]] = lambda clip_id: None
 
 
 def build_status(listener, settings, control_plane) -> dict:

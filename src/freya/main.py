@@ -34,6 +34,7 @@ from freya.window import build_status
 from freya.console_tee import ConsoleOutput
 from freya.window_commands import CommandContext
 from freya.window_commands import run_window_command
+from freya.speech.setup import build_voice_studio
 from freya.single_instance import claim as claim_single_instance
 from freya.single_instance import show_message
 from freya.tools.tool_router import FreyaToolRouter
@@ -1027,6 +1028,14 @@ def main(window_only=False):
 
     voice = FreyaVoice()
 
+    # The Voice tab: engines, saved voices, and the voice the owner
+
+    # chose for Freya last time.
+
+    voice_studio = build_voice_studio(voice)
+
+    voice_studio.restore_live_voice()
+
     stt = load_speech_recognition()
 
     settings = Settings()
@@ -1425,6 +1434,12 @@ def main(window_only=False):
             run_command=command_from_window,
 
             console_history=console_output.history,
+
+            voice_state=voice_studio.describe,
+
+            voice_request=voice_studio.handle,
+
+            voice_clip=voice_studio.clips.read,
 
         ),
 
@@ -2012,6 +2027,10 @@ def main(window_only=False):
                 "Freya: A turn was still running when I shut down."
 
             )
+
+        # Generated clips are only kept while Freya is running.
+
+        voice_studio.clips.clear()
 
         console_output.uninstall()
 
