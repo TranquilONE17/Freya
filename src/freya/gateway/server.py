@@ -16,6 +16,8 @@ from websockets.datastructures import Headers
 from websockets.http11 import Response
 from websockets.sync.server import serve
 
+from freya.gateway.speech_relay import SpeechRelay
+
 
 DEFAULT_PORT = 8770
 
@@ -35,6 +37,17 @@ MAX_UPLOAD_BYTES = 3 * 1024 * 1024
 # may wait to be sent to one window before it is given up on.
 STOP_TIMEOUT_SECONDS = 30.0
 MAX_WAITING_EVENTS = 5000
+
+# The version of the conversation between Freya and a GUI client. A
+# client says which it speaks; one Freya does not speak is refused.
+PROTOCOL_VERSION = 1
+# What a client may ask for when it introduces itself.
+CLIENT_FEATURES = ("speech.playback",)
+# How a program Freya started (not a web page) proves who it is: a key
+# Freya gave it when she started it, used once, or the session that key
+# was exchanged for. Never in an address.
+PAIR_SCHEME = "FreyaPair"
+SESSION_SCHEME = "FreyaSession"
 
 JAVASCRIPT = "text/javascript; charset=utf-8"
 
@@ -163,6 +176,11 @@ class Gateway:
         self._lock = threading.Lock()
         self._keys = set()
         self._sessions = set()
+        self._pairing_keys = set()
+        self._native_sessions = set()
+
+        # Hands Freya's speech to the one client that plays it.
+        self.speech = SpeechRelay()
 
         self._work = queue.Queue()
         # Requests about the avatar have a queue of their own, so that
@@ -190,7 +208,9 @@ class Gateway:
             self._handle_socket,
             sock=listener,
             process_request=self._process_request,
-            origins=self._origins(),
+            # None lets a program with no Origin header begin the
+            # handshake; _process_request then demands its pairing.
+            origins=self._origins() + [None],
             max_size=MAX_MESSAGE_BYTES,
         )
 
@@ -288,6 +308,46 @@ class Gateway:
 
         return f"http://{LOOPBACK}:{self.port}/open?key={key}"
 
+    def new_pairing_key(self) -> str:
+        """
+        A key for a GUI program Freya is about to start. It works once,
+        in the Authorization header of that program's connection.
+        """
+        key = secrets.token_urlsafe(32)
+
+        with self._lock:
+            self._pairing_keys.add(key)
+
+        return key
+
+    def _native_session(self, authorization: str):
+        """
+        The session for a program's Authorization header, or None. A
+        pairing key is used up and replaced by a session, which that
+        program may use to reconnect while Freya keeps running.
+        """
+        scheme, _, value = str(authorization).partition(" ")
+        value = value.strip()
+
+        if not value:
+            return None
+
+        with self._lock:
+            if scheme == PAIR_SCHEME:
+                for key in self._pairing_keys:
+                    if secrets.compare_digest(value, key):
+                        self._pairing_keys.discard(key)
+                        session = secrets.token_urlsafe(32)
+                        self._native_sessions.add(session)
+
+                        return session
+            elif scheme == SESSION_SCHEME:
+                for session in self._native_sessions:
+                    if secrets.compare_digest(value, session):
+                        return session
+
+        return None
+
     # -- HTTP --------------------------------------------------------
 
     def _has_session(self, request) -> bool:
@@ -317,6 +377,18 @@ class Gateway:
 
         if url.path == "/open":
             return self._open(url)
+
+        if url.path == "/ws" and "Origin" not in request.headers:
+            # Not a web page. Only a program Freya started and paired
+            # may connect this way; a cookie is not enough.
+            session = self._native_session(request.headers.get("Authorization", ""))
+
+            if session is None:
+                return _response(403, "This program has not been paired with Freya.")
+
+            connection.freya_native_session = session
+
+            return None
 
         if not self._has_session(request):
             return _response(
@@ -418,7 +490,11 @@ class Gateway:
                     return
 
                 try:
-                    websocket.send(json.dumps(event))
+                    websocket.send(
+                        bytes(event)
+                        if isinstance(event, (bytes, bytearray))
+                        else json.dumps(event)
+                    )
                 except Exception:
                     # The window has gone; the reading loop notices too.
                     return
@@ -431,6 +507,16 @@ class Gateway:
 
         # Binary data this window has sent and not yet used.
         upload = bytearray()
+
+        # What is known about this client. A web page is "web"; a
+        # program Freya paired is "native" and may be given playback.
+        client = {
+            "kind": "native" if getattr(websocket, "freya_native_session", None) else "web",
+            "session": getattr(websocket, "freya_native_session", None),
+            "playback": None,
+            "outbox": outbox,
+            "open": True,
+        }
 
         with self._lock:
             self._clients += 1
@@ -459,12 +545,20 @@ class Gateway:
             sender.start()
 
             for raw in websocket:
-                self._handle_message(websocket, raw, upload, outbox)
+                self._handle_message(websocket, raw, upload, outbox, client)
         except Exception:
             # The window closed or the connection broke.
             pass
         finally:
+            client["open"] = False
+            self.speech.release(client["playback"])
             self._bus.unsubscribe(outbox.put_nowait)
+
+            if client["kind"] == "native":
+                try:
+                    self._actions.client_closed("native")
+                except Exception:
+                    pass
 
             # Let the sending thread finish, even if the queue is full.
             while sender.is_alive():
@@ -483,9 +577,71 @@ class Gateway:
                 if not self._clients:
                     self._no_clients_since = time.monotonic()
 
-    def _handle_message(self, websocket, raw, upload, outbox=None) -> None:
+    def _introduce(self, websocket, message, client) -> None:
+        """
+        A client says what it is and what it would like. It is told what
+        it has been given, or refused if it speaks another version.
+        """
+        if message.get("protocol") != PROTOCOL_VERSION:
+            websocket.send(
+                json.dumps(
+                    {
+                        "type": "refused",
+                        "protocol": PROTOCOL_VERSION,
+                        "reason": f"Freya speaks version {PROTOCOL_VERSION} of this protocol.",
+                    }
+                )
+            )
+            websocket.close()
+            return
+
+        asked = message.get("features")
+        asked = [f for f in asked if isinstance(f, str)] if isinstance(asked, list) else []
+        unknown = [f for f in asked if f not in CLIENT_FEATURES]
+        granted = []
+
+        # Only a program Freya paired may play her voice, and only one.
+        if "speech.playback" in asked and client["kind"] == "native" and client["playback"] is None:
+            outbox = client["outbox"]
+
+            def send(item):
+                if not client["open"]:
+                    return False
+
+                try:
+                    outbox.put(item, timeout=2.0)
+                except queue.Full:
+                    return False
+
+                return True
+
+            client["playback"] = self.speech.claim(send)
+
+            if client["playback"] is not None:
+                granted.append("speech.playback")
+
+        websocket.send(
+            json.dumps(
+                {
+                    "type": "welcome",
+                    "protocol": PROTOCOL_VERSION,
+                    "features": granted,
+                    "not_available": [f for f in asked if f not in granted and f not in unknown],
+                    "unknown": unknown[:20],
+                    "session": client["session"],
+                    "limits": {
+                        "message_bytes": MAX_MESSAGE_BYTES,
+                        "text_characters": MAX_TEXT_LENGTH,
+                    },
+                }
+            )
+        )
+
+    def _handle_message(self, websocket, raw, upload, outbox=None, client=None) -> None:
         def reject(reason):
             websocket.send(json.dumps({"type": "error", "text": reason}))
+
+        client = client or {"kind": "web", "session": None, "playback": None, "outbox": outbox, "open": True}
 
         if isinstance(raw, (bytes, bytearray)):
             if len(upload) + len(raw) > MAX_UPLOAD_BYTES:
@@ -504,6 +660,16 @@ class Gateway:
             return reject("That message could not be read.")
 
         kind = message.get("type")
+
+        if kind == "client.hello":
+            return self._introduce(websocket, message, client)
+
+        if kind in ("speech.started", "speech.finished", "speech.interrupted"):
+            # Believed only from the client that holds playback.
+            if client["playback"] is not None:
+                self.speech.acknowledge(client["playback"], message)
+
+            return
 
         if kind in ("say", "image", "command"):
             text = message.get("text")
