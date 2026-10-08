@@ -17,20 +17,30 @@ are fixed in that PR. Regression tests are in `tests/test_review_fixes.py`.
 
 Validation, on Windows with Python 3.12:
 
-- `python -m pytest`: 428 passed (406 existing, 22 new).
+- `python -m pytest`: 430 passed (406 existing, 24 new).
 - The concurrency tests synchronise with events, barriers, and queues, not sleeps.
 - Finding 4 runs the real `index.html` and `app.js` in headless Edge; those tests
   skip when Edge is not installed.
 - Memory tests use a stand-in handler, and the real handler only for `/memory-help`.
   The owner's memory database was not opened.
 
-Not done or not checked:
+Follow-up, in the same PR:
 
-- A running turn cannot be cancelled mid-reply; shutdown waits up to the limit, then
-  proceeds and says a turn was still running.
-- The fixes were not exercised by hand in a running Freya.
-- An intermittent websockets thread warning (`WinError 10038`) at gateway shutdown in
-  the test suite also occurs on `main` and is not addressed.
+- A reply being written now stops at its next piece when Freya shuts down, and the
+  model call is closed so its outcome is audited. Shutdown still cannot interrupt a
+  turn before its first piece arrives (the model thinking, or a tool running); it
+  waits up to the limit for those.
+- The intermittent websockets thread warning (`WinError 10038`) at gateway shutdown,
+  which also occurred on `main`, is fixed: four consecutive full runs were clean.
+- Checked by hand in a running Freya with scratch data (on the voice branch with
+  these fixes merged in): `/memory-help`, `/remember`, `/memories`, bare `exit` in
+  the chat box and `Quit` in the Console box, an unknown command, and closing the
+  window during a long reply, which stopped mid-sentence and exited cleanly.
+
+Still true:
+
+- Typing `exit` in the terminal while a window turn is running waits for that turn
+  to finish first, as any typed line does.
 
 ## Implementation instructions
 
