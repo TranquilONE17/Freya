@@ -31,6 +31,7 @@ from freya.window import WINDOW_COMMAND
 from freya.window import FreyaWindow
 from freya.window import WindowActions
 from freya.window import build_status
+from freya.unreal_client import UnrealClient, configured_client
 from freya.console_tee import ConsoleOutput
 from freya.window_commands import CommandContext
 from freya.window_commands import run_window_command
@@ -1285,6 +1286,32 @@ def main(window_only=False):
 
 
 
+    def client_closed(kind):
+
+        # The Unreal window has gone. Freya keeps running, but with
+
+        # the microphone muted, so it is never open with nothing on
+
+        # screen to show it. It stays muted until the owner unmutes.
+
+        if kind == "native" and listener is not None and listener.running:
+
+            if not listener.muted:
+
+                listener.mute()
+
+                print(
+
+                    "\nFreya: My window closed, so I have muted the "
+
+                    "microphone. Use /unmute to turn it back on."
+
+                )
+
+            publish_status()
+
+
+
     def memory_from_window(message):
 
         # Searching and changing what she has saved waits its turn
@@ -1503,6 +1530,8 @@ def main(window_only=False):
 
             memory_request=memory_from_window,
 
+            client_closed=client_closed,
+
             set_volume=volume_from_window,
 
             interrupt=voice.interrupt,
@@ -1529,7 +1558,31 @@ def main(window_only=False):
 
     )
 
+    unreal = None
+
+
+
     if window.start():
+
+        # A client that asks to may play her voice in her place.
+
+        voice.remote_playback = window.speech
+
+        program = configured_client()
+
+
+
+        if program is not None:
+
+            unreal = UnrealClient(program)
+
+
+
+            if unreal.launch(window.port, window.new_pairing_key()):
+
+                print("Freya's Unreal window is starting.")
+
+
 
         if OPEN_WINDOW or window_only:
 
@@ -2137,6 +2190,12 @@ def main(window_only=False):
         # remembered, so she comes back next time if she was.
 
         avatar.stop()
+
+        if unreal is not None:
+
+            unreal.stop()
+
+
 
         console_output.uninstall()
 

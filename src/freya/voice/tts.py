@@ -33,6 +33,11 @@ class FreyaVoice:
         # listen; the voice does not know or care what does.
         self.speech_listener = None
 
+        # When a GUI client plays Freya's voice (see
+        # freya.gateway.speech_relay), speech goes to it instead of to
+        # this computer's speakers. Unset, she plays it herself.
+        self.remote_playback = None
+
         if self.enabled:
             print("Loading Freya voice engine...")
             self.pipeline = KPipeline(
@@ -140,6 +145,27 @@ class FreyaVoice:
         interrupted = False
 
         try:
+            relay = getattr(self, "remote_playback", None)
+
+            if relay is not None and relay.active:
+                # The client gets the sound at full level and is told the
+                # volume, so a quiet voice still moves a face fully. This
+                # waits until the client says it has finished, which is
+                # what keeps the microphone ignoring her own voice.
+                outcome = relay.play(
+                    audio,
+                    SAMPLE_RATE,
+                    self.volume,
+                    self._interrupt_event,
+                )
+
+                if outcome != "no-client":
+                    # Played, stopped, or lost with the client. A lost
+                    # sentence is not repeated: part of it may have been
+                    # heard.
+                    interrupted = outcome == "interrupted"
+                    return
+
             volume = self.volume
 
             if volume != 1.0:
