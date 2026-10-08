@@ -123,8 +123,18 @@ has nowhere to print and some libraries fail when they try. In that mode Freya e
 about eight seconds after her last window closes, or after two minutes if none ever
 connects, so she is never left running unseen with the microphone open. Only one Freya
 runs per user (`single_instance.py`, a named mutex; `FREYA_ALLOW_MULTIPLE=1` lifts it
-for tests). Console-only commands such as `/names` and `/talk` have no window
-equivalent yet.
+for tests).
+
+The terminal inside the window: `console_tee.py` copies everything printed (to the
+real terminal or the log) into a bounded history and onto the event bus. Typing
+`/terminal` or `/console` in the window's chat reveals a Console tab that shows it.
+Text starting with a slash in the chat or the Console tab is sent as a `command`
+message and run by `window_commands.py`, which handles the same commands as the
+terminal loop (`/names`, `/name add|remove`, `/mute`, `/unmute`, `/interrupt`,
+`/image`, `/help`, and `exit` when there is no terminal). `/talk`, `/listen`,
+`/conversation`, and `/voice-file` need a real keyboard prompt and are explained
+rather than run. The two command paths (the loop in `main.py` and
+`window_commands.py`) are separate code; keep them in step.
 
 The window: Freya opens it at startup (`FREYA_WINDOW=0` disables that; `/window`
 reopens it). The gateway binds `127.0.0.1` only, port 8770 or a free one. A request is
