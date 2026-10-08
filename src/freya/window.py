@@ -214,7 +214,14 @@ class FreyaWindow:
 
         return idle >= OPEN_TIMEOUT_SECONDS
 
-    def stop(self) -> None:
+    def stop(self) -> bool:
+        """
+        Stop serving the window, waiting for a turn it asked for to
+        finish. Returns False when that turn was still running.
+        """
         if self.running:
             self.running = False
-            self._gateway.stop()
+
+            return self._gateway.stop()
+
+        return True

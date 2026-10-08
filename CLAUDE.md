@@ -146,7 +146,18 @@ the same fixed `local-owner` principal. The page shows everything with `textCont
 and a strict Content-Security-Policy, because replies and tool results are untrusted.
 The window can only ask for a chat turn, an image, mute/unmute, or stopping speech;
 add new message types deliberately. `main.py` publishes conversation and image events
-on a module-level `EVENTS` bus; the console still prints as before.
+on a module-level `EVENTS` bus; the console still prints as before. The bus calls its
+subscribers in publish order while it is locked, so a subscriber must never block: the
+gateway's only puts the event on that window's queue, and a thread per window does the
+sending. A window joins with `subscribe_with_history`, which is what guarantees it
+gets every event exactly once. Memory commands (`/memories`, `/forget`, `/memory-help`
+and the rest) typed in the window are passed to `FreyaAssistant.memory_command`.
+
+Shutdown order matters, because a turn may be running on the window's worker thread or
+the listener thread: `TurnGate.close()` (no new turn may begin), then
+`FreyaWindow.stop()` (refuses new work, drops waiting turns, waits for the running
+one), then `TurnGate.drain()` for a spoken turn, and only then are the voice and the
+control database closed. Each wait has a time limit.
 
 Audit log: `data/freya_control.db` holds policy rules and the append-only, hash-chained
 `audit_event` table. It is verified at startup; if verification fails, the broker
