@@ -48,8 +48,11 @@ class AvatarHost:
         python: Optional[str] = None,
         extra_arguments=(),
         log_path=None,
+        environment=None,
     ):
         self.renderer = renderer
+        # Extra environment variables for the overlay program.
+        self.environment = dict(environment or {})
         self._on_event = on_event or (lambda message: None)
         self._python = python or sys.executable
         self._extra = list(extra_arguments)
@@ -64,6 +67,13 @@ class AvatarHost:
         self.state: Optional[dict] = None
         self.appearances = []
         self.last_error = ""
+
+    def use(self, renderer: str, environment=None) -> None:
+        """
+        Choose the renderer the overlay will be started with next.
+        """
+        self.renderer = renderer
+        self.environment = dict(environment or {})
 
     @property
     def running(self) -> bool:
@@ -108,7 +118,11 @@ class AvatarHost:
                     stderr=log,
                     text=True,
                     encoding="utf-8",
-                    env={**os.environ, "PYTHONIOENCODING": "utf-8"},
+                    env={
+                        **os.environ,
+                        **self.environment,
+                        "PYTHONIOENCODING": "utf-8",
+                    },
                     creationflags=(
                         subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0
                     ),

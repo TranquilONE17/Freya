@@ -1,3 +1,4 @@
+import os
 import threading
 import time
 from typing import Callable, List, Optional
@@ -25,7 +26,8 @@ from freya.spatial_avatar.geometry import (
 )
 from freya.spatial_avatar.host import STOPPED, AvatarError, AvatarHost
 from freya.spatial_avatar.library import AvatarLibrary, LibraryError
-from freya.spatial_avatar.renderers import choose_renderer
+from freya.spatial_avatar.renderers import choose_renderer, load_renderer
+from freya.spatial_avatar.renderers.web import MODEL_VARIABLE
 from freya.spatial_avatar.sources import ARCHIVE, CONVERTIBLE, READY, SourceSearch
 from freya.spatial_avatar.targets import (
     MockTargetProvider,
@@ -153,6 +155,9 @@ class AvatarService:
 
         self.notes: List[str] = []
         self.error = ""
+        # Whether this service picks the renderer itself. When it was
+        # handed a host (in tests), the host's renderer is left alone.
+        self._chooses_renderer = host is None
 
         if host is None:
             try:
@@ -167,6 +172,7 @@ class AvatarService:
 
         self._host = host
         self._host._on_event = self._overlay_event
+        self._base_renderer = host.renderer
 
         self._probe = probe or probe_layout
         self._probed: Optional[DisplayLayout] = None
@@ -377,6 +383,9 @@ class AvatarService:
         except LibraryError as exc:
             raise AvatarError(str(exc))
 
+        # Which avatar is hers may have changed, or its file gone.
+        self._apply_renderer()
+
         return self.describe()
 
     def file(self, kind, model):
@@ -432,9 +441,66 @@ class AvatarService:
 
         return command_id
 
+    def _wanted_renderer(self):
+        """
+        The renderer to draw her with, and what it needs to be told:
+        the 3D one when an avatar has been marked as Freya's and it can
+        run here, otherwise the usual one.
+        """
+        try:
+            path = self.library.active_model_path()
+        except LibraryError:
+            path = None
+
+        if path is not None:
+            environment = {MODEL_VARIABLE: str(path)}
+
+            try:
+                renderer = load_renderer("web")
+                saved = os.environ.get(MODEL_VARIABLE)
+                os.environ[MODEL_VARIABLE] = str(path)
+
+                try:
+                    problem = renderer.available()
+                finally:
+                    if saved is None:
+                        os.environ.pop(MODEL_VARIABLE, None)
+                    else:
+                        os.environ[MODEL_VARIABLE] = saved
+            except ValueError as exc:
+                problem = str(exc)
+
+            if not problem:
+                return "web", environment
+
+        return self._base_renderer, {}
+
+    def _apply_renderer(self) -> None:
+        """
+        Switch the overlay to the renderer that is now wanted, starting
+        it again if it was running.
+        """
+        if not self._chooses_renderer:
+            return
+
+        renderer, environment = self._wanted_renderer()
+
+        if (renderer, environment) == (self._host.renderer, self._host.environment):
+            return
+
+        was_running = self._host.running
+        self._host.stop()
+        self._host.use(renderer, environment)
+
+        if was_running and self.config.visible:
+            self._ensure_running()
+
     def _ensure_running(self) -> None:
         if self._host.running:
             return
+
+        if self._chooses_renderer:
+            self._host.use(*self._wanted_renderer())
 
         self._host.start()
         self._host.send(c.command(c.CONFIGURE, config=self.config.as_dict()))

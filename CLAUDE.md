@@ -205,8 +205,14 @@ three-vrm copied unmodified into `static/vendor/` (checksums in `vendor/README.t
 checked by a test; `.gitattributes` keeps them byte-exact). Every served file is
 listed in `STATIC_FILES`. The page's one inline script is its import map, allowed in
 the content security policy by hash; do not add `unsafe-inline` or `unsafe-eval`. A
-chosen model is only previewed in the window: the desktop avatar is still the
-placeholder until the overlay has a 3D renderer.
+model marked as Freya's is shown on the desktop by the `web` renderer
+(`renderers/web.py`, a WebView2 window through `pywebview`): her face only, in a
+rounded tile, with the placeholder's handle and pointing line. The overlay serves
+the page, the libraries, and the one model file to its own window on loopback under
+a random key; the page only draws and sends nothing back. A web view window cannot
+be made see-through or cut to a shape on Windows (both were tried), so a whole-body
+figure needs a different renderer, and the converted model's shoulders need fixing
+first. With no model marked, the placeholder figure is used.
 
 Finding and converting models: `spatial_avatar/sources.py` lists files in the
 owner's Downloads folder (`FREYA_AVATAR_SEARCH` overrides) that are or could become
@@ -318,7 +324,10 @@ and Qwen3-TTS as helper-process engines for cloning and voice design; a benchmar
 Also done: the spatial avatar, Phase 1 (placeholder overlay, scaling, boundaries,
 pointing at made-up or user-chosen targets).
 
-Not yet started: avatar Phases 2 to 5 (real screen awareness, 3D rendering, lip
+Also done: an avatar library, search and conversion of downloaded models, and the
+chosen model's face on the desktop.
+
+Not yet started: avatar Phases 2 to 5 (real screen awareness, whole-body 3D rendering, lip
 synchronisation, other devices), each needing its own decision; the ElevenLabs engine; speech for devices other than this PC (needs
 the authenticated gateway); routing the voice, image, and memory paths through providers and
 the broker; authenticated sessions to replace the fixed `local-owner` principal; a
