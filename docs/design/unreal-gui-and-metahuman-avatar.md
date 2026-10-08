@@ -549,3 +549,33 @@ before integration. The EULA was read, not accepted on the owner's behalf.
 - A separate FreyaUnrealProbe project is staged in this chat's outputs. It has no
   personal-data access, live microphone, gateway connection or automatic speech.
   It is experimental source, not an implemented replacement for Freya's GUI.
+
+## 16. Feasibility result — 2026-10-08
+
+The first gate of milestone 1, "does Epic's audio solver run in a packaged build",
+has been tried in the separate `FreyaUnrealProbe` project (outside this
+repository). **[Verified]** by running it:
+
+- A MetaHuman character was rigged, textured, and assembled (UE Optimized) by
+  script through `MetaHumanCharacterEditorSubsystem`, with the owner's sign-in
+  to Epic's service for the rig and textures.
+- A 10.5 s Kokoro clip (24 kHz mono, synthetic) fed to the solver produced 525
+  result frames over 260 curves, in an uncooked game run **and in a packaged
+  Win64 build with the Editor not running**. Screenshots from both show the
+  mouth in different open shapes, and a blink.
+- `MetaHumanPipelineCore` being typed `Editor` in its descriptor did not prevent
+  a Game target from linking or the solver from running when packaged.
+- The solver's model lives in Epic's `StreamingADA` plugin and is loaded by
+  path; `/StreamingADA` had to be added to the directories always cooked.
+- The assembled character's face did not follow Live Link from its blueprint
+  settings alone. The probe sets the face's animation class to Epic's
+  `ABP_MH_LiveLink` and writes the subject name into it. Section 5's Unreal
+  module needs the same step.
+- Packaging took about six minutes; the package is 2.3 GB.
+
+**Still [Experiment]:** lip-to-voice timing by ear, cancellation in a real run,
+performance and VRAM beside Freya's other workloads, and offline operation. No
+backend connection exists yet; the probe plays a file.
+
+This retires the "solver does not run packaged" risk in section 10. It approves
+nothing and changes no other statement in this document.
