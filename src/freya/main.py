@@ -1,5 +1,9 @@
 import re
 
+import time
+
+import urllib.request
+
 import threading
 
 
@@ -13,6 +17,25 @@ from freya.gpu.resource_manager import GPUResourceManager
 from freya.image.image_generator import FreyaImageGenerator
 
 from freya.control_plane import build_local_control_plane
+from freya.config import OPEN_WINDOW
+from freya.hands_free import LISTENING_COMMANDS
+from freya.hands_free import describe_listening
+from freya.hands_free import handle_listening_command
+from freya.hands_free import load_speech_recognition
+from freya.hands_free import start_background_listening
+from freya.settings import Settings
+from freya.turn_gate import TurnGate
+from freya.events import EventBus
+from freya.image.gallery import ImageGallery
+from freya.window import WINDOW_COMMAND
+from freya.window import FreyaWindow
+from freya.window import WindowActions
+from freya.window import build_status
+from freya.console_tee import ConsoleOutput
+from freya.window_commands import CommandContext
+from freya.window_commands import run_window_command
+from freya.single_instance import claim as claim_single_instance
+from freya.single_instance import show_message
 from freya.tools.tool_router import FreyaToolRouter
 
 from freya.voice.stt import FreyaSTT
@@ -34,6 +57,66 @@ CONVERSATION_COMMAND = "/conversation"
 INTERRUPT_COMMAND = "/interrupt"
 
 IMAGE_COMMAND = "/image"
+
+COMMANDS = (
+
+    VOICE_FILE_COMMAND,
+
+    TALK_COMMAND,
+
+    LISTEN_COMMAND,
+
+    CONVERSATION_COMMAND,
+
+    INTERRUPT_COMMAND,
+
+    IMAGE_COMMAND,
+
+) + LISTENING_COMMANDS + (WINDOW_COMMAND,)
+
+
+
+# Everything that happens in a conversation is announced here, so the
+
+# window can show it. The console keeps printing as before.
+
+EVENTS = EventBus()
+
+# Freya's own copies of generated images; set up in main().
+
+GALLERY = None
+
+
+
+
+
+def normalize_command(user_input):
+
+    """
+
+    Accept a command typed with a backslash, such as \\listen.
+
+    Anything that is not a known command is returned unchanged.
+
+    """
+
+    if not user_input.startswith("\\"):
+
+        return user_input
+
+    words = user_input[1:].split(maxsplit=1)
+
+    if not words:
+
+        return user_input
+
+    command = "/" + words[0].lower()
+
+    if command not in COMMANDS:
+
+        return user_input
+
+    return "/" + user_input[1:]
 
 
 
@@ -109,6 +192,8 @@ def stream_freya_response(
 
     )
 
+    EVENTS.publish("assistant_start")
+
 
 
     speech_buffer = ""
@@ -128,6 +213,14 @@ def stream_freya_response(
             end="",
 
             flush=True,
+
+        )
+
+        EVENTS.publish(
+
+            "assistant_chunk",
+
+            text=chunk,
 
         )
 
@@ -175,6 +268,8 @@ def stream_freya_response(
 
         )
 
+    EVENTS.publish("assistant_end")
+
 
 
     print("\n")
@@ -211,6 +306,74 @@ def get_image_prompt(command):
 
 
 
+def announce_image_failure(exc):
+
+    EVENTS.publish("image_failed")
+
+    EVENTS.publish(
+
+        "notice",
+
+        text=f"Image generation failed. {exc}",
+
+    )
+
+
+
+
+def keep_generated_image(prompt, result):
+
+    """
+
+    Copy a finished image into Freya's gallery and announce it.
+
+    """
+
+    if GALLERY is None or not result["image_urls"]:
+
+        EVENTS.publish("image_failed")
+
+        return
+
+
+    try:
+
+        with urllib.request.urlopen(
+
+            result["image_urls"][0],
+
+            timeout=30,
+
+        ) as response:
+
+            image = GALLERY.add(
+
+                prompt,
+
+                response.read(),
+
+                seed=result.get("seed"),
+
+            )
+
+    except (OSError, ValueError) as exc:
+
+        announce_image_failure(exc)
+
+        return
+
+
+    EVENTS.publish(
+
+        "image_ready",
+
+        image=image,
+
+    )
+
+
+
+
 def run_image_generation(
 
     image_generator,
@@ -229,13 +392,49 @@ def run_image_generation(
 
         )
 
-        return
+        return False
 
 
 
     print()
 
+    try:
+
+        # Start ComfyUI first if it is not running, so the language
+
+        # model is not unloaded for an image that cannot be made.
+
+        image_generator.ensure_running()
+
+    except RuntimeError as exc:
+
+        print(
+
+            f"Freya: I can't generate images right now. {exc}\n"
+
+        )
+
+        EVENTS.publish(
+
+            "notice",
+
+            text=f"I can't generate images right now. {exc}",
+
+        )
+
+        return False
+
+
+
     print("Freya: Preparing GPU for image generation...")
+
+    EVENTS.publish(
+
+        "image_started",
+
+        prompt=prompt,
+
+    )
 
     print(f"Prompt: {prompt}")
 
@@ -267,7 +466,9 @@ def run_image_generation(
 
         )
 
-        return
+        announce_image_failure(exc)
+
+        return False
 
 
 
@@ -305,7 +506,9 @@ def run_image_generation(
 
         )
 
-        return
+        announce_image_failure(exc)
+
+        return False
 
 
 
@@ -344,6 +547,14 @@ def run_image_generation(
     print(
 
         "Freya: Image generated successfully."
+
+    )
+
+    keep_generated_image(
+
+        prompt,
+
+        result,
 
     )
 
@@ -425,6 +636,8 @@ def run_image_generation(
 
     print()
 
+    return True
+
 
 
 
@@ -467,7 +680,19 @@ def handle_normal_input(
 
     user_input,
 
+    source="typed",
+
 ):
+
+    EVENTS.publish(
+
+        "user",
+
+        text=user_input,
+
+        source=source,
+
+    )
 
     tool_was_used = handle_tool_request(
 
@@ -506,6 +731,16 @@ def handle_normal_input(
         print(
 
             f"\n\nFreya: {exc}\n"
+
+        )
+
+        EVENTS.publish("assistant_end")
+
+        EVENTS.publish(
+
+            "notice",
+
+            text=str(exc),
 
         )
 
@@ -685,6 +920,8 @@ def run_conversation_mode(
 
             transcript,
 
+            source="voice",
+
         )
 
 
@@ -701,7 +938,40 @@ def run_conversation_mode(
 
 
 
-def main():
+def main(window_only=False):
+
+    """
+
+    Run Freya. With window_only, there is no console: she is used
+
+    through her window and by voice, and exits when it is closed.
+
+    """
+
+    global GALLERY
+
+
+    if not claim_single_instance():
+
+        message = "Freya is already running."
+
+        if window_only:
+
+            show_message(message)
+
+        else:
+
+            print(message)
+
+        return
+
+
+
+    console_output = ConsoleOutput(EVENTS)
+
+    console_output.install()
+
+    quit_requested = threading.Event()
 
     control_plane = build_local_control_plane()
 
@@ -731,11 +1001,38 @@ def main():
 
     voice = FreyaVoice()
 
-    stt = None
+    stt = load_speech_recognition()
+
+    settings = Settings()
+
+    gate = TurnGate()
+
+    GALLERY = ImageGallery()
 
 
 
-    image_generator = FreyaImageGenerator()
+    def announce_image_backend(message):
+
+        print(message)
+
+        EVENTS.publish(
+
+            "notice",
+
+            text=message.removeprefix("Freya: "),
+
+        )
+
+
+    image_generator = FreyaImageGenerator(
+
+        ensure_running=lambda: control_plane.ensure_image_backend(
+
+            announce=announce_image_backend,
+
+        ),
+
+    )
 
     tool_router = FreyaToolRouter()
 
@@ -805,7 +1102,341 @@ def main():
 
     )
 
+    print("Use /names to see the names Freya answers to.")
+
+    print("Use /window to open Freya's window.")
+
     print("Type 'exit' to quit.\n")
+
+
+
+    def handle_spoken_request(request):
+
+        # Runs on the listener thread while the keyboard waits.
+
+        with gate.spoken_turn() as acquired:
+
+            if not acquired:
+
+                return
+
+            if not request:
+
+                print("\rYou (voice): Freya\n\nFreya: Yes?\n")
+
+                voice.speak("Yes?")
+
+            else:
+
+                print(f"\rYou (voice): {request}")
+
+                handle_normal_input(
+
+                    freya,
+
+                    voice,
+
+                    tool_router,
+
+                    image_generator,
+
+                    gpu_manager,
+
+                    request,
+
+                    source="voice",
+
+                )
+
+            print("You: ", end="", flush=True)
+
+
+
+    listener = start_background_listening(
+
+        stt,
+
+        voice,
+
+        gate,
+
+        settings,
+
+        handle_spoken_request,
+
+    )
+
+    print(describe_listening(listener, settings))
+
+
+
+    def current_status():
+
+        return build_status(
+
+            listener,
+
+            settings,
+
+            control_plane,
+
+        )
+
+
+    def publish_status():
+
+        EVENTS.publish(
+
+            "status",
+
+            status=current_status(),
+
+        )
+
+
+    def say_from_window(text):
+
+        # Runs on the window's worker thread; waits for any turn
+
+        # already in progress.
+
+        with gate.turn():
+
+            print(f"\rYou (window): {text}")
+
+            handle_normal_input(
+
+                freya,
+
+                voice,
+
+                tool_router,
+
+                image_generator,
+
+                gpu_manager,
+
+                text,
+
+                source="window",
+
+            )
+
+            publish_status()
+
+            print("You: ", end="", flush=True)
+
+
+    def image_from_window(prompt):
+
+        with gate.turn():
+
+            print(f"\rYou (window): /image {prompt}")
+
+            EVENTS.publish(
+
+                "user",
+
+                text=f"Generate an image: {prompt}",
+
+                source="window",
+
+            )
+
+            run_image_generation(
+
+                image_generator,
+
+                gpu_manager,
+
+                prompt,
+
+            )
+
+            publish_status()
+
+            print("You: ", end="", flush=True)
+
+
+    def mute_from_window(muted):
+
+        if listener is not None and listener.running:
+
+            if muted:
+
+                listener.mute()
+
+            else:
+
+                listener.unmute()
+
+        publish_status()
+
+
+    def generate_image_tool(prompt):
+
+        # Called when the model decides an image is wanted. The turn
+
+        # that asked for it already holds the gate.
+
+        EVENTS.publish(
+
+            "notice",
+
+            text=f"Generating an image: {prompt}",
+
+        )
+
+        succeeded = run_image_generation(
+
+            image_generator,
+
+            gpu_manager,
+
+            prompt,
+
+        )
+
+        publish_status()
+
+        if not succeeded:
+
+            raise RuntimeError(
+
+                "The image could not be generated."
+
+            )
+
+        return {
+
+            "status": "generated",
+
+            "prompt": prompt,
+
+            "shown_in": "the Images tab of Freya's window",
+
+        }
+
+
+    control_plane.register_image_generation(
+
+        generate_image_tool,
+
+    )
+
+
+    def command_from_window(text):
+
+        with gate.turn():
+
+            run_window_command(
+
+                text,
+
+                CommandContext(
+
+                    bus=EVENTS,
+
+                    voice=voice,
+
+                    listener=listener,
+
+                    settings=settings,
+
+                    window=window,
+
+                    normalize=normalize_command,
+
+                    run_image=lambda prompt: run_image_generation(
+
+                        image_generator,
+
+                        gpu_manager,
+
+                        prompt,
+
+                    ),
+
+                    publish_status=publish_status,
+
+                    request_quit=(
+
+                        quit_requested.set
+
+                        if window_only
+
+                        else None
+
+                    ),
+
+                ),
+
+            )
+
+            print("You: ", end="", flush=True)
+
+
+    window = FreyaWindow(
+
+        EVENTS,
+
+        GALLERY,
+
+        WindowActions(
+
+            say=say_from_window,
+
+            generate_image=image_from_window,
+
+            set_muted=mute_from_window,
+
+            interrupt=voice.interrupt,
+
+            status=current_status,
+
+            run_command=command_from_window,
+
+            console_history=console_output.history,
+
+        ),
+
+    )
+
+    if window.start():
+
+        if OPEN_WINDOW or window_only:
+
+            print(window.open())
+
+        else:
+
+            print("Use /window to open Freya's window.")
+
+    print()
+
+
+
+    def read_next_line():
+
+        if not window_only:
+
+            return gate.read_line("You: ")
+
+        # No console to read from: carry on until the window has
+
+        # been closed, then leave as if 'exit' had been typed.
+
+        while not (
+
+            window.closed()
+
+            or quit_requested.is_set()
+
+        ):
+
+            time.sleep(0.5)
+
+        return "exit"
 
 
 
@@ -813,11 +1444,11 @@ def main():
 
         while True:
 
-            user_input = input(
+            user_input = normalize_command(
 
-                "You: "
+                read_next_line().strip()
 
-            ).strip()
+            )
 
 
 
@@ -854,6 +1485,29 @@ def main():
                     "\nFreya: Speech playback interrupted.\n"
 
                 )
+
+                continue
+
+
+
+            if handle_listening_command(
+
+                user_input,
+
+                listener,
+
+                settings,
+
+            ):
+
+                publish_status()
+
+                continue
+
+
+            if user_input.lower() == WINDOW_COMMAND:
+
+                print(f"\n{window.open()}\n")
 
                 continue
 
@@ -1037,6 +1691,8 @@ def main():
 
                     transcript,
 
+                    source="voice",
+
                 )
 
 
@@ -1132,6 +1788,8 @@ def main():
                     gpu_manager,
 
                     transcript,
+
+                    source="voice",
 
                 )
 
@@ -1259,6 +1917,8 @@ def main():
 
                     transcript,
 
+                    source="voice",
+
                 )
 
 
@@ -1297,9 +1957,20 @@ def main():
 
     finally:
 
+        if listener is not None:
+
+            listener.stop()
+
+        gate.close()
+
+        window.stop()
+
+        console_output.uninstall()
+
         voice.shutdown()
 
         control_plane.close()
+
 
 
 

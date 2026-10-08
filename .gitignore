@@ -39,6 +39,10 @@ htmlcov/
 Thumbs.db
 desktop.ini
 
+# Freya's local data: memories, audit log, settings, generated images,
+# and the window's browser profile
+data/
+
 # Databases / local memory
 *.db
 *.db-wal

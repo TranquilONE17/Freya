@@ -7,21 +7,31 @@ readme = "README.md"
 requires-python = ">=3.12,<3.13"
 dependencies = [
     "faster-whisper>=1.2",
+    "flet>=1.0.3",
     "kokoro>=0.9.4",
     "numpy>=2.0",
     "ollama>=0.6",
     "psutil>=7",
     "sounddevice>=0.5",
     "soundfile>=0.13",
+    "websockets>=15",
 ]
 
 [dependency-groups]
 dev = [
+    "flet-cli>=1.0.3",
+    "flet-desktop>=1.0.3",
+    "flet-web>=1.0.3",
+    "flet[test]>=1.0.3",
     "pytest>=8",
 ]
 
 [project.scripts]
 freya = "freya.main:main"
+
+# Starts Freya with her window only, without a console window.
+[project.gui-scripts]
+freya-window = "freya.launcher:main_window"
 
 [build-system]
 requires = ["setuptools>=77"]
@@ -32,6 +42,7 @@ where = ["src"]
 
 [tool.setuptools.package-data]
 "freya.image" = ["workflows/*.json"]
+"freya.gateway" = ["static/*"]
 
 # voice/stt_test.py and voice/tts_test.py are manual scripts, so only collect
 # from tests/.

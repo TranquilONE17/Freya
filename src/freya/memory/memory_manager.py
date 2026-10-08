@@ -17,8 +17,12 @@ class MemoryManager:
     def __init__(self):
         DATA_DIR.mkdir(exist_ok=True)
 
+        # Typed turns and spoken turns run on different threads. The
+        # turn gate lets only one run at a time, so sharing this
+        # connection between them is safe.
         self.connection = sqlite3.connect(
-            DATABASE_PATH
+            DATABASE_PATH,
+            check_same_thread=False,
         )
 
         self.connection.execute(

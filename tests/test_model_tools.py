@@ -6,7 +6,12 @@ from freya.control_plane import build_local_control_plane
 from freya.core.assistant import MAX_TOOL_ROUNDS, FreyaAssistant
 from freya.core.capabilities import CapabilityDefinition, CapabilityStatus
 from freya.memory import memory_manager
-from freya.tools.model_tools import MODEL_TOOL
+from freya.tools.model_tools import (
+    MODEL_TOOL,
+    TOOL_PARAMETERS,
+    ToolArgumentError,
+    validate_arguments,
+)
 
 
 @pytest.fixture
@@ -141,6 +146,164 @@ def test_tool_failure_and_denial_are_returned_as_errors(plane):
 
     assert "Not authorized" in denied["error"]
     assert audit_rows(plane, "system.cpu")[-1]["outcome"] == "denied"
+
+
+PROMPT_PARAMETER = {
+    TOOL_PARAMETERS: {
+        "prompt": {"description": "What to draw.", "max_length": 40},
+    },
+}
+
+
+def test_tool_with_arguments_declares_them(plane):
+    add_tool(
+        plane,
+        "test.draw",
+        lambda prompt: {"drew": prompt},
+        metadata={MODEL_TOOL: True, **PROMPT_PARAMETER},
+    )
+
+    definition = next(
+        d["function"]
+        for d in plane.model_tools.definitions()
+        if d["function"]["name"] == "test_draw"
+    )
+
+    assert definition["parameters"] == {
+        "type": "object",
+        "properties": {
+            "prompt": {"type": "string", "description": "What to draw."}
+        },
+        "required": ["prompt"],
+    }
+
+
+def test_declared_arguments_are_cleaned_and_passed(plane):
+    received = []
+    add_tool(
+        plane,
+        "test.draw",
+        lambda **kwargs: received.append(kwargs) or {"ok": True},
+        metadata={MODEL_TOOL: True, **PROMPT_PARAMETER},
+    )
+
+    result = plane.model_tools.run(
+        "test_draw",
+        {"prompt": "  a red fox  ", "size": "huge", "command": "rm -rf /"},
+    )
+
+    assert json.loads(result) == {"ok": True}
+    # Only the declared argument reaches the tool, trimmed.
+    assert received == [{"prompt": "a red fox"}]
+
+
+@pytest.mark.parametrize(
+    "arguments",
+    [
+        None,
+        {},
+        "a red fox",
+        ["a red fox"],
+        {"prompt": ""},
+        {"prompt": "   "},
+        {"prompt": 7},
+        {"prompt": ["a", "fox"]},
+        {"prompt": "x" * 41},
+        {"description": "a red fox"},
+    ],
+)
+def test_unacceptable_arguments_are_refused_without_running(plane, arguments):
+    calls = []
+    add_tool(
+        plane,
+        "test.draw",
+        lambda **kwargs: calls.append(kwargs),
+        metadata={MODEL_TOOL: True, **PROMPT_PARAMETER},
+    )
+
+    result = json.loads(plane.model_tools.run("test_draw", arguments))
+
+    assert "error" in result
+    assert calls == []
+    assert audit_rows(plane, "test.draw") == []
+
+
+def test_validate_arguments_directly():
+    rules = {"prompt": {"max_length": 5}, "style": {}}
+
+    assert validate_arguments({}, {"anything": 1}) == {}
+    assert validate_arguments(None, None) == {}
+    assert validate_arguments(rules, {"prompt": " fox ", "style": "oil"}) == {
+        "prompt": "fox",
+        "style": "oil",
+    }
+
+    with pytest.raises(ToolArgumentError) as error:
+        validate_arguments(rules, {"prompt": "fox"})
+
+    assert "style" in str(error.value)
+
+
+def test_image_generation_is_offered_as_a_tool(plane):
+    prompts = []
+    plane.register_image_generation(
+        lambda prompt: prompts.append(prompt) or {"status": "generated"}
+    )
+
+    definition = next(
+        d["function"]
+        for d in plane.model_tools.definitions()
+        if d["function"]["name"] == "image_generate"
+    )
+    result = plane.model_tools.run(
+        "image_generate", {"prompt": "a large black dog"}
+    )
+
+    assert definition["parameters"]["required"] == ["prompt"]
+    assert "picture" in definition["description"]
+    assert json.loads(result) == {"status": "generated"}
+    assert prompts == ["a large black dog"]
+
+    rows = audit_rows(plane, "image.generate")
+    assert [row["kind"] for row in rows] == ["dispatch", "outcome"]
+    assert rows[0]["provider"] == "image-service-local"
+    # The prompt itself is not written to the audit log.
+    assert "black dog" not in json.dumps(rows)
+
+
+def test_image_tool_failure_is_reported_to_the_model(plane):
+    def broken(prompt):
+        raise RuntimeError("The image could not be generated.")
+
+    plane.register_image_generation(broken)
+
+    result = json.loads(
+        plane.model_tools.run("image_generate", {"prompt": "a dog"})
+    )
+
+    assert result == {"error": "The image could not be generated."}
+
+
+def test_assistant_generates_an_image_when_the_model_asks(
+    assistant, plane, fake_ollama
+):
+    prompts = []
+    plane.register_image_generation(
+        lambda prompt: prompts.append(prompt) or {"status": "generated"}
+    )
+    fake_ollama.stream_script = [
+        [("image_generate", {"prompt": "a large black dog"})],
+        "Done. It is in the Images tab.",
+    ]
+
+    reply = "".join(
+        assistant.respond_stream(
+            "very good, can you do an image of a large black dog next please?"
+        )
+    )
+
+    assert prompts == ["a large black dog"]
+    assert reply.strip() == "Done. It is in the Images tab."
 
 
 def test_assistant_answers_without_tools_when_none_are_needed(
