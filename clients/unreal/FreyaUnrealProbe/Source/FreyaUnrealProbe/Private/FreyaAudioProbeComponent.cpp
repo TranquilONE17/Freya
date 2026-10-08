@@ -159,14 +159,12 @@ void UFreyaAudioProbeComponent::BeginPlay()
         if (UGameUserSettings* Settings = GEngine ? GEngine->GetGameUserSettings() : nullptr)
         {
             // Sized from the display, not fixed: about three fifths of its usable
-            // height, in a portrait shape. Unreal multiplies by the display's scale
-            // itself, so the size is given in unscaled units.
+            // height, in a portrait shape, in real pixels (the project draws at the
+            // display's own resolution, so nothing is stretched).
             FDisplayMetrics Display;
             FDisplayMetrics::RebuildDisplayMetrics(Display);
             const FPlatformRect& Area = Display.PrimaryDisplayWorkAreaRect;
-            const float Scale = FMath::Max(1.0f,
-                FPlatformApplicationMisc::GetDPIScaleFactorAtPoint(Area.Left + 10.0f, Area.Top + 10.0f));
-            const int32 Height = FMath::Clamp(FMath::RoundToInt((Area.Bottom - Area.Top) * 0.6f / Scale), 320, 1400);
+            const int32 Height = FMath::Clamp(FMath::RoundToInt((Area.Bottom - Area.Top) * 0.6f), 480, 2000);
             FIntPoint Size(FMath::RoundToInt(Height * 0.8f), Height);
             FParse::Value(FCommandLine::Get(), TEXT("ResX="), Size.X);
             FParse::Value(FCommandLine::Get(), TEXT("ResY="), Size.Y);
