@@ -173,6 +173,8 @@ void UFreyaAudioProbeComponent::BeginPlay()
             Settings->SetFrameRateLimit(60.0f);
             Settings->ApplySettings(false);
         }
+    // -FreyaDelay=<milliseconds> tries another sound delay without rebuilding.
+    FParse::Value(FCommandLine::Get(), TEXT("FreyaDelay="), AudibleDelayMilliseconds);
     // Started by Freya: she gives the port of her gateway and a key that works once.
     const FString GatewayPort = FPlatformMisc::GetEnvironmentVariable(TEXT("FREYA_GATEWAY_PORT"));
     const FString PairingKey = FPlatformMisc::GetEnvironmentVariable(TEXT("FREYA_PAIRING_KEY"));
@@ -324,6 +326,10 @@ bool UFreyaAudioProbeComponent::BeginSpeech(int32 SampleRate, float Loudness)
     SpeechStartedAt = 0.0;
     bVoiceStarted = false;
     bSpeechOpen = true;
+    LoudnessBins.Reset();
+    JawTimes.Reset();
+    JawValues.Reset();
+    FirstFedAt = 0.0;
     return true;
 }
 
@@ -337,13 +343,20 @@ void UFreyaAudioProbeComponent::PushSpeech(const int16* Samples, int32 Count)
     Floats.SetNumUninitialized(Count);
     for (int32 Index = 0; Index < Count; ++Index) Floats[Index] = Samples[Index] / 32768.0f;
     Source->Push(Floats.GetData(), Count);
+    for (int32 Index = 0; Index < Count; ++Index)
+    {
+        const int32 Bin = static_cast<int32>((SpeechSamples + Index) / (FixtureSampleRate / 100));
+        if (Bin >= LoudnessBins.Num()) LoudnessBins.AddZeroed(Bin - LoudnessBins.Num() + 1);
+        LoudnessBins[Bin] = FMath::Max(LoudnessBins[Bin], FMath::Abs(Floats[Index]));
+    }
     Wave->QueueAudio(reinterpret_cast<const uint8*>(Samples), Count * sizeof(int16));
+    if (SpeechSamples == 0) FirstFedAt = FPlatformTime::Seconds();
     SpeechSamples += Count;
 
     // The sound starts a moment after the solver is first fed, so lips and voice agree.
     if (!bVoiceStarted && GetWorld() && !GetWorld()->GetTimerManager().IsTimerActive(PlaybackTimer))
     {
-        const float Delay = FMath::Clamp(AudibleDelayMilliseconds, 0, 500) / 1000.0f;
+        const float Delay = FMath::Clamp(AudibleDelayMilliseconds, 0, 1500) / 1000.0f;
         if (Delay <= 0.0f) BeginAudiblePlayback();
         else GetWorld()->GetTimerManager().SetTimer(PlaybackTimer, this,
             &UFreyaAudioProbeComponent::BeginAudiblePlayback, Delay, false);
@@ -411,6 +424,7 @@ void UFreyaAudioProbeComponent::TickComponent(float DeltaTime, ELevelTick TickTy
 {
     Super::TickComponent(DeltaTime, TickType, ThisTickFunction);
     if (Link.IsValid()) Link->Tick();
+    TrackSync();
     if (!bFixtureActive) return;
 
     // Read what the subject is publishing, the same values the face would use.
@@ -440,6 +454,117 @@ void UFreyaAudioProbeComponent::TickComponent(float DeltaTime, ELevelTick TickTy
     }
     if (Now - FixtureStartedAt > FixtureSeconds + TailSeconds) Report(true);
     else if (Now - LastReportAt >= 2.0) { LastReportAt = Now; Report(false); }
+}
+
+// How far the lips are behind the voice, measured rather than judged: the jaw's
+// opening is compared with the loudness of the sound at every delay from half a
+// second early to a second late, and the best match is the answer.
+void UFreyaAudioProbeComponent::TrackSync()
+{
+    if (!bSpeechOpen || SpeechSamples <= 0 || LoudnessBins.Num() == 0) return;
+    const double Now = FPlatformTime::Seconds();
+
+    if (IModularFeatures::Get().IsModularFeatureAvailable(ILiveLinkClient::ModularFeatureName))
+    {
+        ILiveLinkClient& Client = IModularFeatures::Get().GetModularFeature<ILiveLinkClient>(ILiveLinkClient::ModularFeatureName);
+        FLiveLinkSubjectFrameData Frame;
+        if (Client.EvaluateFrame_AnyThread(SubjectName, ULiveLinkBasicRole::StaticClass(), Frame))
+        {
+            const FLiveLinkBaseStaticData* Static = Frame.StaticData.GetBaseData();
+            const FLiveLinkBaseFrameData* Base = Frame.FrameData.GetBaseData();
+            if (Static && Base)
+            {
+                if (JawIndex < 0 || JawIndex >= Static->PropertyNames.Num())
+                {
+                    JawIndex = Static->PropertyNames.IndexOfByPredicate([](const FName& Name)
+                    { return Name.ToString().Contains(TEXT("jawOpen"), ESearchCase::IgnoreCase); });
+                    UE_LOG(LogFreyaProbe, Display, TEXT("Jaw curve for timing: %s"),
+                        JawIndex >= 0 ? *Static->PropertyNames[JawIndex].ToString() : TEXT("none found"));
+                }
+                if (JawIndex >= 0 && JawIndex < Base->PropertyValues.Num() && JawTimes.Num() < 20000)
+                {
+                    JawTimes.Add(Now);
+                    JawValues.Add(Base->PropertyValues[JawIndex]);
+                }
+            }
+        }
+    }
+
+    if (!bVoiceStarted || IsSpeechAudible() || JawTimes.Num() < 30 || LoudnessBins.Num() < 50) return;
+
+    // With -FreyaDump, write what was recorded, for exact analysis outside Unreal.
+    if (FParse::Param(FCommandLine::Get(), TEXT("FreyaDump")))
+    {
+        FString Jaw = TEXT("seconds_after_sound_started,jaw_open\n");
+        for (int32 Index = 0; Index < JawTimes.Num(); ++Index)
+            Jaw += FString::Printf(TEXT("%.4f,%.5f\n"), JawTimes[Index] - SpeechStartedAt, JawValues[Index]);
+        FFileHelper::SaveStringToFile(Jaw, *(FPaths::ProjectSavedDir() / TEXT("sync_jaw.csv")));
+        FString Loud = TEXT("seconds_into_clip,loudness\n");
+        for (int32 Index = 0; Index < LoudnessBins.Num(); ++Index)
+            Loud += FString::Printf(TEXT("%.2f,%.5f\n"), Index / 100.0, LoudnessBins[Index]);
+        FFileHelper::SaveStringToFile(Loud, *(FPaths::ProjectSavedDir() / TEXT("sync_loudness.csv")));
+        UE_LOG(LogFreyaProbe, Display, TEXT("SYNC: recorded %d jaw samples; sound started %.0f ms after the solver was first fed."),
+            JawTimes.Num(), (SpeechStartedAt - FirstFedAt) * 1000.0);
+    }
+
+    // The utterance has finished sounding. Find the delay that fits best.
+    const auto LoudnessAt = [this](double Seconds) -> float
+    {
+        const int32 Bin = FMath::FloorToInt(Seconds * 100.0);
+        return LoudnessBins.IsValidIndex(Bin) ? LoudnessBins[Bin] : 0.0f;
+    };
+    double BestScore = -1.0;
+    int32 BestDelay = 0;
+    for (int32 Delay = -500; Delay <= 1000; Delay += 10)
+    {
+        double SumXY = 0, SumX = 0, SumY = 0, SumXX = 0, SumYY = 0;
+        const int32 Count = JawTimes.Num();
+        for (int32 Index = 0; Index < Count; ++Index)
+        {
+            const double X = JawValues[Index];
+            const double Y = LoudnessAt(JawTimes[Index] - SpeechStartedAt - Delay / 1000.0);
+            SumXY += X * Y; SumX += X; SumY += Y; SumXX += X * X; SumYY += Y * Y;
+        }
+        const double Denominator = FMath::Sqrt((Count * SumXX - SumX * SumX) * (Count * SumYY - SumY * SumY));
+        const double Score = Denominator > KINDA_SMALL_NUMBER ? (Count * SumXY - SumX * SumY) / Denominator : 0.0;
+        if (Score > BestScore) { BestScore = Score; BestDelay = Delay; }
+    }
+    // A plainer check beside it: when the first sound is, and when the jaw first opens.
+    int32 FirstLoud = LoudnessBins.IndexOfByPredicate([](float Value) { return Value > 0.05f; });
+    int32 FirstOpen = JawValues.IndexOfByPredicate([](float Value) { return Value > 0.08f; });
+    if (FirstLoud >= 0 && FirstOpen >= 0)
+        UE_LOG(LogFreyaProbe, Display, TEXT("SYNC onset: first sound %d ms into the clip; jaw first opened %.0f ms after the sound started playing; so the jaw is %.0f ms %s."),
+            FirstLoud * 10, (JawTimes[FirstOpen] - SpeechStartedAt) * 1000.0,
+            FMath::Abs((JawTimes[FirstOpen] - SpeechStartedAt) * 1000.0 - FirstLoud * 10),
+            (JawTimes[FirstOpen] - SpeechStartedAt) * 1000.0 >= FirstLoud * 10 ? TEXT("late") : TEXT("early"));
+    // And the same at the other end, which shows whether the lips fall behind as she goes on.
+    int32 LastLoud = LoudnessBins.FindLastByPredicate([](float Value) { return Value > 0.05f; });
+    int32 LastOpen = JawValues.FindLastByPredicate([](float Value) { return Value > 0.08f; });
+    if (LastLoud >= 0 && LastOpen >= 0)
+        UE_LOG(LogFreyaProbe, Display, TEXT("SYNC end: last sound %d ms into the clip; jaw last open %.0f ms after the sound started playing; difference %.0f ms."),
+            LastLoud * 10, (JawTimes[LastOpen] - SpeechStartedAt) * 1000.0,
+            (JawTimes[LastOpen] - SpeechStartedAt) * 1000.0 - LastLoud * 10);
+    const double Seconds = JawTimes.Last() - JawTimes[0];
+    UE_LOG(LogFreyaProbe, Display,
+        TEXT("SYNC: lips %s voice by %d ms (match %.2f) over %.1f s at %.0f frames a second; sound started %.0f ms after the solver was first fed."),
+        BestDelay >= 0 ? TEXT("behind") : TEXT("ahead of"), FMath::Abs(BestDelay), BestScore, Seconds,
+        Seconds > 0 ? JawTimes.Num() / Seconds : 0.0, (SpeechStartedAt - FirstFedAt) * 1000.0);
+    LastLipDelayMilliseconds = BestDelay;
+    LastLipMatch = static_cast<float>(BestScore);
+    // When the measurement is trustworthy, move the sound's delay most of the way
+    // toward where the lips would be a touch ahead of the voice, which the eye
+    // forgives more readily than the reverse. It settles over a few sentences.
+    if (bCalibrateDelay && BestScore >= 0.45 && Seconds >= 1.0)
+    {
+        const int32 Before = AudibleDelayMilliseconds;
+        AudibleDelayMilliseconds = FMath::Clamp(
+            AudibleDelayMilliseconds + FMath::RoundToInt(0.6f * (BestDelay + 30)), 0, 1500);
+        UE_LOG(LogFreyaProbe, Display, TEXT("SYNC: sound delay changed from %d to %d ms."), Before, AudibleDelayMilliseconds);
+    }
+    // Measured once per utterance.
+    JawTimes.Reset();
+    JawValues.Reset();
+    LoudnessBins.Reset();
 }
 
 void UFreyaAudioProbeComponent::Report(bool bFinal)
