@@ -23,6 +23,11 @@ SESSION_COOKIE = "freya_session"
 MAX_MESSAGE_BYTES = 64 * 1024
 MAX_TEXT_LENGTH = 4000
 
+# A recording for the Voice tab arrives as binary messages, each within
+# MAX_MESSAGE_BYTES, and is held until the request that uses it. This
+# allows a little over 30 seconds of 48 kHz mono 16-bit sound.
+MAX_UPLOAD_BYTES = 3 * 1024 * 1024
+
 # How long stopping waits for the turn in progress, and how many events
 # may wait to be sent to one window before it is given up on.
 STOP_TIMEOUT_SECONDS = 30.0
@@ -352,6 +357,9 @@ class Gateway:
             daemon=True,
         )
 
+        # Binary data this window has sent and not yet used.
+        upload = bytearray()
+
         with self._lock:
             self._clients += 1
             self.ever_connected = True
@@ -378,7 +386,7 @@ class Gateway:
             sender.start()
 
             for raw in websocket:
-                self._handle_message(websocket, raw)
+                self._handle_message(websocket, raw, upload)
         except Exception:
             # The window closed or the connection broke.
             pass
@@ -402,9 +410,17 @@ class Gateway:
                 if not self._clients:
                     self._no_clients_since = time.monotonic()
 
-    def _handle_message(self, websocket, raw) -> None:
+    def _handle_message(self, websocket, raw, upload) -> None:
         def reject(reason):
             websocket.send(json.dumps({"type": "error", "text": reason}))
+
+        if isinstance(raw, (bytes, bytearray)):
+            if len(upload) + len(raw) > MAX_UPLOAD_BYTES:
+                upload.clear()
+                return reject("That recording is too large.")
+
+            upload.extend(raw)
+            return
 
         try:
             message = json.loads(raw)
@@ -434,6 +450,10 @@ class Gateway:
         elif kind == "voice":
             # The studio checks every field itself; it is run on the
             # work thread because speech takes a moment to generate.
+            # It is handed whatever binary data this window sent.
+            message["upload"] = bytes(upload)
+            upload.clear()
+
             if self._stopping.is_set():
                 return reject("Freya is shutting down.")
 

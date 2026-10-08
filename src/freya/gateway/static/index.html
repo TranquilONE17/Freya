@@ -57,6 +57,7 @@
           <p class="voice-message" id="voice-message" role="status"></p>
           <audio id="voice-player" controls hidden></audio>
           <a class="ghost link-button" id="voice-download" download="freya-voice.wav" hidden>Save audio file</a>
+          <button type="button" class="ghost" id="voice-free" hidden title="Unload the large speech engines to give their memory back">Free memory</button>
         </div>
 
         <article class="panel" id="panel-preset">
@@ -98,12 +99,58 @@
           <h2>Clone a Voice</h2>
           <p class="panel-note">Makes a voice from a reference recording. Only use recordings you have the right to use.</p>
           <ul class="engine-list" id="clone-engines"></ul>
+
+          <div id="clone-form" hidden>
+            <div class="import" id="clone-drop">
+              <button type="button" class="primary" id="clone-import">Import audio…</button>
+              <input type="file" id="clone-file" accept="audio/*,video/mp4,video/webm,.wav,.mp3,.m4a,.aac,.flac,.ogg,.opus,.webm,.mp4" hidden>
+              <button type="button" class="ghost" id="clone-listen" hidden>Play the part that will be used</button>
+              <p class="import-note" id="clone-file-note"></p>
+            </div>
+            <div class="fields">
+              <label>Engine <select id="clone-engine"></select></label>
+              <label>Model <select id="clone-model"></select></label>
+              <label>Language <select id="clone-language"></select></label>
+              <label>Start at <span class="value" id="clone-start-value">0.0 s</span>
+                <input type="range" id="clone-start" min="0" max="0" step="0.5" value="0" disabled></label>
+              <label id="clone-transcript-field">What is said in the recording (optional, improves the clone)
+                <input type="text" id="clone-transcript" maxlength="600"></label>
+              <label id="clone-temperature-field">Variation <span class="value" id="clone-temperature-value"></span>
+                <input type="range" id="clone-temperature"></label>
+              <label id="clone-exaggeration-field">Expressiveness <span class="value" id="clone-exaggeration-value"></span>
+                <input type="range" id="clone-exaggeration"></label>
+              <label id="clone-cfg_weight-field">Pace <span class="value" id="clone-cfg_weight-value"></span>
+                <input type="range" id="clone-cfg_weight"></label>
+            </div>
+            <label class="check"><input type="checkbox" id="clone-consent"> This is my own voice, or I have the speaker's permission to clone it.</label>
+            <textarea id="clone-text" rows="2" maxlength="600" placeholder="Text to speak" aria-label="Text for the cloned voice to speak"></textarea>
+            <div class="actions">
+              <button type="button" class="primary" id="clone-preview">Preview</button>
+              <input type="text" id="clone-name" placeholder="Name for this voice" maxlength="40" aria-label="Name for this cloned voice">
+              <button type="button" class="ghost" id="clone-save">Save voice</button>
+            </div>
+          </div>
         </article>
 
         <article class="panel" id="panel-design">
           <h2>Design an Original Voice</h2>
           <p class="panel-note">Creates a new voice from a written description.</p>
           <ul class="engine-list" id="design-engines"></ul>
+
+          <div id="design-form" hidden>
+            <div class="fields">
+              <label>Engine <select id="design-engine"></select></label>
+              <label>Language <select id="design-language"></select></label>
+              <label>Model used to speak <select id="design-model"></select></label>
+            </div>
+            <textarea id="design-description" rows="2" maxlength="400" placeholder="Describe the voice, for example: a calm, warm woman in her thirties with a low, gentle voice" aria-label="Description of the voice"></textarea>
+            <textarea id="design-text" rows="2" maxlength="600" placeholder="Text to speak" aria-label="Text for the designed voice to speak"></textarea>
+            <div class="actions">
+              <button type="button" class="primary" id="design-generate">Generate voice</button>
+              <input type="text" id="design-name" placeholder="Name for this voice" maxlength="40" aria-label="Name for this designed voice">
+              <button type="button" class="ghost" id="design-save" disabled title="Generate a voice first.">Save voice</button>
+            </div>
+          </div>
         </article>
 
         <article class="panel" id="panel-playground">
