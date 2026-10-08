@@ -128,6 +128,9 @@ def _query():
         text=True,
         check=True,
         timeout=60,
+        # Without this, a Freya running without a console of her own
+        # shows a terminal window for as long as the query runs.
+        creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
     )
 
     output = completed.stdout.strip()

@@ -236,6 +236,13 @@ def get_gpu_info():
         text=True,
         check=True,
         timeout=10,
+        # Without this, a Freya running without a console of her own
+        # flashes a terminal window each time the GPU is queried.
+        creationflags=getattr(
+            subprocess,
+            "CREATE_NO_WINDOW",
+            0,
+        ),
     )
 
     output = completed.stdout.strip()
