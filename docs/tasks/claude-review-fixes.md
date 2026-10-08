@@ -37,6 +37,11 @@ Follow-up, in the same PR:
   the chat box and `Quit` in the Console box, an unknown command, and closing the
   window during a long reply, which stopped mid-sentence and exited cleanly.
 
+Related, and separate: a later brief also asked for a design for human-approved
+development capabilities and for offline operation and recovery. That is a proposal
+only, awaiting the owner's decisions, in
+https://github.com/TranquilONE17/Freya/pull/12. Nothing in it is implemented.
+
 Still true:
 
 - Typing `exit` in the terminal while a window turn is running waits for that turn
