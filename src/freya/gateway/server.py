@@ -125,7 +125,7 @@ class Gateway:
         )
 
         for target, name in (
-            (self._server.serve_forever, "FreyaGateway"),
+            (self._serve, "FreyaGateway"),
             (self._run_work, "FreyaGatewayWork"),
         ):
             thread = threading.Thread(target=target, name=name, daemon=True)
@@ -133,6 +133,16 @@ class Gateway:
             self._threads.append(thread)
 
         self._worker = self._threads[-1]
+
+    def _serve(self) -> None:
+        try:
+            self._server.serve_forever()
+        except OSError:
+            # On Windows, shutting the server down can close its
+            # socket while this thread is still waiting on it. That
+            # is the server stopping, not a failure. Anything else is.
+            if not self._stopping.is_set():
+                raise
 
     def _bind(self):
         for port in (self._requested_port, 0):
