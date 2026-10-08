@@ -245,6 +245,7 @@ main {
   color: var(--muted);
   font-size: 13px;
   text-align: center;
+  white-space: pre-wrap;
 }
 
 .composer {

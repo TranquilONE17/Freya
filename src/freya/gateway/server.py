@@ -23,6 +23,11 @@ SESSION_COOKIE = "freya_session"
 MAX_MESSAGE_BYTES = 64 * 1024
 MAX_TEXT_LENGTH = 4000
 
+# How long stopping waits for the turn in progress, and how many events
+# may wait to be sent to one window before it is given up on.
+STOP_TIMEOUT_SECONDS = 30.0
+MAX_WAITING_EVENTS = 5000
+
 STATIC_FILES = {
     "/": ("index.html", "text/html; charset=utf-8"),
     "/app.js": ("app.js", "text/javascript; charset=utf-8"),
@@ -94,6 +99,8 @@ class Gateway:
         self._sessions = set()
 
         self._work = queue.Queue()
+        self._worker = None
+        self._stopping = threading.Event()
         self._server = None
         self._threads = []
         self.port = None
@@ -119,12 +126,24 @@ class Gateway:
         )
 
         for target, name in (
-            (self._server.serve_forever, "FreyaGateway"),
+            (self._serve, "FreyaGateway"),
             (self._run_work, "FreyaGatewayWork"),
         ):
             thread = threading.Thread(target=target, name=name, daemon=True)
             thread.start()
             self._threads.append(thread)
+
+        self._worker = self._threads[-1]
+
+    def _serve(self) -> None:
+        try:
+            self._server.serve_forever()
+        except OSError:
+            # On Windows, shutting the server down can close its
+            # socket while this thread is still waiting on it. That
+            # is the server stopping, not a failure. Anything else is.
+            if not self._stopping.is_set():
+                raise
 
     def _bind(self):
         for port in (self._requested_port, 0):
@@ -142,11 +161,37 @@ class Gateway:
 
         raise RuntimeError("No free port for Freya's window.")
 
-    def stop(self) -> None:
+    def stop(self, timeout=STOP_TIMEOUT_SECONDS) -> bool:
+        """
+        Stop serving the window, in order: refuse new work, drop the
+        turns that were waiting, and wait for the one in progress.
+
+        Returns False when that turn is still running after `timeout`
+        seconds; it is never waited for indefinitely. Whatever the
+        turn depends on should only be closed after this returns True.
+        """
+        self._stopping.set()
+
+        # Turns that had not started are cancelled.
+        while True:
+            try:
+                self._work.get_nowait()
+            except queue.Empty:
+                break
+
         self._work.put(None)
 
         if self._server is not None:
             self._server.shutdown()
+
+        worker = self._worker
+
+        if worker is None or worker is threading.current_thread():
+            return True
+
+        worker.join(timeout)
+
+        return not worker.is_alive()
 
     def _origins(self):
         return [
@@ -283,19 +328,45 @@ class Gateway:
             return time.monotonic() - self._no_clients_since
 
     def _handle_socket(self, websocket) -> None:
-        def forward(event):
-            websocket.send(json.dumps(event))
+        # Events for this window wait here. The event bus only ever
+        # puts them in the queue, which never blocks it; a thread of
+        # this window's own does the sending.
+        outbox = queue.Queue(maxsize=MAX_WAITING_EVENTS)
+
+        def send_events():
+            while True:
+                event = outbox.get()
+
+                if event is None:
+                    return
+
+                try:
+                    websocket.send(json.dumps(event))
+                except Exception:
+                    # The window has gone; the reading loop notices too.
+                    return
+
+        sender = threading.Thread(
+            target=send_events,
+            name="FreyaGatewaySend",
+            daemon=True,
+        )
 
         with self._lock:
             self._clients += 1
             self.ever_connected = True
 
         try:
+            # Subscribing and taking the history are one step, so an
+            # event published right now is in exactly one of them.
+            # Later events queue up and are sent after the hello.
+            history = self._bus.subscribe_with_history(outbox.put_nowait)
+
             websocket.send(
                 json.dumps(
                     {
                         "type": "hello",
-                        "history": self._bus.history(),
+                        "history": history,
                         "images": self._gallery.list(),
                         "status": self._actions.status(),
                         "console": self._actions.console_history(),
@@ -304,7 +375,7 @@ class Gateway:
                 )
             )
 
-            self._bus.subscribe(forward)
+            sender.start()
 
             for raw in websocket:
                 self._handle_message(websocket, raw)
@@ -312,7 +383,18 @@ class Gateway:
             # The window closed or the connection broke.
             pass
         finally:
-            self._bus.unsubscribe(forward)
+            self._bus.unsubscribe(outbox.put_nowait)
+
+            # Let the sending thread finish, even if the queue is full.
+            while sender.is_alive():
+                try:
+                    outbox.put(None, timeout=0.2)
+                    break
+                except queue.Full:
+                    try:
+                        outbox.get_nowait()
+                    except queue.Empty:
+                        pass
 
             with self._lock:
                 self._clients -= 1
@@ -345,10 +427,16 @@ class Gateway:
                     f"That is longer than {MAX_TEXT_LENGTH} characters."
                 )
 
+            if self._stopping.is_set():
+                return reject("Freya is shutting down.")
+
             self._work.put((kind, text.strip()))
         elif kind == "voice":
             # The studio checks every field itself; it is run on the
             # work thread because speech takes a moment to generate.
+            if self._stopping.is_set():
+                return reject("Freya is shutting down.")
+
             self._work.put((kind, message))
         elif kind == "mute":
             self._actions.set_muted(message.get("muted") is True)
@@ -371,7 +459,7 @@ class Gateway:
         while True:
             job = self._work.get()
 
-            if job is None:
+            if job is None or self._stopping.is_set():
                 return
 
             kind, text = job
@@ -390,6 +478,10 @@ class Gateway:
                 else:
                     self._actions.run_command(text)
             except Exception as exc:
+                if self._stopping.is_set():
+                    # A turn refused because Freya is closing down.
+                    return
+
                 self._bus.publish(
                     "notice",
                     text=f"That did not work: {exc}",
