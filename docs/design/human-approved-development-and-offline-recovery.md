@@ -320,10 +320,8 @@ What this adds to the design:
   included, until isolation is validated. Until then an offline self-change is
   reviewed by reading the diff, and the owner runs the tests.
 
-This does not by itself change *when* these steps are built. Decisions D2 and D7 put
-everything that changes files after the alpha, and merge, deploy, and restart later
-still. Whether NEW-Y moves local merge, update, and restart earlier is the open
-question D11 below.
+Decision D11 settles when these steps are built: together with the ability to change
+code, after the alpha (D2). Merging on the remote stays later (D7).
 
 ### 4.7 Beta testing and offering releases to other nodes (NEW-Z, NEW-AA)
 
@@ -369,11 +367,12 @@ question D11 below.
   between nodes on a local network, so it does not depend on GitHub.
 - Each node repeats NEW-Z for itself: verify, stage as a candidate, try, promote, and
   keep the previous version.
-- Who approves on another node depends on who administers it. A node in the same
-  security domain could be upgraded on its owner's approval given once for several
-  nodes; an independently administered node always decides on its own (SEC-035).
-  What "choose to upgrade" means for nodes the owner also administers is decision
-  D13.
+- Who approves on another node depends on who administers it. An independently
+  administered node always decides on its own (SEC-035). A node the owner also
+  administers is upgraded on the owner's approval given on that node, for that node
+  (decision D13); one approval covering several named nodes may be added later.
+- A release is signed by the owner at the approval step, with a key held in Windows'
+  protected key storage (decision D14).
 - Mixed versions must keep working while nodes upgrade at different times, which
   needs the compatibility and version negotiation the baseline already asks of the
   gateway (GUI-003).
