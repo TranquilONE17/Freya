@@ -423,6 +423,35 @@ So the safeguard that matters most happens **before** the push:
 - **The way back is verified first.** No automatic push happens unless a previous
   version is installed or installable locally and a marked earlier version exists.
 
+**Work that did not work is kept, and labelled.** The owner asked that changes which
+fail or are rejected stay on the work-in-progress branch, marked as not working, so
+that a coding agent can refer to them later. So an unsuccessful change is never
+deleted or hidden; it is recorded:
+
+- Every change gets an **attempt record**: a small file in an `attempts/` folder on
+  the work-in-progress branch, one per attempt, so it travels with the code and can
+  be read without special tools. The commit is also tagged, for example
+  `attempt/<id>/failed`, so the state is visible from the history alone.
+- The record states: what the change was meant to do; the commits it covers; its
+  **status** (`in-progress`, `failed-side-by-side`, `failed-trial`, `rejected`,
+  `superseded`, or `promoted`); at which stage it stopped; what was observed (which
+  check failed, the error, or the owner's stated reason for rejecting it); and what
+  replaced it, if anything.
+- **The status is written by Core from what actually happened**, not by the model. A
+  model-written summary of what was tried and why it may have failed can be
+  included, and is labelled as that. This matters because a later agent will rely
+  on the label: "not working" has to mean a check really failed or the owner really
+  rejected it.
+- A non-working attempt is never on the promoted branch, never tagged as known-good,
+  and never offered to other nodes. Its label is not removed if someone later reuses
+  the idea; the new attempt gets its own record and points back to the old one.
+- Attempt records are uploaded like everything else, so the pre-upload check applies
+  to them. Error output is included only after that check, because logs are a common
+  place for a secret or personal detail to appear.
+- For an agent reading them later, these records are reference material, not
+  instructions (CTX-001): they say what was tried and what happened, and grant
+  nothing.
+
 **Offline, and after a restart.** While the remote cannot be reached, pushes wait and
 Freya says so. NEW-W says recovery must not silently run queued changes or treat
 restored state as new authority. An automatic push is consistent with that only
@@ -507,6 +536,11 @@ named points. No test depends on real network conditions or on sleeping.
 - **Uncertain outcome**: a push and a pull-request creation whose reply is lost are
   reconciled to exactly one effect; a retry is offered only with the first attempt
   disclosed, and never produces a duplicate.
+- **Attempt records**: a change that fails the side-by-side run, fails its trial, or
+  is rejected gets a record and tag with the matching status, written from the
+  actual outcome; a model cannot set or change a status; a non-working attempt
+  cannot be promoted, tagged known-good, or packaged as a release; a record
+  containing a planted secret is held by the pre-upload check.
 - **Offline**: with the network unavailable, inspect, propose, diff, approve, apply,
   and local commit all work; publishing is reported as paused with the reason; a chat
   turn with Ollama still works.
@@ -550,16 +584,17 @@ NEW-Y to NEW-AB. As before, they direct this design and approve no ADR.
 | D12 | What is a beta test? | Both kinds, in order: a change first runs side by side on scratch data; only if that passes can the owner start a trial on real data, after a verified backup. |
 | D13 | Upgrades on other nodes the owner administers | Approved on each node, for that node, to begin with. One approval covering several named nodes may be added later by a separate decision. Independently administered nodes always decide for themselves. |
 | D14 | Who signs a release? | The owner, with a key kept in Windows' protected key storage, out of reach of any agent, model, or guest, and used only at the owner's approval of a release. A hardware security key may be adopted later by a separate decision. |
-| D15 | When does the automatic upload happen? | Both, to different places: every commit is uploaded at once to a work-in-progress branch as a backup; promoted versions are uploaded separately and marked as known-good. |
+| D15 | When does the automatic upload happen? | Both, to different places: every commit is uploaded at once to a work-in-progress branch as a backup; promoted versions are uploaded separately and marked as known-good. Work that fails or is rejected stays on the work-in-progress branch, labelled as not working, for later reference. |
 | D16 | Which branch do promoted versions go to? | A dedicated branch of Freya's own. The main branch changes only by a merge the owner approves. `CLAUDE.md`'s rule against committing directly to `main` stands. |
 | D17 | What does the pre-upload check do on a finding? | It holds the upload and shows the owner what was found. Items the owner confirms as harmless are remembered and not flagged again; anything new still stops. |
 
 Two notes on these:
 
-- **D15 means unpromoted work is uploaded.** Changes that later fail a trial or are
-  rejected will be on the remote's work-in-progress branch, and stay in its history
-  after being undone. The owner chose this for the backup it gives. The pre-upload
-  check (D17) applies to both branches.
+- **D15 means unpromoted work is uploaded, and the owner wants it kept.** Changes
+  that later fail a trial or are rejected stay on the work-in-progress branch. The
+  owner asked that they be marked as not working so a future coding agent can refer
+  to them; section 4.8 describes the attempt record and tag that do this. The
+  pre-upload check (D17) applies to both branches and to the records.
 - **D17's remembered items are a list the owner maintains.** An item cleared by
   mistake stays cleared until removed, so the list is shown in the interface and
   each entry can be withdrawn.
