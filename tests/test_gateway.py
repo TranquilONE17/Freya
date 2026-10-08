@@ -421,3 +421,108 @@ def test_closed_window_stops_receiving_events(gateway, bus):
 
     assert bus._subscribers == []
     bus.publish("notice", text="nobody is listening")
+
+
+# -- the Voice tab -----------------------------------------------------
+
+
+CLIP_ID = "c" * 32
+WAV = b"RIFF" + b"\x00" * 40
+
+
+@pytest.fixture
+def voice_gateway(bus, gallery, freya):
+    requests = []
+
+    def voice_request(message):
+        requests.append(message)
+        return {
+            "state": {"engines": [], "profiles": ["after"]},
+            "clip": {"id": CLIP_ID, "seconds": 1.5},
+            "error": None,
+        }
+
+    actions = freya.actions()
+    actions.voice_state = lambda: {"engines": [], "profiles": []}
+    actions.voice_request = voice_request
+    actions.voice_clip = lambda clip_id: WAV if clip_id == CLIP_ID else None
+
+    gateway = Gateway(bus, gallery, actions, port=0)
+    gateway.requests = requests
+    gateway.start()
+    yield gateway
+    gateway.stop()
+
+
+def test_voice_request_reaches_the_studio_and_its_answer_comes_back(
+    voice_gateway,
+):
+    request = {
+        "type": "voice",
+        "action": "preview",
+        "request": "v1",
+        "engine": "kokoro",
+        "kind": "preset",
+        "settings": {"language": "a", "voice": "af_heart", "speed": 1},
+    }
+
+    with open_socket(voice_gateway, sign_in(voice_gateway)) as socket:
+        hello = receive(socket, "hello")
+        socket.send(json.dumps(request))
+        answer = receive(socket, "voice")
+
+    assert hello["voice"] == {"engines": [], "profiles": []}
+    assert voice_gateway.requests == [request]
+    assert answer["request"] == "v1"
+    assert answer["clip"] == {"id": CLIP_ID, "seconds": 1.5}
+    assert answer["state"]["profiles"] == ["after"]
+    assert answer["error"] is None
+
+
+def test_voice_requests_are_refused_once_freya_is_shutting_down(voice_gateway):
+    with open_socket(voice_gateway, sign_in(voice_gateway)) as socket:
+        receive(socket, "hello")
+        voice_gateway._stopping.set()
+        socket.send(json.dumps({"type": "voice", "action": "state"}))
+        refused = receive(socket, "error")
+
+    assert refused["text"] == "Freya is shutting down."
+    assert voice_gateway.requests == []
+
+
+def test_generated_speech_is_served_only_to_a_signed_in_window(voice_gateway):
+    cookie = sign_in(voice_gateway)
+
+    found, body = get(voice_gateway, f"/audio/{CLIP_ID}", cookie=cookie)
+    stranger, _ = get(voice_gateway, f"/audio/{CLIP_ID}")
+
+    assert found.status == 200
+    assert found.getheader("Content-Type") == "audio/wav"
+    assert body == WAV
+    assert stranger.status != 200
+
+    for path in ("/audio/", "/audio/" + "d" * 32, f"/audio/{CLIP_ID}.wav"):
+        response, _ = get(voice_gateway, path, cookie=cookie)
+        assert response.status == 404, path
+
+
+def test_page_can_play_its_own_audio_and_nothing_else(voice_gateway):
+    cookie = sign_in(voice_gateway)
+
+    page, body = get(voice_gateway, "/", cookie=cookie)
+    _, script = get(voice_gateway, "/app.js", cookie=cookie)
+
+    assert "media-src 'self'" in page.getheader("Content-Security-Policy")
+    assert b'id="view-voice"' in body
+    assert b'type: "voice"' in script
+
+
+def test_page_never_calls_a_blend_cloning_or_design(voice_gateway):
+    _, body = get(voice_gateway, "/", cookie=sign_in(voice_gateway))
+    page = body.decode("utf-8")
+    blend = page.split('id="panel-blend"', 1)[1].split("</article>", 1)[0]
+
+    assert "Blend Existing Voices" in blend
+    assert "Experimental" in blend
+    assert "not cloning" in blend
+    assert "not designing" in blend
