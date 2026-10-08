@@ -191,6 +191,9 @@ and an owner decision first. What the user does directly to the overlay (drag,
 resize, hide, close) is honoured without a policy check so she can always be
 dismissed. Her size is always within the user's limits and she is always inside the
 user's boundary, on every frame. Targets are revalidated before each use. The
+avatar can be turned off completely (`enabled` in her settings, the "Turn off"
+button): her program is closed and showing, pointing, and starting her are refused
+until the owner turns her on, which only the `enable` action does. The
 placeholder renderer uses `tkinter` and no GPU. Settings are in
 `data/avatar_settings.json`, keyed by user (one user today).
 

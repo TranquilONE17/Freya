@@ -1039,6 +1039,9 @@ function avatarResult(event) {
 
 function avatarSummary() {
   if (!avatar) return "";
+  if (avatar.config && avatar.config.enabled === false) {
+    return "The avatar is turned off. Nothing will show or start it until you turn it on.";
+  }
   if (avatar.error) return avatar.error;
   if (!avatar.running || !avatar.state || !avatar.state.visible) {
     return "The avatar is not showing.";
@@ -1108,6 +1111,14 @@ function showAvatar(next) {
 
   AVATAR_BOUNDS.forEach((edge) => {
     setRange("avatar-bound-" + edge, config.boundary[edge] * 100);
+  });
+
+  // While she is turned off, nothing that would show her can be asked for.
+  const off = config.enabled === false;
+  $("avatar-power").textContent = off ? "Turn on" : "Turn off";
+  ["avatar-show", "avatar-hide", "avatar-stop", "avatar-point", "avatar-wave",
+    "avatar-idle", "avatar-rest"].forEach((id) => {
+    $(id).disabled = off;
   });
 
   const chosen = avatar.appearances.find((a) => a.id === config.appearance);
@@ -1611,6 +1622,10 @@ function wireAvatar() {
   $("avatar-show").addEventListener("click", () => avatarSend("show", {}, "Starting the avatar…"));
   $("avatar-hide").addEventListener("click", () => avatarSend("hide", {}));
   $("avatar-stop").addEventListener("click", () => avatarSend("stop", {}, "Closing…"));
+  $("avatar-power").addEventListener("click", () => {
+    const off = avatar && avatar.config && avatar.config.enabled === false;
+    avatarSend(off ? "enable" : "disable", {}, off ? "Turning on…" : "Turning off…");
+  });
   $("avatar-wave").addEventListener("click", () => avatarSend("wave", {}));
   $("avatar-idle").addEventListener("click", () => avatarSend("idle", {}));
   $("avatar-rest").addEventListener("click", () => avatarSend("rest", {}));

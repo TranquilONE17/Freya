@@ -99,7 +99,13 @@ PERMISSION_NAMES = {
 
 LIBRARY_ACTIONS = ("scan", "save", "delete", "use")
 
+# What may still be asked while the avatar is turned off.
+ALLOWED_WHILE_OFF = ("enable", "disable", "hide", "stop", "configure")
+TURNED_OFF = "The avatar is turned off. Turn it on in the Avatar tab first."
+
 DISPLAY_ACTIONS = (
+    "enable",
+    "disable",
     "show",
     "hide",
     "stop",
@@ -496,7 +502,7 @@ class AvatarService:
             self._ensure_running()
 
     def _ensure_running(self) -> None:
-        if self._host.running:
+        if self._host.running or not self.config.enabled:
             return
 
         if self._chooses_renderer:
@@ -531,6 +537,20 @@ class AvatarService:
         if action not in DISPLAY_ACTIONS:
             raise AvatarError("That is not something the avatar can do.")
 
+        if action == "disable":
+            # Off completely: her program is closed and nothing below
+            # will start it again until she is turned back on.
+            self._save(self.config.updated({"enabled": False, "visible": False}), push=False)
+            self._host.stop()
+            return self.describe()
+
+        if action == "enable":
+            self._save(self.config.updated({"enabled": True}), push=False)
+            return self.describe()
+
+        if not self.config.enabled and action not in ALLOWED_WHILE_OFF:
+            raise AvatarError(TURNED_OFF)
+
         if action == "stop":
             self._save(self.config.updated({"visible": False}), push=False)
             self._host.stop()
@@ -541,6 +561,11 @@ class AvatarService:
             return self.describe()
 
         if action == "configure":
+            # Settings can be changed while she is off, but turning her
+            # on or off is only ever done by asking for exactly that.
+            if isinstance(value, dict):
+                value = {k: v for k, v in value.items() if k != "enabled"}
+
             self._save(self.config.updated(value))
 
             if self.config.visible:
@@ -597,6 +622,9 @@ class AvatarService:
         A region is {"display_id", "area"} with the area in 0..1 of
         that display's usable area.
         """
+        if not self.config.enabled:
+            raise AvatarError(TURNED_OFF)
+
         layout = self.layout()
 
         if region is not None:
