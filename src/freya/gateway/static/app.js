@@ -518,33 +518,159 @@ function refreshDesignControls() {
   );
 }
 
-async function recordingSamples(file) {
+// The imported recording, decoded: { name, stamp, audio }.
+let cloneClip = null;
+let cloneListening = null;
+
+function recordingLimits() {
+  return (voice && voice.reference_seconds) || { min: 6, max: 30 };
+}
+
+function cloneStart() {
+  return Number($("clone-start").value);
+}
+
+function describeCloneClip() {
+  const limits = recordingLimits();
+  const note = $("clone-file-note");
+
+  if (!cloneClip) {
+    note.textContent =
+      "Choose an audio file or drop one here: " +
+      limits.min + " to " + limits.max + " seconds of one person speaking.";
+    return;
+  }
+
+  const length = cloneClip.audio.duration;
+  const from = cloneStart();
+  const to = Math.min(length, from + limits.max);
+  $("clone-start-value").textContent = from.toFixed(1) + " s";
+  note.textContent =
+    cloneClip.name + " · " + length.toFixed(1) + " seconds long · using " +
+    from.toFixed(1) + " to " + to.toFixed(1) + " s" +
+    (length < limits.min ? " · too short to clone from" : "");
+}
+
+function stopListening() {
+  if (cloneListening) {
+    cloneListening.close();
+    cloneListening = null;
+  }
+  $("clone-listen").textContent = "Play the part that will be used";
+}
+
+// Take in an audio file the owner chose or dropped. It is decoded
+// here in the page; nothing is sent to Freya until Preview or Save.
+async function importRecording(file) {
+  if (!file) return;
+  stopListening();
+  $("clone-file-note").textContent = "Reading " + file.name + "…";
+
   const context = new AudioContext();
   try {
-    const decoded = await context.decodeAudioData(await file.arrayBuffer());
-    const longest = (voice.reference_seconds || { max: 30 }).max;
-    const frames = Math.floor(Math.min(decoded.duration, longest) * RECORDING_RATE);
-    const offline = new OfflineAudioContext(1, Math.max(frames, 1), RECORDING_RATE);
-    const source = offline.createBufferSource();
-    source.buffer = decoded;
-    source.connect(offline.destination);
-    source.start();
-    const samples = (await offline.startRendering()).getChannelData(0);
-    const pcm = new Int16Array(samples.length);
-    for (let i = 0; i < samples.length; i += 1) {
-      pcm[i] = Math.max(-1, Math.min(1, samples[i])) * 32767;
-    }
-    return pcm;
+    const audio = await context.decodeAudioData(await file.arrayBuffer());
+    cloneClip = {
+      name: file.name,
+      stamp: [file.name, file.size, file.lastModified].join("|"),
+      audio,
+    };
+  } catch (error) {
+    cloneClip = null;
+    $("clone-listen").hidden = true;
+    $("clone-start").disabled = true;
+    $("clone-file-note").textContent =
+      file.name + " could not be read as audio. Try a WAV, MP3, M4A, FLAC or OGG file.";
+    return;
   } finally {
     context.close();
   }
+
+  const slider = $("clone-start");
+  const latest = Math.max(0, cloneClip.audio.duration - recordingLimits().min);
+  slider.max = Math.floor(latest * 2) / 2;
+  slider.value = 0;
+  slider.disabled = Number(slider.max) === 0;
+  $("clone-listen").hidden = false;
+  describeCloneClip();
+}
+
+function listenToRecording() {
+  if (cloneListening) {
+    stopListening();
+    return;
+  }
+  if (!cloneClip) return;
+
+  const context = new AudioContext();
+  const source = context.createBufferSource();
+  source.buffer = cloneClip.audio;
+  source.connect(context.destination);
+  source.onended = stopListening;
+  source.start(0, cloneStart(), recordingLimits().max);
+  cloneListening = context;
+  $("clone-listen").textContent = "Stop";
+}
+
+// The chosen part of the recording as mono 16-bit samples.
+async function recordingSamples() {
+  const from = cloneStart();
+  const seconds = Math.min(cloneClip.audio.duration - from, recordingLimits().max);
+  const frames = Math.max(Math.floor(seconds * RECORDING_RATE), 1);
+  const offline = new OfflineAudioContext(1, frames, RECORDING_RATE);
+  const source = offline.createBufferSource();
+  source.buffer = cloneClip.audio;
+  source.connect(offline.destination);
+  source.start(0, from);
+  const samples = (await offline.startRendering()).getChannelData(0);
+  const pcm = new Int16Array(samples.length);
+  for (let i = 0; i < samples.length; i += 1) {
+    pcm[i] = Math.max(-1, Math.min(1, samples[i])) * 32767;
+  }
+  return pcm;
+}
+
+function wireImport() {
+  const drop = $("clone-drop");
+  const picker = $("clone-file");
+
+  $("clone-import").addEventListener("click", () => picker.click());
+  picker.addEventListener("change", () => {
+    importRecording(picker.files[0]);
+    // So that choosing the same file again is noticed.
+    picker.value = "";
+  });
+  $("clone-listen").addEventListener("click", listenToRecording);
+  $("clone-start").addEventListener("input", () => {
+    stopListening();
+    describeCloneClip();
+  });
+
+  ["dragenter", "dragover"].forEach((name) => {
+    drop.addEventListener(name, (event) => {
+      event.preventDefault();
+      drop.classList.add("is-over");
+    });
+  });
+  ["dragleave", "drop"].forEach((name) => {
+    drop.addEventListener(name, (event) => {
+      event.preventDefault();
+      drop.classList.remove("is-over");
+    });
+  });
+  drop.addEventListener("drop", (event) => {
+    importRecording(event.dataTransfer.files[0]);
+  });
+
+  // A file dropped anywhere else must not replace Freya's window.
+  ["dragover", "drop"].forEach((name) => {
+    window.addEventListener(name, (event) => event.preventDefault());
+  });
 }
 
 // Make sure Freya holds the chosen recording, then carry on with its id.
 function withCloneRecording(next) {
-  const file = $("clone-file").files[0];
-  if (!file) {
-    voiceMessage("Choose a recording first.", true);
+  if (!cloneClip) {
+    voiceMessage("Import a recording first.", true);
     return;
   }
   if (!$("clone-consent").checked) {
@@ -553,14 +679,15 @@ function withCloneRecording(next) {
   }
 
   const transcript = $("clone-transcript").value;
-  const key = [file.name, file.size, file.lastModified, transcript].join("|");
+  const key = [cloneClip.stamp, cloneStart(), transcript].join("|");
   if (cloneReference && cloneReference.key === key) {
     next(cloneReference.id);
     return;
   }
 
-  voiceMessage("Reading the recording…");
-  recordingSamples(file)
+  stopListening();
+  voiceMessage("Preparing the recording…");
+  recordingSamples()
     .then((pcm) => {
       const bytes = pcm.buffer;
       for (let at = 0; at < bytes.byteLength; at += RECORDING_CHUNK) {
@@ -577,7 +704,7 @@ function withCloneRecording(next) {
       );
     })
     .catch(() => {
-      voiceMessage("That file could not be read as audio.", true);
+      voiceMessage("That recording could not be prepared.", true);
     });
 }
 
@@ -693,9 +820,7 @@ function showCloneAndDesign() {
   if (cloners.length) {
     fillSelect($("clone-engine"), engineOptions(cloners));
     refreshCloneModels();
-    const limits = voice.reference_seconds || { min: 6, max: 30 };
-    $("clone-file-note").textContent =
-      limits.min + " to " + limits.max + " seconds of one person speaking";
+    describeCloneClip();
     if (!$("clone-text").value) $("clone-text").value = voice.sample_text;
   }
 
@@ -1083,6 +1208,7 @@ if (recall(CONSOLE_SHOWN_KEY)) $("tab-console").hidden = false;
 
 wireVoice();
 wireCloneAndDesign();
+wireImport();
 
 connect();
 $("chat-input").focus();

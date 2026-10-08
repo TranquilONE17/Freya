@@ -422,6 +422,29 @@ select,
   margin-top: 14px;
 }
 
+.import {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 14px;
+  padding: 14px;
+  border: 1px dashed var(--line);
+  border-radius: 8px;
+}
+
+.import.is-over {
+  border-color: var(--accent);
+  background: var(--panel-raised);
+}
+
+.import-note {
+  flex: 1 1 240px;
+  margin: 0;
+  color: var(--muted);
+  font-size: 13px;
+}
+
 .check {
   display: flex;
   align-items: center;

@@ -544,6 +544,25 @@ def test_page_can_play_its_own_audio_and_nothing_else(voice_gateway):
     assert b'type: "voice"' in script
 
 
+def test_cloner_can_import_trim_and_play_a_recording(voice_gateway):
+    cookie = sign_in(voice_gateway)
+    _, body = get(voice_gateway, "/", cookie=cookie)
+    _, script = get(voice_gateway, "/app.js", cookie=cookie)
+
+    for control in (
+        b'id="clone-import"', b'id="clone-drop"', b'id="clone-start"',
+        b'id="clone-listen"', b'id="clone-consent"',
+    ):
+        assert control in body
+
+    # The file is decoded in the page and only samples are sent, so
+    # the page needs no permission to load anything but its own files.
+    assert b"decodeAudioData" in script and b'"drop"' in script
+    assert "blob:" not in get(voice_gateway, "/", cookie=cookie)[0].getheader(
+        "Content-Security-Policy"
+    )
+
+
 def test_page_never_calls_a_blend_cloning_or_design(voice_gateway):
     _, body = get(voice_gateway, "/", cookie=sign_in(voice_gateway))
     page = body.decode("utf-8")
