@@ -136,6 +136,11 @@ the older part is folded into its summary and only the last 16 are sent to the m
 the words stay stored. The model can look passages up with the `conversation.recall`
 tool (provider `conversation-memory-local`, policy seed `alpha-conversation-recall`),
 which goes through the broker and is audited; its results are untrusted text. The
+assistant does not rely on the model choosing to look: a question about the past
+("have I ever", "did we ever", "do you remember", "what did I say"; the pattern is
+`ASKS_ABOUT_THE_PAST`) makes her search every memory and every stored conversation
+first and give the model the results for that one reply, or tell it nothing was
+found. The
 window's Memory tab and the `/find` and `/history` commands search memories and
 conversations, edit and delete memories, and delete an exchange or a conversation.
 Deleting conversation text is permanent (`secure_delete` is on), removes both halves

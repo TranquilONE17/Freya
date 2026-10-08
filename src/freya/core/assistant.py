@@ -95,6 +95,18 @@ class FreyaAssistant(ConversationMemory):
                 }
             )
 
+        past_note = self.past_search_note(
+            user_input
+        )
+
+        if past_note is not None:
+            messages_for_model.append(
+                {
+                    "role": "system",
+                    "content": past_note,
+                }
+            )
+
         messages_for_model.append(
             {
                 "role": "user",
@@ -193,6 +205,18 @@ class FreyaAssistant(ConversationMemory):
                         "Relevant long-term memories:\n"
                         f"{memory_text}"
                     ),
+                }
+            )
+
+        past_note = self.past_search_note(
+            user_input
+        )
+
+        if past_note is not None:
+            messages_for_model.append(
+                {
+                    "role": "system",
+                    "content": past_note,
                 }
             )
 

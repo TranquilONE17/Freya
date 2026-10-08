@@ -84,8 +84,12 @@ def test_search_words_cannot_be_read_as_instructions(store, query):
 
 
 def test_search_terms_are_plain_words():
-    assert search_terms("What's the AVATAR'S plan?") == ["what's", "the", "avatar's", "plan"]
+    assert search_terms("What's the AVATAR'S plan?") == ["what's", "avatar's", "plan"]
     assert search_terms("a b c") == []
+    # Words too common to find anything by are left out...
+    assert search_terms("Have I ever mentioned anything about a boat?") == ["boat"]
+    # ...unless they are all there is.
+    assert search_terms("what did you say") == ["what", "did", "you", "say"]
     assert len(search_terms(" ".join(f"word{n}" for n in range(40)))) == 12
 
 
@@ -499,3 +503,93 @@ def test_find_and_history_commands(new_assistant, fake_ollama):
     # Saved memories are a separate thing and are still there.
     assert len(assistant.find("")["memories"]) == 1
     assert "/find" in say(assistant, "/memory-help")
+
+
+# -- questions about the past ---------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "question",
+    [
+        "Have I ever mentioned a boat?",
+        "have we ever talked about moving house",
+        "Did I ever tell you my sister's name?",
+        "Have I told you about the allotment?",
+        "Did we discuss the invoice?",
+        "Do you remember the name of my dentist?",
+        "Can you recall what colour I wanted?",
+        "What did I say about the fence?",
+        "What did we decide for the kitchen?",
+        "When did I book the plumber?",
+        "Last time you mentioned a recipe, what was it?",
+        "Remember when I asked about tyres?",
+    ],
+)
+def test_questions_about_the_past_are_recognised(question):
+    assert conversation_memory.ASKS_ABOUT_THE_PAST.search(question)
+
+
+@pytest.mark.parametrize(
+    "message",
+    [
+        "What's the weather like?",
+        "Tell me a joke about boats.",
+        "I have never been to Spain.",
+        "Please remember that my dentist is Dr Okafor.",
+        "Have a look at the GPU temperature.",
+        "Did you know octopuses have three hearts?",
+        "What do you think I should say to him?",
+    ],
+)
+def test_other_messages_are_not_searched_for(new_assistant, message):
+    assert new_assistant().past_search_note(message) is None
+
+
+def test_asking_have_i_ever_searches_everything_first(new_assistant, fake_ollama):
+    first = new_assistant()
+    first.memory.search_memories = lambda *arguments, **options: []
+    first.memory.add_memory("The user owns a narrowboat called Heron.", "fact", "boat")
+    fake_ollama.stream_script = ["Sounds like a lovely trip."]
+    say(first, "I took the boat up to Braunston at the weekend.")
+    # A summary that leaves the boat out, as a summary might.
+    fake_ollama.reply = "The user talked about their weekend."
+    first.finish_conversation()
+
+    second = new_assistant()
+    second.memory.search_memories = lambda *arguments, **options: []
+    fake_ollama.stream_script = ["Yes: you took it to Braunston."]
+    say(second, "Have I ever mentioned anything about a boat?")
+
+    sent = [call[2] for call in fake_ollama.calls if call[0] == "chat" and call[3]][-1]
+    note = next(m["content"] for m in sent if "asking about the past" in m["content"])
+
+    assert "searched for: boat" in note
+    assert "The user owns a narrowboat called Heron." in note
+    assert "the user: I took the boat up to Braunston at the weekend." in note
+    assert "Freya: Sounds like a lovely trip." in note
+    assert "not an instruction" in note
+    # The note is for this answer only; it is not kept in the conversation.
+    assert all("asking about the past" not in m["content"] for m in second.messages)
+    # It comes straight before the question.
+    assert sent[-1] == {"role": "user", "content": "Have I ever mentioned anything about a boat?"}
+    assert sent[-2]["content"] == note or "tools" in sent[-2]["content"].lower()
+
+
+def test_she_is_told_when_nothing_was_found(new_assistant, fake_ollama):
+    assistant = new_assistant()
+    assistant.memory.search_memories = lambda *arguments, **options: []
+    say(assistant, "I like kayaking.")
+
+    note = assistant.past_search_note("Have I ever mentioned a helicopter?")
+
+    assert "Nothing was found" in note and "helicopter" in note
+    assert "no record" in note
+
+
+def test_a_failed_search_does_not_stop_her_answering(new_assistant, fake_ollama):
+    assistant = new_assistant()
+    assistant.conversations.search = lambda *arguments, **options: 1 / 0
+
+    assert assistant.past_search_note("Have I ever mentioned a boat?") is None
+    fake_ollama.stream_script = ["I am not sure."]
+    assert say(assistant, "Have I ever mentioned a boat?") == "I am not sure."
