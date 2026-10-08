@@ -43,6 +43,10 @@ Rules for the spec:
   (hash-chained SQLite audit log, checkpoint sinks), `persistence/` (ControlStore and
   its migrations).
 - `src/freya/memory/memory_manager.py` — SQLite memory with embeddings and history.
+  `src/freya/memory/conversations.py` — `ConversationStore`: every exchange kept word
+  for word, a summary per conversation, and a word search (SQLite FTS5), in the same
+  database. `src/freya/core/conversation_memory.py` — the part of `FreyaAssistant`
+  that uses it.
 - `src/freya/tools/` — read-only system tools registered as capabilities (host info,
   GPU, CPU, RAM, all drives, a Windows-only hardware inventory in
   `hardware_inventory.py`, and temperatures/fans/power in `sensors.py`);
@@ -122,6 +126,31 @@ image waits for the model to reload. It has a local, reversible effect; before a
 tool with a consequential effect, decide how it is authorized, including whether a
 spoken request may trigger it.
 
+Conversation memory: one run of Freya is one conversation. Each exchange is stored
+as it happens (`conversation`, `conversation_turn`, and the `conversation_search`
+index in `data/freya_memory.db`), with how it arrived (typed, voice, window).
+Commands are not stored. A summary is written when Freya closes, or at the next start
+if that was missed, and she starts with the summaries of the last three as a system
+note marked as notes, not instructions. When the live conversation passes 40 messages
+the older part is folded into its summary and only the last 16 are sent to the model;
+the words stay stored. The model can look passages up with the `conversation.recall`
+tool (provider `conversation-memory-local`, policy seed `alpha-conversation-recall`),
+which goes through the broker and is audited; its results are untrusted text. The
+assistant does not rely on the model choosing to look: a question about the past
+("have I ever", "did we ever", "do you remember", "what did I say"; the pattern is
+`ASKS_ABOUT_THE_PAST`) makes her search every memory and every stored conversation
+first and give the model the results for that one reply, or tell it nothing was
+found. The
+window's Memory tab and the `/find` and `/history` commands search memories and
+conversations, edit and delete memories, and delete an exchange or a conversation.
+Deleting conversation text is permanent (`secure_delete` is on), removes both halves
+of an exchange, clears that conversation's summary so it is rewritten from what is
+left, and drops the words from the live conversation. A deleted *memory* is still
+archived in `memory_history`, as before. Memory tab answers go only to the window
+that asked, never onto the event bus. The first time the conversation tables are
+created the database is copied to `data/backups/`. This is the most personal data
+Freya holds: never print it, commit it, or send it anywhere.
+
 Always-on listening: the microphone stays open on a background thread while the
 keyboard prompt waits. Every utterance is transcribed locally and then discarded unless
 it is addressed to one of Freya's names at the start or end of the sentence; the name
@@ -161,7 +190,7 @@ baseline: there is no pairing, no per-client scope, and window turns are attribu
 the same fixed `local-owner` principal. The page shows everything with `textContent`
 and a strict Content-Security-Policy, because replies and tool results are untrusted.
 The window can only ask for a chat turn, an image, mute/unmute, stopping speech, a
-voice volume, a command, or a Voice tab request (with a recording sent as binary messages);
+voice volume, a Memory tab request, a command, or a Voice tab request (with a recording sent as binary messages);
 add new message types deliberately. `main.py` publishes conversation and image events
 on a module-level `EVENTS` bus; the console still prints as before. The bus calls its
 subscribers in publish order while it is locked, so a subscriber must never block: the

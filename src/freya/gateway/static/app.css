@@ -821,3 +821,81 @@ button:disabled {
 .volume input {
   width: 96px;
 }
+
+.memory-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.memory-list > li {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  gap: 6px 10px;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--panel-raised);
+}
+
+.memory-list > li.is-match {
+  border-color: var(--accent);
+}
+
+.memory-list > li.passage {
+  flex-direction: column;
+  align-items: stretch;
+  background: transparent;
+}
+
+.memory-list .about {
+  flex: 1 1 280px;
+  min-width: 0;
+}
+
+.memory-list .said {
+  display: block;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.memory-list .who {
+  display: block;
+  font-weight: 600;
+  font-size: 13px;
+}
+
+.memory-list .detail {
+  display: block;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.memory-list textarea {
+  flex: 1 1 100%;
+  padding: 8px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--panel);
+  color: var(--text);
+  font: inherit;
+}
+
+.passage-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+#memory-query {
+  flex: 1 1 260px;
+}
+
+#memory-opened {
+  margin-top: 16px;
+}
