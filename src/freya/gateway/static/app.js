@@ -1797,6 +1797,13 @@ function showStatus(next) {
     unavailable: ["Images unavailable", "bad"],
   }[status.images] || ["Images", ""];
   setPill("pill-images", images[0], images[1]);
+
+  // Leave the slider alone while it is being dragged.
+  const volume = $("voice-volume");
+  if (typeof status.volume === "number" && document.activeElement !== volume) {
+    volume.value = status.volume;
+    $("voice-volume-value").textContent = status.volume + "%";
+  }
 }
 
 // -- connection --------------------------------------------------------
@@ -1914,6 +1921,15 @@ wireComposer("console-form", "console-input", submitText);
 wireComposer("image-form", "image-input", (text) => send({ type: "image", text }));
 
 $("stop-speaking").addEventListener("click", () => send({ type: "interrupt" }));
+
+// The label follows the slider as it moves; Freya is told when it is let go.
+$("voice-volume").addEventListener("input", () => {
+  $("voice-volume-value").textContent = $("voice-volume").value + "%";
+});
+$("voice-volume").addEventListener("change", () => {
+  send({ type: "volume", value: Number($("voice-volume").value) });
+  $("voice-volume").blur();
+});
 
 $("console-hide").addEventListener("click", () => showConsoleTab(false));
 

@@ -36,7 +36,8 @@ def test_names_are_saved_and_reloaded(settings):
 
     assert reloaded.wake_names == ["freya", "computer", "hey you"]
     assert json.loads(settings.path.read_text(encoding="utf-8")) == {
-        "wake_names": ["freya", "computer", "hey you"]
+        "wake_names": ["freya", "computer", "hey you"],
+        "voice_volume": 100,
     }
 
 

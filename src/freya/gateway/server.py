@@ -540,6 +540,14 @@ class Gateway:
             self._avatar_work.put(message)
         elif kind == "mute":
             self._actions.set_muted(message.get("muted") is True)
+        elif kind == "volume":
+            value = message.get("value")
+
+            # Only a plain number is passed on; Freya limits its range.
+            if isinstance(value, bool) or not isinstance(value, (int, float)):
+                return reject("A volume is a number from 0 to 100.")
+
+            self._actions.set_volume(value)
         elif kind == "interrupt":
             self._actions.interrupt()
         elif kind == "status":

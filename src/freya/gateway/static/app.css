@@ -807,3 +807,17 @@ button:disabled {
 #creator-job:empty {
   display: none;
 }
+
+.volume {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  align-self: center;
+  color: var(--muted);
+  font-size: 13px;
+  white-space: nowrap;
+}
+
+.volume input {
+  width: 96px;
+}
