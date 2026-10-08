@@ -1,4 +1,6 @@
 #include "FreyaAudioProbeComponent.h"
+#include "FreyaLink.h"
+#include "HAL/PlatformMisc.h"
 #include <atomic>
 #include "MetaHumanAudioBaseLiveLinkSubject.h"
 #include "MetaHumanAudioBaseLiveLinkSubjectSettings.h"
@@ -39,7 +41,8 @@ namespace
     constexpr double TailSeconds = 1.0;
 }
 
-// One bounded immutable fixture. The sampler thread owns its cursor.
+// Audio waiting to be fed to the solver, a little at a time at the pace it would
+// be heard. The sampler thread owns the cursor; everything else only adds or clears.
 class FFreyaProbeSubject final : public FMetaHumanAudioBaseLiveLinkSubject
 {
 public:
@@ -47,20 +50,24 @@ public:
                       UMetaHumanAudioBaseLiveLinkSubjectSettings* Settings)
         : FMetaHumanAudioBaseLiveLinkSubject(Client, Id, Name, Settings) {}
 
-    bool Install(TArray<float>&& NewFixture)
+    void Push(const float* Data, int32 Count)
     {
         FScopeLock Guard(&Mutex);
-        if (Cursor < Fixture.Num()) return false;
-        Fixture = MoveTemp(NewFixture);
-        Cursor = 0;
-        return true;
+        // Forget what has been fed already, so a long conversation does not pile up.
+        if (Cursor > 0 && (Cursor == Fixture.Num() || Cursor > 10 * FixtureSampleRate))
+        {
+            Fixture.RemoveAt(0, Cursor, EAllowShrinking::No);
+            Cursor = 0;
+        }
+        Fixture.Append(Data, Count);
     }
 
     // Drop whatever has not been fed yet. What the solver already has plays out.
     void Cancel()
     {
         FScopeLock Guard(&Mutex);
-        Cursor = Fixture.Num();
+        Fixture.Reset();
+        Cursor = 0;
     }
 
     int32 SolverFrames() const { return Frames.load(); }
@@ -80,8 +87,6 @@ protected:
                     Packet.Data.Append(Fixture.GetData() + Cursor, Count);
                     Cursor += Count;
                     Packet.NumSamples = Count;
-                    if (Cursor == Fixture.Num())
-                        UE_LOG(LogFreyaProbe, Display, TEXT("Fixture input drained; solver output still needs verification."));
                 }
             }
             if (Packet.NumSamples <= 0)
@@ -119,8 +124,12 @@ class FFreyaProbeSource final : public FMetaHumanLocalLiveLinkSource
 {
 public:
     virtual FText GetSourceType() const override { return FText::FromString(TEXT("Freya fixture probe")); }
-    bool Install(TArray<float>&& Samples)
-    { return Subject.IsValid() && Subject->Install(MoveTemp(Samples)); }
+    bool Push(const float* Data, int32 Count)
+    {
+        if (!Subject.IsValid()) return false;
+        Subject->Push(Data, Count);
+        return true;
+    }
     void Cancel() { if (Subject.IsValid()) Subject->Cancel(); }
     int32 SolverFrames() const { return Subject.IsValid() ? Subject->SolverFrames() : 0; }
 protected:
@@ -166,6 +175,18 @@ void UFreyaAudioProbeComponent::BeginPlay()
             Settings->SetFrameRateLimit(60.0f);
             Settings->ApplySettings(false);
         }
+    // Started by Freya: she gives the port of her gateway and a key that works once.
+    const FString GatewayPort = FPlatformMisc::GetEnvironmentVariable(TEXT("FREYA_GATEWAY_PORT"));
+    const FString PairingKey = FPlatformMisc::GetEnvironmentVariable(TEXT("FREYA_PAIRING_KEY"));
+    if (!GatewayPort.IsEmpty() && !PairingKey.IsEmpty() && FCString::Atoi(*GatewayPort) > 0)
+    {
+        const bool bLinked = InitializeProbe();
+        UE_LOG(LogFreyaProbe, Display, TEXT("Started by Freya; probe %s. Connecting to her gateway."),
+            bLinked ? TEXT("initialized") : TEXT("FAILED to initialize"));
+        Link = MakeShared<FFreyaLink>(this, FCString::Atoi(*GatewayPort), PairingKey);
+        Link->Start();
+        return;
+    }
     if (!bAutoStart) return;
     const bool bReady = InitializeProbe();
     UE_LOG(LogFreyaProbe, Display, TEXT("Auto start: probe %s. Fixture begins in %.1f s."),
@@ -262,18 +283,15 @@ bool UFreyaAudioProbeComponent::StartFixture(const FString& Path)
     for (float Sample : Samples)
         if (!FMath::IsFinite(Sample) || FMath::Abs(Sample) > 1.0f) return false;
 
-    // What is heard is a separate copy, so volume never reaches the solver's input.
-    TArray<uint8> Pcm;
-    Pcm.SetNumUninitialized(Samples.Num() * sizeof(int16));
-    int16* Out = reinterpret_cast<int16*>(Pcm.GetData());
+    TArray<int16> Pcm;
+    Pcm.SetNumUninitialized(Samples.Num());
     for (int32 Index = 0; Index < Samples.Num(); ++Index)
-        Out[Index] = static_cast<int16>(FMath::Clamp(FMath::RoundToInt(Samples[Index] * 32767.0f), -32768, 32767));
+        Pcm[Index] = static_cast<int16>(FMath::Clamp(FMath::RoundToInt(Samples[Index] * 32767.0f), -32768, 32767));
     const double Seconds = Samples.Num() / double(FixtureSampleRate);
 
-    if (!InitializeProbe() || !Source->Install(MoveTemp(Samples))) return false;
-    ConfigureFace();
+    if (!BeginSpeech(FixtureSampleRate, bPlayAudibly ? Volume : 0.0f)) return false;
+    PushSpeech(Pcm.GetData(), Pcm.Num());
 
-    PendingPcm = MoveTemp(Pcm);
     PeakCurve = 0.0f;
     CurvesAtPeak = 0;
     FixtureSeconds = Seconds;
@@ -284,28 +302,69 @@ bool UFreyaAudioProbeComponent::StartFixture(const FString& Path)
     bTakeShots = FParse::Param(FCommandLine::Get(), TEXT("FreyaShots"));
     UE_LOG(LogFreyaProbe, Display, TEXT("Fixture started: %.2f s, solver frames so far %d."),
         Seconds, GetSolverFrameCount());
-
-    if (bPlayAudibly && GetWorld())
-    {
-        const float Delay = FMath::Clamp(AudibleDelayMilliseconds, 0, 500) / 1000.0f;
-        if (Delay <= 0.0f) BeginAudiblePlayback();
-        else GetWorld()->GetTimerManager().SetTimer(PlaybackTimer, this,
-            &UFreyaAudioProbeComponent::BeginAudiblePlayback, Delay, false);
-    }
     return true;
 }
 
-void UFreyaAudioProbeComponent::BeginAudiblePlayback()
+// Begin one utterance. The sound is given to the solver at full level; Loudness
+// applies only to what is heard.
+bool UFreyaAudioProbeComponent::BeginSpeech(int32 SampleRate, float Loudness)
 {
-    if (PendingPcm.Num() == 0 || !GetOwner()) return;
+    // The solver is fed at one rate. Anything else is refused, not resampled.
+    if (SampleRate != FixtureSampleRate || !GetOwner() || !InitializeProbe()) return false;
+    StopAudiblePlayback();
+    Source->Cancel();
+    ConfigureFace();
+
     Wave = NewObject<USoundWaveProcedural>(this);
     Wave->SetSampleRate(FixtureSampleRate);
     Wave->NumChannels = 1;
     Wave->Duration = INDEFINITELY_LOOPING_DURATION;
     Wave->SoundGroup = SOUNDGROUP_Voice;
     Wave->bLooping = false;
-    Wave->QueueAudio(PendingPcm.GetData(), PendingPcm.Num());
-    PendingPcm.Reset();
+    SpeechVolume = FMath::Clamp(Loudness, 0.0f, 1.0f);
+    SpeechSamples = 0;
+    SpeechStartedAt = 0.0;
+    bVoiceStarted = false;
+    bSpeechOpen = true;
+    return true;
+}
+
+void UFreyaAudioProbeComponent::PushSpeech(const int16* Samples, int32 Count)
+{
+    // At most what Freya ever sends for one utterance.
+    if (!bSpeechOpen || !Samples || Count <= 0 || !Source.IsValid() || !Wave) return;
+    if (SpeechSamples + Count > int64(MaxFixtureSeconds) * FixtureSampleRate) return;
+
+    TArray<float> Floats;
+    Floats.SetNumUninitialized(Count);
+    for (int32 Index = 0; Index < Count; ++Index) Floats[Index] = Samples[Index] / 32768.0f;
+    Source->Push(Floats.GetData(), Count);
+    Wave->QueueAudio(reinterpret_cast<const uint8*>(Samples), Count * sizeof(int16));
+    SpeechSamples += Count;
+
+    // The sound starts a moment after the solver is first fed, so lips and voice agree.
+    if (!bVoiceStarted && GetWorld() && !GetWorld()->GetTimerManager().IsTimerActive(PlaybackTimer))
+    {
+        const float Delay = FMath::Clamp(AudibleDelayMilliseconds, 0, 500) / 1000.0f;
+        if (Delay <= 0.0f) BeginAudiblePlayback();
+        else GetWorld()->GetTimerManager().SetTimer(PlaybackTimer, this,
+            &UFreyaAudioProbeComponent::BeginAudiblePlayback, Delay, false);
+    }
+}
+
+// True from the first sound queued until it has all been heard.
+bool UFreyaAudioProbeComponent::IsSpeechAudible() const
+{
+    if (!bSpeechOpen || SpeechSamples <= 0) return false;
+    if (!bVoiceStarted) return true;
+    return FPlatformTime::Seconds() < SpeechStartedAt + SpeechSamples / double(FixtureSampleRate) + 0.25;
+}
+
+void UFreyaAudioProbeComponent::BeginAudiblePlayback()
+{
+    if (!bSpeechOpen || !Wave || !GetOwner()) return;
+    bVoiceStarted = true;
+    SpeechStartedAt = FPlatformTime::Seconds();
 
     if (!Voice)
     {
@@ -316,16 +375,19 @@ void UFreyaAudioProbeComponent::BeginAudiblePlayback()
         Voice->RegisterComponent();
     }
     Voice->SetSound(Wave);
-    Voice->SetVolumeMultiplier(FMath::Clamp(Volume, 0.0f, 1.0f));
+    // Never exactly zero: Unreal stops a silent sound, and its timing would be lost.
+    Voice->SetVolumeMultiplier(FMath::Max(SpeechVolume, 0.0001f));
     Voice->Play();
 }
 
 void UFreyaAudioProbeComponent::StopAudiblePlayback()
 {
     if (GetWorld()) GetWorld()->GetTimerManager().ClearTimer(PlaybackTimer);
-    PendingPcm.Reset();
     if (Voice) Voice->Stop();
     if (Wave) Wave->ResetAudio();
+    bSpeechOpen = false;
+    bVoiceStarted = false;
+    SpeechSamples = 0;
 }
 
 void UFreyaAudioProbeComponent::CancelSpeech()
@@ -350,6 +412,7 @@ void UFreyaAudioProbeComponent::TickComponent(float DeltaTime, ELevelTick TickTy
     FActorComponentTickFunction* ThisTickFunction)
 {
     Super::TickComponent(DeltaTime, TickType, ThisTickFunction);
+    if (Link.IsValid()) Link->Tick();
     if (!bFixtureActive) return;
 
     // Read what the subject is publishing, the same values the face would use.
@@ -418,6 +481,7 @@ void UFreyaAudioProbeComponent::StopProbe()
 
 void UFreyaAudioProbeComponent::EndPlay(const EEndPlayReason::Type Reason)
 {
+    if (Link.IsValid()) { Link->Stop(); Link.Reset(); }
     StopProbe();
     Super::EndPlay(Reason);
 }

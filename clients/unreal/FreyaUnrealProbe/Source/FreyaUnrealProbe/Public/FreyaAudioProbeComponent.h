@@ -4,6 +4,7 @@
 #include "TimerManager.h"
 #include "FreyaAudioProbeComponent.generated.h"
 
+class FFreyaLink;
 class FFreyaProbeSource;
 class UAudioComponent;
 class USoundWaveProcedural;
@@ -71,7 +72,16 @@ public:
     UFUNCTION(BlueprintCallable, Category="Freya Probe")
     bool StartFixture(const FString& Path);
 
-    /** Stop the current fixture: no more audio to the solver, and silence. */
+    /** Begin one utterance of 24 kHz mono speech. Loudness is for the ears only. */
+    bool BeginSpeech(int32 SampleRate, float Loudness);
+
+    /** Add signed 16-bit samples to the utterance in progress. */
+    void PushSpeech(const int16* Samples, int32 Count);
+
+    /** True from the first sound queued until all of it has been heard. */
+    bool IsSpeechAudible() const;
+
+    /** Stop the current speech: no more audio to the solver, and silence. */
     UFUNCTION(BlueprintCallable, Category="Freya Probe")
     void CancelSpeech();
 
@@ -104,7 +114,13 @@ private:
     FGuid SourceId;
     FTimerHandle AutoStartTimer;
     FTimerHandle PlaybackTimer;
-    TArray<uint8> PendingPcm;
+    /** Set when Freya started this window: the connection to her gateway. */
+    TSharedPtr<FFreyaLink> Link;
+    float SpeechVolume = 1.0f;
+    int64 SpeechSamples = 0;
+    double SpeechStartedAt = 0.0;
+    bool bVoiceStarted = false;
+    bool bSpeechOpen = false;
     float PeakCurve = 0.0f;
     int32 CurvesAtPeak = 0;
     double FixtureStartedAt = 0.0;

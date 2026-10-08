@@ -1,5 +1,5 @@
 import unreal, traceback
-OUT = r"C:\Users\jmfel\AppData\Local\Temp\claude\C--Dev-Freya\263f6da8-fcff-434f-b3e5-94de4e7f7fa3\scratchpad\ue_level_out.txt"
+OUT = unreal.Paths.project_saved_dir() + "ue_level_out.txt"
 open(OUT, "w").close()
 def say(*a):
     unreal.log("FREYALEVEL " + " ".join(str(x) for x in a))
