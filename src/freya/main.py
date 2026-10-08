@@ -1259,6 +1259,26 @@ def main(window_only=False):
         )
 
 
+    voice.set_volume(settings.voice_volume)
+
+
+
+    def volume_from_window(value):
+
+        try:
+
+            voice.set_volume(settings.set_voice_volume(value))
+
+        except ValueError:
+
+            return
+
+
+
+        publish_status()
+
+
+
     def say_from_window(text):
 
         # Runs on the window's worker thread; waits for any turn
@@ -1456,6 +1476,8 @@ def main(window_only=False):
             generate_image=image_from_window,
 
             set_muted=mute_from_window,
+
+            set_volume=volume_from_window,
 
             interrupt=voice.interrupt,
 

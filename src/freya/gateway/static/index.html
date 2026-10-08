@@ -35,6 +35,8 @@
 
       <form class="composer" id="chat-form">
         <textarea id="chat-input" rows="1" placeholder="Message Freya, or type /help for commands" aria-label="Message Freya" maxlength="4000"></textarea>
+        <label class="volume" title="How loudly Freya speaks. A change applies from her next sentence.">Voice <span class="value" id="voice-volume-value">100%</span>
+          <input type="range" id="voice-volume" min="0" max="100" step="5" value="100" aria-label="Voice volume"></label>
         <button type="button" class="ghost" id="stop-speaking" title="Stop her speaking">Stop voice</button>
         <button type="submit" class="primary">Send</button>
       </form>

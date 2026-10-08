@@ -25,6 +25,7 @@ class Recorder:
         self.commands = []
         self.images = []
         self.muted = []
+        self.volumes = []
         self.interrupts = 0
         self.called = threading.Event()
 
@@ -33,6 +34,7 @@ class Recorder:
             say=self.say,
             generate_image=self.generate_image,
             set_muted=self.muted.append,
+            set_volume=self.volumes.append,
             interrupt=self.interrupt,
             status=lambda: {"microphone": "listening", "model": "healthy"},
             run_command=self.run_command,
@@ -281,6 +283,11 @@ def test_image_mute_and_interrupt_requests(gateway, freya):
 
         socket.send(json.dumps({"type": "mute", "muted": True}))
         socket.send(json.dumps({"type": "mute", "muted": "yes"}))
+        socket.send(json.dumps({"type": "volume", "value": 35}))
+        # Only a plain number is a volume.
+        for bad in ("35", True, None, [35]):
+            socket.send(json.dumps({"type": "volume", "value": bad}))
+            assert "volume" in receive(socket, "error")["text"]
         socket.send(json.dumps({"type": "interrupt"}))
         assert freya.called.wait(5)
 
@@ -290,6 +297,7 @@ def test_image_mute_and_interrupt_requests(gateway, freya):
     assert freya.images == ["a red fox"]
     # Anything other than a real true leaves the microphone on.
     assert freya.muted == [True, False]
+    assert freya.volumes == [35]
     assert freya.interrupts == 1
 
 

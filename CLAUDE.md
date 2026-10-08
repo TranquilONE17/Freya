@@ -79,7 +79,8 @@ Rules for the spec:
   in `data/images/`.
 - `src/freya/hands_free.py` — starts background listening and handles `/mute`,
   `/unmute`, `/names`, `/name add|remove`. `src/freya/settings.py` — owner preferences
-  in `data/freya_settings.json` (currently the names Freya answers to).
+  in `data/freya_settings.json` (the names Freya answers to, and how loudly she
+  speaks).
   `src/freya/turn_gate.py` — lets one turn run at a time, typed or spoken.
 - `src/freya/image/` — ComfyUI client. `src/freya/providers/image/comfyui.py` — the
   `comfyui-local` provider. When an image is requested and ComfyUI is not answering,
@@ -160,7 +161,7 @@ baseline: there is no pairing, no per-client scope, and window turns are attribu
 the same fixed `local-owner` principal. The page shows everything with `textContent`
 and a strict Content-Security-Policy, because replies and tool results are untrusted.
 The window can only ask for a chat turn, an image, mute/unmute, stopping speech, a
-command, or a Voice tab request (with a recording sent as binary messages);
+voice volume, a command, or a Voice tab request (with a recording sent as binary messages);
 add new message types deliberately. `main.py` publishes conversation and image events
 on a module-level `EVENTS` bus; the console still prints as before. The bus calls its
 subscribers in publish order while it is locked, so a subscriber must never block: the
