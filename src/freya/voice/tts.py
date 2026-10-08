@@ -40,6 +40,31 @@ class FreyaVoice:
             )
             self._worker.start()
 
+    def set_voice(self, voice, speed=VOICE_SPEED, lang_code="a"):
+        """
+        Change the voice Freya speaks with from now on.
+
+        voice is a supplied voice's name or the data of a blended
+        voice. A different language gets its own pipeline, sharing the
+        model that is already loaded.
+        """
+
+        if not self.enabled:
+            return
+
+        if lang_code != self.pipeline.lang_code:
+            self.pipeline = KPipeline(
+                lang_code=lang_code,
+                repo_id="hexgrad/Kokoro-82M",
+                model=self.pipeline.model,
+            )
+
+        self.voice = voice
+        self.speed = speed
+
+    def reset_voice(self):
+        self.set_voice(FREYA_VOICE, VOICE_SPEED, "a")
+
     def _split_into_chunks(self, text):
         text = text.strip()
 
