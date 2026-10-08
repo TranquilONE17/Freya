@@ -591,3 +591,34 @@ def test_page_never_calls_a_blend_cloning_or_design(voice_gateway):
     assert "Experimental" in blend
     assert "not cloning" in blend
     assert "not designing" in blend
+
+
+def test_memory_answers_go_only_to_the_window_that_asked(gateway, freya):
+    asked = []
+
+    def memory_request(message):
+        asked.append(message)
+        return {"query": message.get("query"), "memories": [{"id": 1, "content": "private"}],
+                "error": None}
+
+    gateway._actions.memory_request = memory_request
+    cookie = sign_in(gateway)
+
+    with open_socket(gateway, cookie) as asking, open_socket(gateway, sign_in(gateway)) as other:
+        receive(asking, "hello")
+        receive(other, "hello")
+
+        asking.send(json.dumps({"type": "memory", "action": "search", "request": "m1",
+                                "query": "private"}))
+        answer = receive(asking, "memory")
+
+        assert answer["request"] == "m1"
+        assert answer["memories"][0]["content"] == "private"
+        assert asked[0]["action"] == "search"
+
+        # The other window hears ordinary events but not this answer.
+        freya.bus.publish("notice", text="after")
+        assert receive(other, "notice")["text"] == "after"
+
+    # And it was never kept where a window opened later would be sent it.
+    assert all(event["type"] != "memory" for event in freya.bus.history())

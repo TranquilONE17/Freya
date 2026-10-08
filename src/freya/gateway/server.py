@@ -459,7 +459,7 @@ class Gateway:
             sender.start()
 
             for raw in websocket:
-                self._handle_message(websocket, raw, upload)
+                self._handle_message(websocket, raw, upload, outbox)
         except Exception:
             # The window closed or the connection broke.
             pass
@@ -483,7 +483,7 @@ class Gateway:
                 if not self._clients:
                     self._no_clients_since = time.monotonic()
 
-    def _handle_message(self, websocket, raw, upload) -> None:
+    def _handle_message(self, websocket, raw, upload, outbox=None) -> None:
         def reject(reason):
             websocket.send(json.dumps({"type": "error", "text": reason}))
 
@@ -531,6 +531,14 @@ class Gateway:
                 return reject("Freya is shutting down.")
 
             self._work.put((kind, message))
+        elif kind == "memory":
+            # Freya checks every field herself. The answer holds
+            # personal text, so it goes back to this window only and
+            # never onto the bus that every window hears.
+            if self._stopping.is_set() or outbox is None:
+                return reject("Freya is shutting down.")
+
+            self._work.put((kind, (message, outbox)))
         elif kind == "avatar":
             # The avatar service checks every field itself and sends
             # each request through the broker.
@@ -601,6 +609,18 @@ class Gateway:
                         request=text.get("request"),
                         **self._actions.voice_request(text),
                     )
+                elif kind == "memory":
+                    message, outbox = text
+                    answer = {
+                        "type": "memory",
+                        "request": message.get("request"),
+                        **self._actions.memory_request(message),
+                    }
+
+                    try:
+                        outbox.put_nowait(answer)
+                    except queue.Full:
+                        pass
                 else:
                     self._actions.run_command(text)
             except Exception as exc:

@@ -21,6 +21,9 @@ TOOL_HINT = (
     "guess such values. If an image tool is offered, use it whenever "
     "the user asks you to make, draw, or generate a picture; you "
     "cannot see the result, so do not describe it as if you had. "
+    "If a tool for recalling past conversations is offered, use it "
+    "when the user asks what was said or decided before and the "
+    "answer is not already in front of you. "
     "Answer in plain spoken sentences without Markdown, and do not "
     "read out raw data."
 )

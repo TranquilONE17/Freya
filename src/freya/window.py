@@ -54,6 +54,10 @@ class WindowActions:
     voice_request: Callable[[dict], dict] = lambda message: {}
     voice_clip: Callable[[str], Optional[bytes]] = lambda clip_id: None
 
+    # The Memory tab: a search of, or change to, what Freya has saved.
+    # Returns what the tab should now show.
+    memory_request: Callable[[dict], dict] = lambda message: {}
+
     # The Avatar tab: its current state, and a request made from it
     # (which returns the new state and an error message, if any).
     avatar_state: Callable[[], dict] = lambda: {}
