@@ -26,6 +26,11 @@ class FreyaVoice:
         self._speaking_event = threading.Event()
         self._worker = None
 
+        # Told when speech starts, completes, or is interrupted (see
+        # freya.spatial_avatar.speech.SpeechListener). Anything may
+        # listen; the voice does not know or care what does.
+        self.speech_listener = None
+
         if self.enabled:
             print("Loading Freya voice engine...")
             self.pipeline = KPipeline(
@@ -39,6 +44,18 @@ class FreyaVoice:
                 daemon=True,
             )
             self._worker.start()
+
+    def _tell_listener(self, what, *arguments):
+        listener = self.speech_listener
+
+        if listener is None:
+            return
+
+        try:
+            getattr(listener, what)(*arguments)
+        except Exception:
+            # A listener must never be able to break speech.
+            pass
 
     def set_voice(self, voice, speed=VOICE_SPEED, lang_code="a"):
         """
@@ -110,6 +127,8 @@ class FreyaVoice:
             return
 
         self._speaking_event.set()
+        self._tell_listener("speech_started", "")
+        interrupted = False
 
         try:
             sd.play(
@@ -121,6 +140,7 @@ class FreyaVoice:
             while True:
                 if self._interrupt_event.is_set():
                     sd.stop()
+                    interrupted = True
                     return
 
                 stream = sd.get_stream()
@@ -137,6 +157,9 @@ class FreyaVoice:
 
         finally:
             self._speaking_event.clear()
+            self._tell_listener(
+                "speech_interrupted" if interrupted else "speech_completed"
+            )
 
     def _discard_queued_speech(self):
         while True:
