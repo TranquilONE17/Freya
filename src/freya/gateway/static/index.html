@@ -13,6 +13,7 @@
     <nav class="tabs" role="tablist">
       <button class="tab is-active" role="tab" id="tab-chat" aria-selected="true" aria-controls="view-chat" data-view="chat">Chat</button>
       <button class="tab" role="tab" id="tab-images" aria-selected="false" aria-controls="view-images" data-view="images">Images <span class="badge" id="images-badge" hidden></span></button>
+      <button class="tab" role="tab" id="tab-voice" aria-selected="false" aria-controls="view-voice" data-view="voice">Voice</button>
       <button class="tab" role="tab" id="tab-console" aria-selected="false" aria-controls="view-console" data-view="console" hidden>Console</button>
     </nav>
 
@@ -50,6 +51,82 @@
         <p class="empty" id="gallery-empty">Images Freya generates will appear here.</p>
       </div>
     </section>
+    <section class="view" id="view-voice" role="tabpanel" aria-labelledby="tab-voice">
+      <div class="voice-scroll">
+        <div class="voice-bar">
+          <p class="voice-message" id="voice-message" role="status"></p>
+          <audio id="voice-player" controls hidden></audio>
+          <a class="ghost link-button" id="voice-download" download="freya-voice.wav" hidden>Save audio file</a>
+        </div>
+
+        <article class="panel" id="panel-preset">
+          <h2>Preset Voices</h2>
+          <p class="panel-note" id="preset-engines"></p>
+          <div class="fields">
+            <label>Language <select id="preset-language"></select></label>
+            <label>Voice <select id="preset-voice"></select></label>
+            <label>Speed <span class="value" id="preset-speed-value">1.00x</span>
+              <input type="range" id="preset-speed" min="0.5" max="2" step="0.05" value="1"></label>
+          </div>
+          <div class="actions">
+            <button type="button" class="primary" id="preset-preview">Preview</button>
+            <input type="text" id="preset-name" placeholder="Name for this voice" maxlength="40" aria-label="Name for this voice">
+            <button type="button" class="ghost" id="preset-save">Save voice</button>
+          </div>
+        </article>
+
+        <article class="panel" id="panel-blend">
+          <h2>Blend Existing Voices <span class="tag">Experimental</span></h2>
+          <p class="panel-note">Mixes two of Kokoro's supplied voices into a new-sounding one. This is not cloning from a recording, and it is not designing a voice from a description.</p>
+          <div class="fields">
+            <label>Language <select id="blend-language"></select></label>
+            <label>First voice <select id="blend-a"></select></label>
+            <label>Second voice <select id="blend-b"></select></label>
+            <label>Mix <span class="value" id="blend-mix-value">50% / 50%</span>
+              <input type="range" id="blend-mix" min="5" max="95" step="5" value="50"></label>
+            <label>Speed <span class="value" id="blend-speed-value">1.00x</span>
+              <input type="range" id="blend-speed" min="0.5" max="2" step="0.05" value="1"></label>
+          </div>
+          <div class="actions">
+            <button type="button" class="primary" id="blend-preview">Preview</button>
+            <input type="text" id="blend-name" placeholder="Name for this blend" maxlength="40" aria-label="Name for this blend">
+            <button type="button" class="ghost" id="blend-save">Save voice</button>
+          </div>
+        </article>
+
+        <article class="panel" id="panel-clone">
+          <h2>Clone a Voice</h2>
+          <p class="panel-note">Makes a voice from a reference recording. Only use recordings you have the right to use.</p>
+          <ul class="engine-list" id="clone-engines"></ul>
+        </article>
+
+        <article class="panel" id="panel-design">
+          <h2>Design an Original Voice</h2>
+          <p class="panel-note">Creates a new voice from a written description.</p>
+          <ul class="engine-list" id="design-engines"></ul>
+        </article>
+
+        <article class="panel" id="panel-playground">
+          <h2>Speech Playground</h2>
+          <p class="panel-note">Speak any text with one of your saved voices, using the engine that voice belongs to.</p>
+          <div class="fields">
+            <label>Engine <select id="play-engine"></select></label>
+            <label>Saved voice <select id="play-profile"></select></label>
+          </div>
+          <textarea id="play-text" rows="3" maxlength="600" placeholder="Text to speak" aria-label="Text to speak"></textarea>
+          <div class="actions">
+            <button type="button" class="primary" id="play-speak">Speak</button>
+          </div>
+        </article>
+
+        <article class="panel" id="panel-profiles">
+          <h2>Saved Voices</h2>
+          <p class="panel-note">Each saved voice works only with the engine that made it.</p>
+          <ul class="profile-list" id="profile-list"></ul>
+        </article>
+      </div>
+    </section>
+
     <section class="view" id="view-console" role="tabpanel" aria-labelledby="tab-console">
       <pre class="console" id="console-output" aria-live="off"></pre>
 

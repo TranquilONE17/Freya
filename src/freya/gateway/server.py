@@ -33,7 +33,8 @@ STATIC_FILES = {
 SECURITY_HEADERS = {
     "Content-Security-Policy": (
         "default-src 'none'; script-src 'self'; style-src 'self'; "
-        "img-src 'self'; connect-src 'self'; base-uri 'none'; "
+        "img-src 'self'; media-src 'self'; connect-src 'self'; "
+        "base-uri 'none'; "
         "form-action 'none'; frame-ancestors 'none'"
     ),
     "X-Content-Type-Options": "nosniff",
@@ -228,6 +229,12 @@ class Gateway:
                 media_type, body = image
                 return _response(200, body, media_type)
 
+        if url.path.startswith("/audio/"):
+            clip = self._actions.voice_clip(url.path[len("/audio/"):])
+
+            if clip is not None:
+                return _response(200, clip, "audio/wav")
+
         return _response(404, "Not found.")
 
     def _open(self, url):
@@ -292,6 +299,7 @@ class Gateway:
                         "images": self._gallery.list(),
                         "status": self._actions.status(),
                         "console": self._actions.console_history(),
+                        "voice": self._actions.voice_state(),
                     }
                 )
             )
@@ -338,6 +346,10 @@ class Gateway:
                 )
 
             self._work.put((kind, text.strip()))
+        elif kind == "voice":
+            # The studio checks every field itself; it is run on the
+            # work thread because speech takes a moment to generate.
+            self._work.put((kind, message))
         elif kind == "mute":
             self._actions.set_muted(message.get("muted") is True)
         elif kind == "interrupt":
@@ -369,6 +381,12 @@ class Gateway:
                     self._actions.say(text)
                 elif kind == "image":
                     self._actions.generate_image(text)
+                elif kind == "voice":
+                    self._bus.publish(
+                        "voice",
+                        request=text.get("request"),
+                        **self._actions.voice_request(text),
+                    )
                 else:
                     self._actions.run_command(text)
             except Exception as exc:
