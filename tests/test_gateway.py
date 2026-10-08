@@ -8,7 +8,7 @@ from websockets.exceptions import InvalidStatus
 from websockets.sync.client import connect
 
 from freya.events import EventBus
-from freya.gateway.server import Gateway, SESSION_COOKIE
+from freya.gateway.server import MAX_UPLOAD_BYTES, Gateway, SESSION_COOKIE
 from freya.image.gallery import ImageGallery
 from freya.window import WindowActions
 
@@ -472,11 +472,49 @@ def test_voice_request_reaches_the_studio_and_its_answer_comes_back(
         answer = receive(socket, "voice")
 
     assert hello["voice"] == {"engines": [], "profiles": []}
-    assert voice_gateway.requests == [request]
+    assert voice_gateway.requests == [{**request, "upload": b""}]
     assert answer["request"] == "v1"
     assert answer["clip"] == {"id": CLIP_ID, "seconds": 1.5}
     assert answer["state"]["profiles"] == ["after"]
     assert answer["error"] is None
+
+
+def test_recording_arrives_as_binary_messages_with_the_request(
+    voice_gateway,
+):
+    with open_socket(voice_gateway, sign_in(voice_gateway)) as socket:
+        receive(socket, "hello")
+        socket.send(b"\x01\x02" * 1000)
+        socket.send(b"\x03\x04" * 1000)
+        socket.send(json.dumps({
+            "type": "voice", "action": "reference", "request": "v1",
+            "upload": "what the page claims",
+        }))
+        receive(socket, "voice")
+        socket.send(json.dumps({"type": "voice", "action": "state"}))
+        receive(socket, "voice")
+
+    first, second = voice_gateway.requests
+
+    # The bytes are the ones the gateway received, whatever the
+    # message itself says, and they are used once.
+    assert first["upload"] == b"\x01\x02" * 1000 + b"\x03\x04" * 1000
+    assert second["upload"] == b""
+
+
+def test_oversized_recording_is_refused_and_dropped(voice_gateway):
+    with open_socket(voice_gateway, sign_in(voice_gateway)) as socket:
+        receive(socket, "hello")
+
+        for _ in range(MAX_UPLOAD_BYTES // 60000 + 1):
+            socket.send(b"\x00" * 60000)
+
+        error = receive(socket, "error")
+        socket.send(json.dumps({"type": "voice", "action": "reference"}))
+        receive(socket, "voice")
+
+    assert "too large" in error["text"]
+    assert voice_gateway.requests[0]["upload"] == b""
 
 
 def test_generated_speech_is_served_only_to_a_signed_in_window(voice_gateway):
