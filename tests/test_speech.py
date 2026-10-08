@@ -16,6 +16,7 @@ from freya.speech.engines import (
     planned_engines,
 )
 from freya.speech.kokoro_engine import LANGUAGES, VOICES, KokoroEngine
+from freya.speech.references import ReferenceStore
 from freya.speech.store import ClipStore, VoiceProfileStore
 from freya.speech.studio import MAX_TEXT_LENGTH, VoiceStudio
 
@@ -71,6 +72,7 @@ def studio(tmp_path, kokoro, live):
         profiles=VoiceProfileStore(tmp_path / "voice_profiles.json"),
         clips=ClipStore(tmp_path / "clips"),
         apply_live_voice=live.append,
+        references=ReferenceStore(tmp_path / "references"),
     )
 
 
@@ -460,7 +462,13 @@ def test_deleting_freyas_voice_returns_her_to_the_default(studio, live):
 
 def test_chosen_voice_is_restored_at_start_up(tmp_path, kokoro):
     path = tmp_path / "voice_profiles.json"
-    first = VoiceStudio([kokoro], VoiceProfileStore(path), ClipStore(tmp_path))
+    references = ReferenceStore(tmp_path / "references")
+    first = VoiceStudio(
+        [kokoro],
+        VoiceProfileStore(path),
+        ClipStore(tmp_path),
+        references=references,
+    )
     saved = first.save_profile("Warm", "kokoro", ROLE_PRESET, PRESET)
     first.use_profile(saved["id"])
 
@@ -470,6 +478,7 @@ def test_chosen_voice_is_restored_at_start_up(tmp_path, kokoro):
         VoiceProfileStore(path),
         ClipStore(tmp_path),
         apply_live_voice=live.append,
+        references=references,
     )
     again.restore_live_voice()
 

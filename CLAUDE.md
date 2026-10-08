@@ -58,7 +58,12 @@ Rules for the spec:
 - `src/freya/speech/` — the voice studio behind the window's Voice tab: `engines.py`
   (the `SpeechEngine` contract and the roles preset / blend / clone / design),
   `kokoro_engine.py`, `store.py` (saved voice profiles in `data/voice_profiles.json`,
-  generated clips in `data/voice_clips/`), `studio.py` (`VoiceStudio`), `setup.py`.
+  generated clips in `data/voice_clips/`), `studio.py` (`VoiceStudio`), `setup.py`;
+  `helper.py` (`HelperProcess`, `HelperEngine`: an engine running as a separate program
+  in its own environment), `chatterbox_engine.py`, `qwen_engine.py`, `workers/` (the
+  helper programs; they run in the engines' environments and must not import `freya`),
+  `references.py` (recordings voices are made from, in `data/voice_references/`),
+  `install.py` (sets an engine up), `benchmark.py`.
 - `src/freya/gateway/` — `server.py` (the loopback gateway: HTTP GET for the page and
   images, one WebSocket for everything interactive) and `static/` (the window's page:
   Chat and Images tabs). `src/freya/window.py` — opens that page in a standalone Edge
@@ -148,7 +153,8 @@ this server as its Origin. This is a first step, not the authenticated gateway o
 baseline: there is no pairing, no per-client scope, and window turns are attributed to
 the same fixed `local-owner` principal. The page shows everything with `textContent`
 and a strict Content-Security-Policy, because replies and tool results are untrusted.
-The window can only ask for a chat turn, an image, mute/unmute, or stopping speech;
+The window can only ask for a chat turn, an image, mute/unmute, stopping speech, a
+command, or a Voice tab request (with a recording sent as binary messages);
 add new message types deliberately. `main.py` publishes conversation and image events
 on a module-level `EVENTS` bus; the console still prints as before. The bus calls its
 subscribers in publish order while it is locked, so a subscriber must never block: the
@@ -164,18 +170,32 @@ one), then `TurnGate.drain()` for a spoken turn, and only then are the voice and
 control database closed. Each wait has a time limit.
 
 Voice studio: the Voice tab offers each kind of voice work only through engines that
-declare that role, and shows only the controls an engine reports. Kokoro is the one
-engine that works today (preset voices, and an experimental blend of its own supplied
-voices — a blend is never to be described as cloning or as voice design). Chatterbox,
-Qwen3-TTS, and ElevenLabs are listed as not installed / not set up; each local one
-needs its own environment because its pinned torch/transformers/numpy versions conflict
-with Freya's and with each other, so it must run as a helper process, never be
-installed into `.venv`. A saved profile belongs to the engine that made it and is never
-handed to another. Only an English Kokoro profile can become Freya's live voice. The
-studio is reached from the window directly, not yet through the broker, so it is not
-policy-checked or audited. Before adding cloning: require a statement that the owner
-has the right to use the recording, keep reference audio out of git, and leave
-Chatterbox's built-in watermark in place.
+declare that role, and shows only the controls an engine reports. Kokoro runs inside
+Freya (preset voices, and an experimental blend of its own supplied voices — a blend is
+never to be described as cloning or as voice design). Chatterbox (cloning: Turbo, Nano,
+Multilingual V3) and Qwen3-TTS (voice design, cloning) each pin torch/transformers/numpy
+versions that conflict with Freya's and with each other, so each lives in its own
+environment under `data/speech_envs/` and runs as a helper process speaking JSON lines
+over its pipes; never install them into `.venv`. `python -m freya.speech.install
+<engine>` sets one up (owner action: several GB from PyPI, GitHub, and Hugging Face);
+until then it shows as not installed. Model files are in `data/speech_models/` and the
+helpers run with the model hub offline. A helper starts on first use, stops after five
+idle minutes or on "Free memory", and only one large engine is loaded at a time; if the
+graphics card is too full, the Ollama models are unloaded first, as for an image.
+ElevenLabs is listed as not set up and has no code yet.
+
+A saved profile belongs to the engine that made it and is never handed to another. A
+cloning recording is accepted only with the owner's statement that they have the right
+to use the voice, which is stored with it; the page decodes the file and sends plain
+samples as binary WebSocket messages, so Freya never parses an audio file she was
+given. A designed voice is kept as the sample the design model generated and is spoken
+only by the engine that made it. Chatterbox watermarks its own output and Freya does
+nothing to that audio but store it; do not add processing that would remove the mark.
+Only an English Kokoro profile can become Freya's live voice. The studio is reached
+from the window directly, not yet through the broker, so it is not policy-checked or
+audited. `python -m freya.speech.benchmark` compares the engines; its default
+references are synthetic Kokoro recordings, and a real recording needs
+`--i-have-the-right`.
 
 Audit log: `data/freya_control.db` holds policy rules and the append-only, hash-chained
 `audit_event` table. It is verified at startup; if verification fails, the broker
@@ -238,10 +258,11 @@ audit log and policy table in front of capability execution.
 
 Also done: Ollama behind a provider, with chat and embeddings through the broker.
 
-Also done: the voice studio with Kokoro presets, blends, and saved voices.
+Also done: the voice studio with Kokoro presets, blends, and saved voices; Chatterbox
+and Qwen3-TTS as helper-process engines for cloning and voice design; a benchmark.
 
-Not yet started: the Chatterbox, Qwen3-TTS, and ElevenLabs engines (cloning and voice
-design) and their benchmarks; routing the voice, image, and memory paths through providers and
+Not yet started: the ElevenLabs engine; speech for devices other than this PC (needs
+the authenticated gateway); routing the voice, image, and memory paths through providers and
 the broker; authenticated sessions to replace the fixed `local-owner` principal; a
 dedicated Windows service identity and ACLs for the control database (owner action); an
 off-host checkpoint sink.

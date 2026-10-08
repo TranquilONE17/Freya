@@ -2032,6 +2032,12 @@ def main(window_only=False):
 
         voice_studio.clips.clear()
 
+        # Stop the speech helpers and drop recordings no voice uses.
+
+        voice_studio.free_memory()
+
+        voice_studio.forget_unsaved_recordings()
+
         console_output.uninstall()
 
         voice.shutdown()

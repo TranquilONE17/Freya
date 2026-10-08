@@ -8,7 +8,7 @@ from websockets.exceptions import InvalidStatus
 from websockets.sync.client import connect
 
 from freya.events import EventBus
-from freya.gateway.server import Gateway, SESSION_COOKIE
+from freya.gateway.server import MAX_UPLOAD_BYTES, Gateway, SESSION_COOKIE
 from freya.image.gallery import ImageGallery
 from freya.window import WindowActions
 
@@ -472,11 +472,49 @@ def test_voice_request_reaches_the_studio_and_its_answer_comes_back(
         answer = receive(socket, "voice")
 
     assert hello["voice"] == {"engines": [], "profiles": []}
-    assert voice_gateway.requests == [request]
+    assert voice_gateway.requests == [{**request, "upload": b""}]
     assert answer["request"] == "v1"
     assert answer["clip"] == {"id": CLIP_ID, "seconds": 1.5}
     assert answer["state"]["profiles"] == ["after"]
     assert answer["error"] is None
+
+
+def test_recording_arrives_as_binary_messages_with_the_request(
+    voice_gateway,
+):
+    with open_socket(voice_gateway, sign_in(voice_gateway)) as socket:
+        receive(socket, "hello")
+        socket.send(b"\x01\x02" * 1000)
+        socket.send(b"\x03\x04" * 1000)
+        socket.send(json.dumps({
+            "type": "voice", "action": "reference", "request": "v1",
+            "upload": "what the page claims",
+        }))
+        receive(socket, "voice")
+        socket.send(json.dumps({"type": "voice", "action": "state"}))
+        receive(socket, "voice")
+
+    first, second = voice_gateway.requests
+
+    # The bytes are the ones the gateway received, whatever the
+    # message itself says, and they are used once.
+    assert first["upload"] == b"\x01\x02" * 1000 + b"\x03\x04" * 1000
+    assert second["upload"] == b""
+
+
+def test_oversized_recording_is_refused_and_dropped(voice_gateway):
+    with open_socket(voice_gateway, sign_in(voice_gateway)) as socket:
+        receive(socket, "hello")
+
+        for _ in range(MAX_UPLOAD_BYTES // 60000 + 1):
+            socket.send(b"\x00" * 60000)
+
+        error = receive(socket, "error")
+        socket.send(json.dumps({"type": "voice", "action": "reference"}))
+        receive(socket, "voice")
+
+    assert "too large" in error["text"]
+    assert voice_gateway.requests[0]["upload"] == b""
 
 
 def test_voice_requests_are_refused_once_freya_is_shutting_down(voice_gateway):
@@ -515,6 +553,25 @@ def test_page_can_play_its_own_audio_and_nothing_else(voice_gateway):
     assert "media-src 'self'" in page.getheader("Content-Security-Policy")
     assert b'id="view-voice"' in body
     assert b'type: "voice"' in script
+
+
+def test_cloner_can_import_trim_and_play_a_recording(voice_gateway):
+    cookie = sign_in(voice_gateway)
+    _, body = get(voice_gateway, "/", cookie=cookie)
+    _, script = get(voice_gateway, "/app.js", cookie=cookie)
+
+    for control in (
+        b'id="clone-import"', b'id="clone-drop"', b'id="clone-start"',
+        b'id="clone-listen"', b'id="clone-consent"',
+    ):
+        assert control in body
+
+    # The file is decoded in the page and only samples are sent, so
+    # the page needs no permission to load anything but its own files.
+    assert b"decodeAudioData" in script and b'"drop"' in script
+    assert "blob:" not in get(voice_gateway, "/", cookie=cookie)[0].getheader(
+        "Content-Security-Policy"
+    )
 
 
 def test_page_never_calls_a_blend_cloning_or_design(voice_gateway):
