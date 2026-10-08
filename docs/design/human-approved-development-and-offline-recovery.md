@@ -599,7 +599,12 @@ Two notes on these:
   mistake stays cleared until removed, so the list is shown in the interface and
   each entry can be withdrawn.
 
-| D18 | How is unsuccessful work labelled? | With an attempt record (one file per attempt in `attempts/` on the work-in-progress branch) and a tag on the commit, the status written by Core from the actual outcome, as described in section 4.8. Agreed by the owner on 2026-10-08. |
+### A further decision
+
+- **D18. How is unsuccessful work labelled?** With an attempt record (one file per
+  attempt in `attempts/` on the work-in-progress branch) and a tag on the commit, the
+  status written by Core from the actual outcome, as described in section 4.8.
+  Agreed by the owner on 2026-10-08.
 
 ### Still open
 
