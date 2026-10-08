@@ -86,6 +86,10 @@ EVENTS = EventBus()
 
 GALLERY = None
 
+# How long shutting down waits for a spoken turn still in progress.
+
+SHUTDOWN_WAIT_SECONDS = 30.0
+
 
 
 
@@ -1359,6 +1363,8 @@ def main(window_only=False):
 
                     publish_status=publish_status,
 
+                    memory_command=freya.memory_command,
+
                     request_quit=(
 
                         quit_requested.set
@@ -1957,13 +1963,31 @@ def main(window_only=False):
 
     finally:
 
+        # Shut down in order: let no new turn begin, cut short anything
+
+        # being spoken, then wait for the turn in progress (from the
+
+        # window or the microphone) before closing what turns use.
+
+        gate.close()
+
+        voice.interrupt()
+
+        finished = window.stop()
+
+        finished = gate.drain(SHUTDOWN_WAIT_SECONDS) and finished
+
         if listener is not None:
 
             listener.stop()
 
-        gate.close()
+        if not finished:
 
-        window.stop()
+            print(
+
+                "Freya: A turn was still running when I shut down."
+
+            )
 
         console_output.uninstall()
 

@@ -1179,6 +1179,13 @@ class FreyaAssistant:
             lines
         )
 
+    def memory_command(self, user_input):
+        """
+        Run a memory command such as /memories or /forget and return
+        its answer, or None when the text is not a memory command.
+        """
+        return self._handle_memory_command(user_input)
+
     def _handle_memory_command(
         self,
         user_input,
