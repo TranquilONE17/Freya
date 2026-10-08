@@ -57,6 +57,7 @@ STATIC_FILES = {
     "/app.css": ("app.css", "text/css; charset=utf-8"),
     # The 3D preview of avatar models, and the libraries it uses.
     # Each file is listed: nothing else under static/ is served.
+    "/media.js": ("media.js", JAVASCRIPT),
     "/avatar-view.js": ("avatar-view.js", JAVASCRIPT),
     "/vendor/three/three.module.js": ("vendor/three/three.module.js", JAVASCRIPT),
     "/vendor/three/three.core.js": ("vendor/three/three.core.js", JAVASCRIPT),
@@ -114,7 +115,7 @@ def content_security_policy() -> str:
     return (
         f"default-src 'none'; script-src {script}; style-src 'self'; "
         "img-src 'self' blob:; media-src 'self'; "
-        "connect-src 'self' blob:; base-uri 'none'; "
+        "connect-src 'self' blob:; frame-src https://www.youtube-nocookie.com; base-uri 'none'; "
         "form-action 'none'; frame-ancestors 'none'"
     )
 
@@ -185,6 +186,7 @@ class Gateway:
         self._work = queue.Queue()
         # Requests about the avatar have a queue of their own, so that
         # she can be moved or hidden while a long reply is under way.
+        self._media_work = queue.Queue(maxsize=100)
         self._avatar_work = queue.Queue()
         self._worker = None
         self._stopping = threading.Event()
@@ -217,6 +219,7 @@ class Gateway:
         for target, name in (
             (self._serve, "FreyaGateway"),
             (self._run_avatar_work, "FreyaGatewayAvatar"),
+            (self._run_media_work, "FreyaGatewayMedia"),
             (self._run_work, "FreyaGatewayWork"),
         ):
             thread = threading.Thread(target=target, name=name, daemon=True)
@@ -271,6 +274,12 @@ class Gateway:
 
         self._work.put(None)
         self._avatar_work.put(None)
+        while True:
+            try:
+                self._media_work.get_nowait()
+            except queue.Empty:
+                break
+        self._media_work.put_nowait(None)
 
         if self._server is not None:
             self._server.shutdown()
@@ -282,7 +291,10 @@ class Gateway:
 
         worker.join(timeout)
 
-        return not worker.is_alive()
+        media = next((t for t in self._threads if t.name == "FreyaGatewayMedia"), None)
+        if media is not None and media is not threading.current_thread():
+            media.join(max(0, timeout))
+        return not worker.is_alive() and (media is None or not media.is_alive())
 
     def _origins(self):
         return [
@@ -413,6 +425,18 @@ class Gateway:
             name, content_type = STATIC_FILES[url.path]
 
             return _response(200, _static(name), content_type)
+
+        if url.path.startswith("/media/stream/"):
+            answer = self._actions.media_stream(url.path[len("/media/stream/"):], request.headers.get("Range"))
+            if answer is not None:
+                return _response(answer.status, answer.body, answer.content_type, answer.headers)
+
+        if url.path.startswith("/media/export/"):
+            parts = url.path[len("/media/export/"):].split("/")
+            if len(parts) == 2:
+                answer = self._actions.media_download(*parts)
+                if answer is not None:
+                    return _response(answer.status, answer.body, answer.content_type, answer.headers)
 
         if url.path.startswith("/images/"):
             image = self._gallery.read(url.path[len("/images/"):])
@@ -713,6 +737,16 @@ class Gateway:
                 return reject("Freya is shutting down.")
 
             self._work.put((kind, (message, outbox)))
+        elif kind == "media":
+            if self._stopping.is_set() or outbox is None:
+                return reject("Freya is shutting down.")
+            if message.get("action") == "transcript-import":
+                message["upload"] = bytes(upload)
+                upload.clear()
+            try:
+                self._media_work.put_nowait((message, outbox))
+            except queue.Full:
+                return reject("Too many media requests are waiting.")
         elif kind == "avatar":
             # The avatar service checks every field itself and sends
             # each request through the broker.
@@ -758,6 +792,21 @@ class Gateway:
                 request=message.get("request"),
                 **answer,
             )
+
+    def _run_media_work(self) -> None:
+        while True:
+            job = self._media_work.get()
+            if job is None or self._stopping.is_set():
+                return
+            message, outbox = job
+            try:
+                answer = self._actions.media_request(message)
+            except Exception:
+                answer = {"error": "The media request failed. Try again."}
+            try:
+                outbox.put_nowait({"type": "media", "request": message.get("request"), **answer})
+            except queue.Full:
+                pass
 
     def _run_work(self) -> None:
         """

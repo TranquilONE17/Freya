@@ -14,6 +14,19 @@
   color-scheme: dark;
 }
 
+.media-scroll { overflow: auto; padding: 18px; height: 100%; }
+.media-layout { display: grid; grid-template-columns: minmax(260px, 1fr) minmax(350px, 2fr); gap: 18px; }
+.media-scroll .panel { margin: 14px 0; }
+.media-scroll label { display: block; margin: 8px 0; }
+.media-scroll input:not([type=checkbox]), .media-scroll textarea { width: 100%; padding: 8px; border: 1px solid var(--line); background: var(--bg); border-radius: 6px; color: var(--text); }
+.media-scroll .check { display: inline-flex; gap: 8px; }
+.media-row { padding: 10px 0; border-bottom: 1px solid var(--line); overflow-wrap: anywhere; }
+.media-row button, .media-row a { margin: 5px 8px 0 0; }
+#media-player video, #media-player audio { width: 100%; }
+#media-player iframe { width: 100%; min-height: 270px; aspect-ratio: 16/9; border: 0; }
+#media-text { max-height: 420px; overflow: auto; white-space: pre-wrap; }
+@media (max-width: 800px) { .media-layout { grid-template-columns: 1fr; } .tabs { flex-wrap: wrap; } }
+
 * {
   box-sizing: border-box;
 }

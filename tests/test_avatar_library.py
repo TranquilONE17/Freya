@@ -856,10 +856,11 @@ def test_policy_allows_the_import_map_by_hash_and_nothing_looser(gateway):
     assert directives["connect-src"] == "'self' blob:"
     assert directives["style-src"] == "'self'"
     assert directives["media-src"] == "'self'"
+    assert directives["frame-src"] == "https://www.youtube-nocookie.com"
     assert policy == content_security_policy()
 
     for loose in ("unsafe-inline", "unsafe-eval", "data:", "http:", "https:", "*"):
-        assert loose not in policy, loose
+        assert loose not in policy.replace("https://www.youtube-nocookie.com", ""), loose
 
     # Every place the import map points to is a file the gateway serves.
     for target in json.loads(inline[0])["imports"].values():

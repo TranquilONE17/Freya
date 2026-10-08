@@ -64,6 +64,10 @@ class WindowActions:
 
     # The Avatar tab: its current state, and a request made from it
     # (which returns the new state and an error message, if any).
+    media_request: Callable[[dict], dict] = lambda message: {"error": "Media is unavailable."}
+    media_stream: Callable[[str, Optional[str]], object] = lambda ticket, header: None
+    media_download: Callable[[str, str], object] = lambda media_id, kind: None
+
     avatar_state: Callable[[], dict] = lambda: {}
     avatar_request: Callable[[dict], dict] = lambda message: {}
     # An avatar model's file ("model") or thumbnail ("thumbnail"), as
