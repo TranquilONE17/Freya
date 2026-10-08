@@ -1,8 +1,10 @@
 # Design proposal: human-approved development, and working without the internet
 
-**Status: proposal for owner review. Nothing here is adopted, approved, or
-implemented.** It records requirements the owner discussed and a design that would
-meet them. No ADR is approved by this document and no capability is enabled by it.
+**Status: design proposal with the owner's decisions recorded (section 8, given
+2026-10-08). Nothing here is implemented, and no capability is enabled.** The
+decisions settle how this design should proceed. They do not approve any ADR, adopt
+the pending amendments into the architecture, or assign requirement IDs; those
+remain matters for reconciliation.
 
 - Requirements in this document carry provisional labels **NEW-M to NEW-X**. They
   continue from the pending amendments NEW-A to NEW-L and, like them, get final IDs
@@ -139,8 +141,9 @@ These facts shape the prerequisites. They come from `CLAUDE.md` and the code on
 
 `git` deserves care: run in a repository, it can execute what the repository
 configures (hooks, filters, file-system monitors, custom commands). The worker would
-therefore invoke it with those features disabled, or the affected operations move
-into isolation. Which one is decision D5.
+therefore invoke it with those features disabled (decision D5), with a test that
+plants a hook and a filter in a repository and proves neither runs. Anything that
+cannot be disabled that way moves into isolation.
 
 ### 4.2 Workflow
 
@@ -165,11 +168,12 @@ outcome after (OBS-006).
   branch, in a location she owns. The owner's checked-out working tree is not
   modified. This is the simplest way to protect uncommitted work, and it is how
   Freya's own source would be handled.
-- Applying **in place** to a granted folder or the owner's working tree is possible
-  only when that target is designated in the approval. The digest check in NEW-R
-  then protects uncommitted work: if a file is not exactly what the human saw in the
-  diff, the apply stops. Replaced content is kept until the owner dismisses it.
-- Whether in-place apply is offered at all is decision D4.
+- Applying **in place** to the owner's working tree or to a plain folder is **not
+  part of this design** (decision D4). A granted folder that is not a git repository
+  can be inspected but not edited. Adding in-place apply later would need a new
+  proposal.
+- The digest check in NEW-R still applies inside the worktree: if a file is not
+  exactly what the human saw in the diff, the apply stops.
 
 ### 4.4 Approval binding
 
@@ -217,9 +221,9 @@ proposed ─► approved ─► dispatched ─► succeeded
 - **Cancel** ends the remote worker's process tree and records the outcome as failed
   or unknown, whichever is true.
 
-Proposed limits, all configurable and all pending validation: 10 s to connect, 120 s
-in total, at most two retries for read-only operations, none for operations with
-effects.
+Starting limits (decision D9), configurable and pending validation: 10 s to connect,
+120 s in total, at most two retries for read-only operations. Operations with
+effects are never retried automatically; that is a rule (CAP-011), not a setting.
 
 ### 4.6 Open item: starting with no internet
 
@@ -250,19 +254,23 @@ validated. Several are owner actions or pending ADRs.
 ## 6. Phases
 
 Each phase ends with its tests passing and an owner decision to continue. A later
-phase is not started because an earlier one finished.
+phase is not started because an earlier one finished. The "When" column follows
+decision D2.
 
-| Phase | Delivers | Changes anything outside Freya? |
-|---|---|---|
-| 0 | This document and the owner's decisions | No |
-| 1 | Connectivity reporting; bounded network helper; offline start-up tested; operation store and journal | No |
-| 2 | Prerequisites 1 to 3: sessions, scopes, approval objects | No |
-| 3 | Grants and exclusions; `dev.inspect` (read-only) | No |
-| 4 | Staging, proposals, Core-computed diff and approval screen | No (staging only) |
-| 5 | `dev.apply` and `dev.commit` to a dedicated worktree | Yes, after approval |
-| 6 | `dev.check` in validated isolation | Runs repository code, isolated |
-| 7 | `dev.publish.*` with reconciliation | Yes, remote effects |
-| 8 | Freya's own source: separate checkout, review, approved deploy and restart | Yes |
+| Phase | Delivers | Changes anything outside Freya? | When |
+|---|---|---|---|
+| 0 | This document and the owner's decisions | No | Done |
+| 1 | Connectivity reporting; bounded network helper; offline start-up tested; operation store and journal | No | Alpha |
+| 2 | Grants and exclusions; `dev.inspect` (read-only) | No | Alpha |
+| 3 | Sessions, scopes, approval objects (prerequisites 1 to 3) | No | Alpha, already planned |
+| 4 | Staging, proposals, Core-computed diff and approval screen | No (staging only) | After alpha |
+| 5 | `dev.apply` and `dev.commit` to a dedicated worktree | Yes, after approval | After alpha |
+| 6 | `dev.check` in validated isolation | Runs repository code, isolated | After alpha, once isolation is validated |
+| 7 | Push and open a pull request, with reconciliation | Yes, remote effects | After alpha |
+| 8 | Merge, deploy, restart, one at a time; Freya's own source | Yes | Later, each by a new owner decision |
+
+Phase 2 reads granted repositories with `git`, so it needs the restricted worker
+identity (prerequisite 4, an owner action) even though it changes nothing.
 
 ## 7. Tests
 
@@ -290,39 +298,28 @@ named points. No test depends on real network conditions or on sleeping.
   and local commit all work; publishing is reported as paused with the reason; a chat
   turn with Ollama still works.
 
-## 8. Decisions needed from the owner
+## 8. Owner decisions
 
-Nothing in phases 1 to 8 should start until these are answered.
+Given by the owner on 2026-10-08, one at a time, each with the options and a
+recommendation laid out. They direct this design. They are not ADR approvals.
 
-- **D1. Build on the pending amendments?** This design relies on NEW-A (approval
-  objects), NEW-D (protected Core targets), and NEW-I (ambient input), which are not
-  adopted. Either adopt them (or their reconciled form) first, or say how approval
-  should work without them.
-- **D2. Is this alpha work?** The baseline names "self-development workflows" among
-  its goals. I did not find these capabilities in the alpha implementation order
-  (V1-004), but I did not read every section for it. Decide whether they are alpha
-  work, or follow it.
-- **D3. What counts as the authenticated approval interface?** Recommended: wait for
-  the authenticated gateway (ADR-017). The alternative, accepting today's loopback
-  window for approvals, means anything running as the same Windows user could
-  approve.
-- **D4. In-place apply.** Recommended: dedicated worktree only at first; in-place
-  apply to the owner's working tree or a plain folder later, if at all.
-- **D5. How `git` is run.** Recommended: in the worker with hooks, filters, and
-  monitors disabled for local operations; anything that cannot be made safe that way
-  moves into isolation.
-- **D6. Checks before isolation is validated.** Recommended: none. The alternative,
-  running tests under a restricted Windows account, is not an isolation boundary
-  under ARCH-017.
-- **D7. Which remote operations exist.** Recommended: push and open a pull request
-  first; merge, deploy, and restart later, each separately approved. Freya never
-  merges her own pull requests without a human approval of that merge.
-- **D8. Approval lifetime and retention.** Proposed: approvals expire after 15
-  minutes unused; proposals and replaced file contents are kept 30 days. Both are
-  starting values to confirm.
-- **D9. Network limits.** Proposed values are in section 4.5.
-- **D10. Requirement labels.** Confirm NEW-M to NEW-X as provisional labels, or
-  supply the IDs to use.
+| | Question | Decision |
+|---|---|---|
+| D1 | Build on pending NEW-A, NEW-D, NEW-I? | Yes, as the working basis. They stay marked pending until reconciliation settles their wording and IDs. |
+| D2 | Alpha work, or after? | Split. Offline handling and read-only inspection of granted targets go into the alpha. Anything that changes files, runs code, or publishes comes after. |
+| D3 | Which screen may grant approvals? | The signed-in gateway only (ADR-017), once it exists. Today's loopback window may not. |
+| D4 | Where may approved changes be written? | Only to a separate working copy Freya manages. The owner's own folders are never written to. In-place apply is not planned. |
+| D5 | How is `git` run? | In the restricted worker with hooks, filters, and monitors switched off, with tests proving a planted hook does not run. What cannot be disabled moves into isolation. |
+| D6 | Checks before isolation is validated? | None. Freya runs no repository code until the Hyper-V profile is validated. The owner runs tests until then. |
+| D7 | Which remote operations? | Push and open a pull request first, each separately approved. Merge, deploy, and restart later, one at a time. Freya never merges, deploys, or restarts without approval of that specific action. |
+| D8 | Approval lifetime and retention | Approvals expire **60 minutes** after being granted if unused. Unused proposals and replaced file contents are kept 30 days. Starting values, adjustable. |
+| D9 | Network limits | 10 s to connect, 120 s in total, two retries for read-only operations, none for operations with effects. Starting values, adjustable. |
+| D10 | Requirement labels | Keep NEW-M to NEW-X as provisional labels until reconciliation assigns IDs. |
+
+A note on D8: the owner chose 60 minutes over the 15 proposed. A longer lifetime
+means an approval can be used later than it was given, so the binding in section
+4.4 carries the weight: whatever the lifetime, an approval is good for one use, of
+one exact patch, on a target whose files are still exactly what was shown.
 
 ## 9. Not covered
 
