@@ -517,6 +517,17 @@ def test_oversized_recording_is_refused_and_dropped(voice_gateway):
     assert voice_gateway.requests[0]["upload"] == b""
 
 
+def test_voice_requests_are_refused_once_freya_is_shutting_down(voice_gateway):
+    with open_socket(voice_gateway, sign_in(voice_gateway)) as socket:
+        receive(socket, "hello")
+        voice_gateway._stopping.set()
+        socket.send(json.dumps({"type": "voice", "action": "state"}))
+        refused = receive(socket, "error")
+
+    assert refused["text"] == "Freya is shutting down."
+    assert voice_gateway.requests == []
+
+
 def test_generated_speech_is_served_only_to_a_signed_in_window(voice_gateway):
     cookie = sign_in(voice_gateway)
 
