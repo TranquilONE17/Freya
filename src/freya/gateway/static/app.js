@@ -190,10 +190,21 @@ function isCommand(text) {
   return text.startsWith("/") || text.startsWith("\\");
 }
 
+// "exit" or "quit" on its own, in any letter case, is the quit command,
+// as it is in the terminal. A sentence that contains the word is not.
+function isQuitWord(text) {
+  const word = text.trim().toLowerCase();
+  return word === "exit" || word === "quit";
+}
+
 // Typed text is a message for Freya unless it starts with a slash, in
 // which case it is one of her commands. Opening the Console tab is the
 // one command handled here in the window.
 function submitText(text) {
+  if (isQuitWord(text)) {
+    return send({ type: "command", text: text.trim() });
+  }
+
   if (!isCommand(text)) {
     return send({ type: "say", text });
   }
