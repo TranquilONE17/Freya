@@ -16,7 +16,8 @@ KEYBOARD_ONLY = ("/talk", "/listen", "/conversation", "/voice-file")
 
 HELP_TEXT = (
     "Commands: /names, /name add <name>, /name remove <name>, /mute, "
-    "/unmute, /interrupt, /image <description>, /terminal, /help."
+    "/unmute, /interrupt, /image <description>, /terminal, /help. "
+    "/memory-help lists the memory commands."
 )
 
 
@@ -38,6 +39,10 @@ class CommandContext:
     # Set only when Freya runs without a terminal, where the window is
     # the one place she can be told to quit.
     request_quit: Optional[Callable[[], None]] = None
+
+    # The assistant's memory-command handler: given a line, it returns
+    # the answer, or None when the line is not a memory command.
+    memory_command: Optional[Callable[[str], Optional[str]]] = None
 
 
 class _Both(io.TextIOBase):
@@ -129,6 +134,19 @@ def _dispatch(line: str, context: CommandContext) -> bool:
         )
         return True
 
+    # Memory commands (/memories, /forget, /memory-help and the rest)
+    # are the assistant's own; it answers None for anything else.
+    if context.memory_command is not None:
+        # The window treats a leading backslash as a slash throughout.
+        if line.startswith("\\"):
+            line = "/" + line[1:]
+
+        answer = context.memory_command(line)
+
+        if answer is not None:
+            print(f"Freya: {answer}")
+            return True
+
     print(f"Freya: I don't know the command {command}. {HELP_TEXT}")
     return True
 
@@ -150,7 +168,12 @@ def run_window_command(text: str, context: CommandContext) -> None:
     if not announce:
         return
 
-    answer = " ".join(captured.getvalue().split())
+    # Each line is tidied but lines are kept, so a list stays a list.
+    answer = "\n".join(
+        " ".join(part.split())
+        for part in captured.getvalue().splitlines()
+        if part.strip()
+    )
 
     if answer.startswith("Freya: "):
         answer = answer[len("Freya: "):]
