@@ -1475,6 +1475,8 @@ def main(window_only=False):
 
             avatar_request=avatar.handle,
 
+            avatar_file=avatar.file,
+
         ),
 
     )

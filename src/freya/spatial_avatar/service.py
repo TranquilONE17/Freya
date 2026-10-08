@@ -23,6 +23,7 @@ from freya.spatial_avatar.geometry import (
     single_display_layout,
 )
 from freya.spatial_avatar.host import STOPPED, AvatarError, AvatarHost
+from freya.spatial_avatar.library import AvatarLibrary, LibraryError
 from freya.spatial_avatar.renderers import choose_renderer
 from freya.spatial_avatar.targets import (
     MockTargetProvider,
@@ -47,8 +48,16 @@ AVATAR_DISPLAY = "avatar.display"            # show, move, resize, restyle her
 SCREEN_GEOMETRY = "screen.geometry.read"     # sizes and positions of displays
 AVATAR_POINT = "avatar.point"                # point at or outline a place
 
-# Built in Phase 1. These are the only avatar capabilities that exist.
-AVATAR_CAPABILITIES = [AVATAR_DISPLAY, SCREEN_GEOMETRY, AVATAR_POINT]
+# Reading the VRM model files the owner put in the avatar folder, and
+# keeping the owner's named avatars. It reads only that folder and
+# never changes or deletes a model file.
+AVATAR_LIBRARY = "avatar.library"
+
+# These are the only avatar capabilities that exist. The first three
+# came with Phase 1; the library was added afterwards and so has a
+# policy seed of its own.
+DISPLAY_CAPABILITIES = [AVATAR_DISPLAY, SCREEN_GEOMETRY, AVATAR_POINT]
+AVATAR_CAPABILITIES = DISPLAY_CAPABILITIES + [AVATAR_LIBRARY]
 
 # Named now so that later phases have agreed names to ask for, and so
 # that it is plain they are separate. NONE OF THESE IS BUILT: there is
@@ -67,7 +76,10 @@ PERMISSION_NAMES = {
     AVATAR_DISPLAY: "Show and move the avatar",
     SCREEN_GEOMETRY: "Read the size and position of displays",
     AVATAR_POINT: "Point at or outline a place on screen",
+    AVATAR_LIBRARY: "Read avatar model files from the avatar folder",
 }
+
+LIBRARY_ACTIONS = ("scan", "save", "delete", "use")
 
 DISPLAY_ACTIONS = (
     "show",
@@ -112,6 +124,7 @@ class AvatarService:
         renderer: Optional[str] = None,
         gpu_available: bool = False,
         probe: Optional[Callable[[], DisplayLayout]] = None,
+        library: Optional[AvatarLibrary] = None,
     ):
         self._broker = broker
         self._user = user
@@ -141,6 +154,7 @@ class AvatarService:
         self._probed: Optional[DisplayLayout] = None
         self._probed_at = 0.0
 
+        self.library = library or AvatarLibrary()
         self.config = self._store.load(user)
         self._regions = UserRegionProvider()
         self.targets = TargetRegistry([MockTargetProvider(), self._regions])
@@ -192,7 +206,63 @@ class AvatarService:
                 handler=self._point,
                 category="avatar",
             ),
+            CapabilityDefinition(
+                name=AVATAR_LIBRARY,
+                description=(
+                    "Reads the VRM avatar model files in Freya's avatar "
+                    "folder and keeps the owner's named avatars. It never "
+                    "changes or deletes a model file."
+                ),
+                provider=AVATAR_PROVIDER,
+                handler=self._library,
+                category="avatar",
+            ),
         ]
+
+    # -- the avatar library ------------------------------------------------------
+
+    def _library(self, action=None, value=None):
+        """
+        Look at the avatar folder, or change the owner's saved
+        avatars. Reached only through the broker.
+        """
+        value = value if isinstance(value, dict) else {}
+
+        try:
+            if action == "scan":
+                self.library.scan()
+            elif action == "save":
+                self.library.add_profile(
+                    value.get("name"),
+                    value.get("model"),
+                    confirmed=value.get("confirmed") is True,
+                )
+            elif action == "delete":
+                self.library.delete_profile(value.get("avatar"))
+            elif action == "use":
+                self.library.use_profile(value.get("avatar"))
+            else:
+                raise AvatarError("That is not something the avatar library does.")
+        except LibraryError as exc:
+            raise AvatarError(str(exc))
+
+        return self.describe()
+
+    def file(self, kind, model):
+        """
+        A model's file or its thumbnail, as (media type, bytes), for
+        the signed-in window to show. Only models found in the avatar
+        folder can be asked for.
+        """
+        if kind == "model":
+            data = self.library.model_bytes(model)
+
+            return ("model/gltf-binary", data) if data is not None else None
+
+        if kind == "thumbnail":
+            return self.library.thumbnail(model)
+
+        return None
 
     # -- the overlay -------------------------------------------------------------
 
@@ -507,6 +577,7 @@ class AvatarService:
                 {"id": name, "name": text, "built": False}
                 for name, text in FUTURE_PERMISSIONS.items()
             ],
+            "library": self.library.describe(),
             "notes": list(self.notes),
             "error": self.error,
         }
@@ -532,6 +603,13 @@ class AvatarService:
                         f"mock:{display_id}:{target}" if target is not None else None
                     ),
                     region=message.get("region"),
+                )
+                error = None if result.success else result.error
+            elif isinstance(action, str) and action.startswith("library-"):
+                result = self._broker.invoke(
+                    AVATAR_LIBRARY,
+                    action=action[len("library-"):],
+                    value=message.get("value"),
                 )
                 error = None if result.success else result.error
             elif action in DISPLAY_ACTIONS:

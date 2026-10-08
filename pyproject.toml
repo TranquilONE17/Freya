@@ -42,7 +42,13 @@ where = ["src"]
 
 [tool.setuptools.package-data]
 "freya.image" = ["workflows/*.json"]
-"freya.gateway" = ["static/*"]
+"freya.gateway" = [
+    "static/*",
+    "static/vendor/*",
+    "static/vendor/three/*",
+    "static/vendor/three/addons/*/*",
+    "static/vendor/three-vrm/*",
+]
 
 # voice/stt_test.py and voice/tts_test.py are manual scripts, so only collect
 # from tests/.

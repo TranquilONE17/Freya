@@ -1,6 +1,9 @@
+import base64
+import hashlib
 import http
 import json
 import queue
+import re
 import secrets
 import socket
 import threading
@@ -33,20 +36,78 @@ MAX_UPLOAD_BYTES = 3 * 1024 * 1024
 STOP_TIMEOUT_SECONDS = 30.0
 MAX_WAITING_EVENTS = 5000
 
+JAVASCRIPT = "text/javascript; charset=utf-8"
+
 STATIC_FILES = {
     "/": ("index.html", "text/html; charset=utf-8"),
     "/app.js": ("app.js", "text/javascript; charset=utf-8"),
     "/app.css": ("app.css", "text/css; charset=utf-8"),
+    # The 3D preview of avatar models, and the libraries it uses.
+    # Each file is listed: nothing else under static/ is served.
+    "/avatar-view.js": ("avatar-view.js", JAVASCRIPT),
+    "/vendor/three/three.module.js": ("vendor/three/three.module.js", JAVASCRIPT),
+    "/vendor/three/three.core.js": ("vendor/three/three.core.js", JAVASCRIPT),
+    "/vendor/three/addons/loaders/GLTFLoader.js": (
+        "vendor/three/addons/loaders/GLTFLoader.js", JAVASCRIPT,
+    ),
+    "/vendor/three/addons/controls/OrbitControls.js": (
+        "vendor/three/addons/controls/OrbitControls.js", JAVASCRIPT,
+    ),
+    "/vendor/three/addons/utils/BufferGeometryUtils.js": (
+        "vendor/three/addons/utils/BufferGeometryUtils.js", JAVASCRIPT,
+    ),
+    "/vendor/three/addons/utils/SkeletonUtils.js": (
+        "vendor/three/addons/utils/SkeletonUtils.js", JAVASCRIPT,
+    ),
+    "/vendor/three-vrm/three-vrm.module.min.js": (
+        "vendor/three-vrm/three-vrm.module.min.js", JAVASCRIPT,
+    ),
 }
 
-# The page may only load its own files and talk to this server.
-SECURITY_HEADERS = {
-    "Content-Security-Policy": (
-        "default-src 'none'; script-src 'self'; style-src 'self'; "
-        "img-src 'self'; media-src 'self'; connect-src 'self'; "
-        "base-uri 'none'; "
+IMPORT_MAP = re.compile(
+    r'<script type="importmap">(.*?)</script>', re.DOTALL
+)
+
+
+def _static(name: str) -> bytes:
+    return (
+        resources.files("freya.gateway")
+        .joinpath("static", *name.split("/"))
+        .read_bytes()
+    )
+
+
+def content_security_policy() -> str:
+    """
+    The page may only load its own files and talk to this server.
+
+    Two narrow additions serve the 3D avatar preview. The page's one
+    inline script is its import map (it only says where the page's
+    own library files are); it is allowed by the hash of its exact
+    text, so any other inline script is still refused. And `blob:`
+    is allowed for images and fetches, because a 3D model's textures
+    are unpacked inside the page and loaded from memory. A blob can
+    only be made by the page's own script, from data it already has.
+    """
+    found = IMPORT_MAP.search(_static("index.html").decode("utf-8"))
+    script = "'self'"
+
+    if found:
+        digest = base64.b64encode(
+            hashlib.sha256(found.group(1).encode("utf-8")).digest()
+        ).decode("ascii")
+        script += f" 'sha256-{digest}'"
+
+    return (
+        f"default-src 'none'; script-src {script}; style-src 'self'; "
+        "img-src 'self' blob:; media-src 'self'; "
+        "connect-src 'self' blob:; base-uri 'none'; "
         "form-action 'none'; frame-ancestors 'none'"
-    ),
+    )
+
+
+SECURITY_HEADERS = {
+    "Content-Security-Policy": content_security_policy(),
     "X-Content-Type-Options": "nosniff",
     "Referrer-Policy": "no-referrer",
     "Cache-Control": "no-store",
@@ -270,12 +331,8 @@ class Gateway:
 
         if url.path in STATIC_FILES:
             name, content_type = STATIC_FILES[url.path]
-            body = (
-                resources.files("freya.gateway")
-                .joinpath("static", name)
-                .read_bytes()
-            )
-            return _response(200, body, content_type)
+
+            return _response(200, _static(name), content_type)
 
         if url.path.startswith("/images/"):
             image = self._gallery.read(url.path[len("/images/"):])
@@ -283,6 +340,16 @@ class Gateway:
             if image is not None:
                 media_type, body = image
                 return _response(200, body, media_type)
+
+        for prefix, kind in (
+            ("/avatar-models/", "model"),
+            ("/avatar-thumbnails/", "thumbnail"),
+        ):
+            if url.path.startswith(prefix):
+                found = self._actions.avatar_file(kind, url.path[len(prefix):])
+
+                if found is not None:
+                    return _response(200, found[1], found[0])
 
         if url.path.startswith("/audio/"):
             clip = self._actions.voice_clip(url.path[len("/audio/"):])

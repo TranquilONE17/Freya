@@ -179,11 +179,19 @@ class ControlPlane:
         for capability in avatar.capabilities():
             self.capabilities.register(capability)
 
+        # One seed per addition: a seed that has been applied is never
+        # applied again, so a capability added later needs its own.
         seed_alpha_policy(
             self.policy,
             "alpha-avatar",
             LOCAL_OWNER.actor,
-            [capability.name for capability in avatar.capabilities()],
+            ["avatar.display", "screen.geometry.read", "avatar.point"],
+        )
+        seed_alpha_policy(
+            self.policy,
+            "alpha-avatar-library",
+            LOCAL_OWNER.actor,
+            ["avatar.library"],
         )
 
     def ensure_image_backend(self, announce=print) -> None:

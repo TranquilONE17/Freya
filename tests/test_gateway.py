@@ -567,9 +567,9 @@ def test_cloner_can_import_trim_and_play_a_recording(voice_gateway):
         assert control in body
 
     # The file is decoded in the page and only samples are sent, so
-    # the page needs no permission to load anything but its own files.
+    # playing sound needs no permission beyond the page's own files.
     assert b"decodeAudioData" in script and b'"drop"' in script
-    assert "blob:" not in get(voice_gateway, "/", cookie=cookie)[0].getheader(
+    assert "media-src 'self';" in get(voice_gateway, "/", cookie=cookie)[0].getheader(
         "Content-Security-Policy"
     )
 
