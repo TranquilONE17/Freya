@@ -320,6 +320,12 @@ renderer.
 
 ## 5. Settings
 
+**Turning her off completely.** "Turn off" in the Avatar tab sets `enabled` to
+false: the overlay program is closed, she is not started with Freya, and every
+request that would show, move, or point her is refused with a message saying she
+is turned off. Other settings can still be changed. Only "Turn on" (the `enable`
+action) brings her back, and it allows her to be shown without showing her.
+
 Stored per user. All are changeable while running.
 
 | Setting | Default | Meaning |
