@@ -6,7 +6,7 @@ decisions settle how this design should proceed. They do not approve any ADR, ad
 the pending amendments into the architecture, or assign requirement IDs; those
 remain matters for reconciliation.
 
-- Requirements in this document carry provisional labels **NEW-M to NEW-Y**. They
+- Requirements in this document carry provisional labels **NEW-M to NEW-Z and NEW-AA**. They
   continue from the pending amendments NEW-A to NEW-L and, like them, get final IDs
   only at reconciliation. No existing requirement or ADR ID is reused.
 - Where this document cites NEW-A to NEW-L it is citing **pending proposals**, not
@@ -127,6 +127,29 @@ Stated by the owner on 2026-10-08, after the decisions in section 8.
   This fits pending NEW-D, which requires "human review and the update path", not a
   hosted pull request. Offline, the human review is the approval screen showing the
   exact diff.
+
+### Added requirement: beta testing, then offering the change to other nodes
+
+Stated by the owner on 2026-10-08: Freya should be able to change her local code,
+beta test it, and then upload it to other nodes if they become available or choose
+to upgrade.
+
+- **NEW-Z — A change is tried before it becomes the installed version.** An approved
+  change to Freya's own code is first installed as a *candidate* alongside the
+  current version, and run on trial. The current version stays installed and can be
+  returned to at any time without a connection. A candidate becomes the installed
+  version only by a separate owner approval to promote it. This is the staged,
+  health-checked update with a tested way back that OPS-001 and OPS-011 already
+  require, applied to her own changes.
+- **NEW-AA — Other nodes are offered a release; each decides for itself.** A promoted
+  version can be packaged as a release, identified by an exact digest and signed
+  (EXT-006, OPS-002). Other nodes are *offered* it when they can be reached; nothing
+  is installed on a node by another node. Each node verifies the release, decides
+  under its own authority whether and when to upgrade, stages and health-checks it,
+  and keeps its own way back (OPS-001). A node that is unreachable or declines simply
+  stays on its version. A signature shows where a release came from; it is not
+  permission to install it. Being connected to a node gives no authority over it
+  (DIST-003, SEC-035, SEC-037).
 
 ## 4. Design
 
@@ -282,7 +305,71 @@ everything that changes files after the alpha, and merge, deploy, and restart la
 still. Whether NEW-Y moves local merge, update, and restart earlier is the open
 question D11 below.
 
-### 4.7 Open item: starting with no internet
+### 4.7 Beta testing and offering releases to other nodes (NEW-Z, NEW-AA)
+
+```
+ working copy ──approve──► candidate ──approve──► installed ──approve──► release
+ (her changes)            (on trial)             (this node)            (offered)
+                              │                       ▲                     │
+                              └── fails or rejected ──┘                     ▼
+                                  back to installed            other nodes: verify,
+                                                               decide, stage, try,
+                                                               keep their own way back
+```
+
+**On this node**
+
+- Two installed slots: *current* and *candidate*. Installing a candidate does not
+  remove the current version.
+- A trial is the candidate actually running as Freya. Two kinds are possible, and
+  which to support is decision D12:
+  - *Side by side*: the candidate runs as a second instance on scratch data, while
+    the current version keeps serving. Nothing of the owner's is at risk, but it
+    does not exercise real memory, policy, or voice.
+  - *In place*: the candidate takes over, with the owner's data, for a trial the
+    owner starts and ends. Real use, real data, so it needs the data safeguards
+    below.
+- A candidate that fails to start, fails audit verification, or fails its health
+  checks is stopped and the current version resumes, automatically.
+- **Data is the hard part.** A candidate that changes the control or memory database
+  format cannot simply be backed out by reinstalling the old code (OPS-001, OPS-011).
+  A candidate with a migration is tried in place only after a verified backup, and
+  going back means restoring that backup. `CLAUDE.md` already requires a backup before
+  any change to the memory database's schema.
+- What may run during a trial is still bounded by decision D6: a candidate is code
+  the owner has read and approved, running through the update path. Automated test
+  runs of unreviewed code still wait for validated isolation.
+
+**Other nodes**
+
+- A release is a bundle: the exact commit, its dependency lock, a manifest with
+  digests, the version and data-format compatibility it declares, and a signature.
+- Offers are pulled or accepted, never pushed into effect. A node that becomes
+  reachable is told a release exists; a node can also ask. Transfer can be directly
+  between nodes on a local network, so it does not depend on GitHub.
+- Each node repeats NEW-Z for itself: verify, stage as a candidate, try, promote, and
+  keep the previous version.
+- Who approves on another node depends on who administers it. A node in the same
+  security domain could be upgraded on its owner's approval given once for several
+  nodes; an independently administered node always decides on its own (SEC-035).
+  What "choose to upgrade" means for nodes the owner also administers is decision
+  D13.
+- Mixed versions must keep working while nodes upgrade at different times, which
+  needs the compatibility and version negotiation the baseline already asks of the
+  gateway (GUI-003).
+
+**What this depends on that does not exist**
+
+- Other nodes. The baseline defers distributed workers and federation: the alpha is
+  one workstation, and those features stay disabled until their tests exist
+  (DIST-007, TEST-010). NEW-AA is recorded now so that the release format and the
+  "each node decides" rule are designed in; it cannot be built or enabled before
+  node identity and authenticated node-to-node transport exist.
+- Signing keys, and where they are kept (EXT-006). A release signed by a key the
+  model could reach would prove nothing.
+- The separate installed copy (prerequisite 7).
+
+### 4.8 Open item: starting with no internet
 
 Freya's speech components load models through libraries that can contact a model
 hub. During the speech benchmark such a contact was observed from Freya's own
@@ -327,7 +414,8 @@ decision D2.
 | 5 | `dev.apply` and `dev.commit` to a dedicated worktree | Yes, after approval | After alpha |
 | 6 | `dev.check` in validated isolation | Runs repository code, isolated | After alpha, once isolation is validated |
 | 7 | Push and open a pull request, with reconciliation | Yes, remote effects | After alpha |
-| 8 | Merge, deploy, restart, one at a time; Freya's own source | Yes | Later, each by a new owner decision |
+| 8 | Merge, deploy, restart, one at a time; Freya's own source, with candidate and trial (NEW-Y, NEW-Z) | Yes | Later, each by a new owner decision (see D11) |
+| 9 | Releases offered to other nodes (NEW-AA) | Yes, on other nodes, by their own decision | Not before distributed features are enabled |
 
 Phase 2 reads granted repositories with `git`, so it needs the restricted worker
 identity (prerequisite 4, an owner action) even though it changes nothing.
@@ -385,10 +473,17 @@ one exact patch, on a target whose files are still exactly what was shown.
 
 - **D11. When are local merge, update, and restart built?** NEW-Y requires that they
   exist and work offline. D7 placed merge, deploy, and restart "later, one at a
-  time". For remote merges that can stand. For the local path, either it is built
-  together with apply and commit (so a self-change can actually take effect
-  offline), or self-changes made offline wait as local commits until those steps
-  exist. Not yet decided.
+  time". The owner's later statement (change local code, beta test it, then offer it
+  to other nodes) describes a path in which a local change does take effect locally,
+  which points to building the local steps with apply and commit. The owner has not
+  confirmed the timing; it is recorded here as open, not decided.
+- **D12. What a beta test is.** Side by side on scratch data, in place on real data
+  with a backup, or both (section 4.7).
+- **D13. Who approves an upgrade on another node.** For nodes the owner also
+  administers: one approval per node, or one approval covering several. For
+  independently administered nodes it is always that node's own decision.
+- **D14. Who signs a release, and with what.** A key the owner holds and uses at an
+  approval step, kept where no agent, model, or guest can reach it.
 
 ## 9. Not covered
 
