@@ -87,6 +87,16 @@ EVENTS = EventBus()
 
 GALLERY = None
 
+# How long shutting down waits for a spoken turn still in progress.
+
+SHUTDOWN_WAIT_SECONDS = 30.0
+
+# Set when Freya begins to shut down. A reply being written stops at
+
+# its next piece instead of running to the end.
+
+SHUTTING_DOWN = threading.Event()
+
 
 
 
@@ -201,11 +211,25 @@ def stream_freya_response(
 
 
 
-    for chunk in freya.respond_stream(
+    reply = freya.respond_stream(
 
         user_input
 
-    ):
+    )
+
+    for chunk in reply:
+
+        if SHUTTING_DOWN.is_set():
+
+            # Closing the reply ends the model call and records
+
+            # its outcome while the audit log is still open.
+
+            reply.close()
+
+            speech_buffer = ""
+
+            break
 
         print(
 
@@ -974,6 +998,8 @@ def main(window_only=False):
 
     quit_requested = threading.Event()
 
+    SHUTTING_DOWN.clear()
+
     control_plane = build_local_control_plane()
 
     for message in control_plane.startup_messages():
@@ -1367,6 +1393,8 @@ def main(window_only=False):
                     ),
 
                     publish_status=publish_status,
+
+                    memory_command=freya.memory_command,
 
                     request_quit=(
 
@@ -1972,13 +2000,33 @@ def main(window_only=False):
 
     finally:
 
+        # Shut down in order: let no new turn begin, cut short anything
+
+        # being spoken, then wait for the turn in progress (from the
+
+        # window or the microphone) before closing what turns use.
+
+        SHUTTING_DOWN.set()
+
+        gate.close()
+
+        voice.interrupt()
+
+        finished = window.stop()
+
+        finished = gate.drain(SHUTDOWN_WAIT_SECONDS) and finished
+
         if listener is not None:
 
             listener.stop()
 
-        gate.close()
+        if not finished:
 
-        window.stop()
+            print(
+
+                "Freya: A turn was still running when I shut down."
+
+            )
 
         # Generated clips are only kept while Freya is running.
 

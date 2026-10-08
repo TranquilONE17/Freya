@@ -156,7 +156,18 @@ and a strict Content-Security-Policy, because replies and tool results are untru
 The window can only ask for a chat turn, an image, mute/unmute, stopping speech, a
 command, or a Voice tab request (with a recording sent as binary messages);
 add new message types deliberately. `main.py` publishes conversation and image events
-on a module-level `EVENTS` bus; the console still prints as before.
+on a module-level `EVENTS` bus; the console still prints as before. The bus calls its
+subscribers in publish order while it is locked, so a subscriber must never block: the
+gateway's only puts the event on that window's queue, and a thread per window does the
+sending. A window joins with `subscribe_with_history`, which is what guarantees it
+gets every event exactly once. Memory commands (`/memories`, `/forget`, `/memory-help`
+and the rest) typed in the window are passed to `FreyaAssistant.memory_command`.
+
+Shutdown order matters, because a turn may be running on the window's worker thread or
+the listener thread: `TurnGate.close()` (no new turn may begin), then
+`FreyaWindow.stop()` (refuses new work, drops waiting turns, waits for the running
+one), then `TurnGate.drain()` for a spoken turn, and only then are the voice and the
+control database closed. Each wait has a time limit.
 
 Voice studio: the Voice tab offers each kind of voice work only through engines that
 declare that role, and shows only the controls an engine reports. Kokoro runs inside
