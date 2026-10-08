@@ -1,7 +1,36 @@
 # Claude task: fix the window review findings
 
-Status: pending implementation. Implement this task when the owner explicitly asks.
-This file records the implementation prompt; adding it does not implement any fixes.
+Status: implemented in https://github.com/TranquilONE17/Freya/pull/11 (not merged).
+The rest of this file is the original implementation prompt, kept for reference.
+
+## Outcome
+
+All four findings were re-checked against `main` at c2dd3ef, were still present, and
+are fixed in that PR. Regression tests are in `tests/test_review_fixes.py`.
+
+| Finding | Fix | Regression tests |
+|---|---|---|
+| 1. Shutdown leaves turns running | `Gateway.stop()` refuses new work, drops waiting turns, and waits (30 s limit) for the running one; `TurnGate.close()` / `drain()` cover spoken turns; `main()` closes its dependencies last | 6 |
+| 2. Memory commands rejected in the window | Unrecognised commands go to `FreyaAssistant.memory_command`, the existing handler | 4 |
+| 3. Connecting can lose events | `EventBus.subscribe_with_history()`; per-window queue and sending thread, so the bus never does socket I/O | 5 |
+| 4. Bare exit and quit sent as chat | `submitText` routes them to the command path in both composers | 7 |
+
+Validation, on Windows with Python 3.12:
+
+- `python -m pytest`: 428 passed (406 existing, 22 new).
+- The concurrency tests synchronise with events, barriers, and queues, not sleeps.
+- Finding 4 runs the real `index.html` and `app.js` in headless Edge; those tests
+  skip when Edge is not installed.
+- Memory tests use a stand-in handler, and the real handler only for `/memory-help`.
+  The owner's memory database was not opened.
+
+Not done or not checked:
+
+- A running turn cannot be cancelled mid-reply; shutdown waits up to the limit, then
+  proceeds and says a turn was still running.
+- The fixes were not exercised by hand in a running Freya.
+- An intermittent websockets thread warning (`WinError 10038`) at gateway shutdown in
+  the test suite also occurs on `main` and is not addressed.
 
 ## Implementation instructions
 
