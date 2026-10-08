@@ -22,6 +22,8 @@ let last = null;
 let current = null;
 let frame = null;
 let loads = 0;
+// The camera positions for the two views, worked out when a model loads.
+let views = null;
 
 function setUp() {
   if (renderer) return;
@@ -72,10 +74,31 @@ function frameModel(object) {
   const height = Math.max(size.y, 0.5);
   const distance = (height / 2 / Math.tan((camera.fov * Math.PI) / 360)) * 1.25;
 
-  camera.position.set(center.x, center.y, center.z + distance);
-  controls.target.copy(center);
-  controls.minDistance = distance * 0.2;
+  controls.minDistance = distance * 0.04;
   controls.maxDistance = distance * 3;
+
+  // The face view looks at the head bone if the model names one, and
+  // otherwise at a point near the top of the figure.
+  const head = new THREE.Vector3(center.x, box.max.y - height * 0.07, center.z);
+  const bone = current && current.humanoid && current.humanoid.getNormalizedBoneNode("head");
+  if (bone) {
+    bone.getWorldPosition(head);
+    head.y += height * 0.04;
+  }
+
+  views = {
+    body: { target: center, distance },
+    face: { target: head, distance: distance * 0.17 },
+  };
+  setView("body");
+}
+
+function setView(name) {
+  const view = views && views[name];
+  if (!view) return;
+
+  camera.position.set(view.target.x, view.target.y, view.target.z + view.distance);
+  controls.target.copy(view.target);
   controls.update();
 }
 
@@ -108,6 +131,8 @@ function clear() {
     VRMUtils.deepDispose(current.scene);
     current = null;
   }
+
+  views = null;
 
   if (renderer) renderer.clear();
 }
@@ -150,21 +175,32 @@ async function show(url, onProgress) {
   frameModel(vrm.scene);
   draw();
 
+  // The expressions the format itself defines come first, then the
+  // model's own extra ones.
   const manager = vrm.expressionManager;
-  return {
-    expressions: manager ? manager.expressions.map((e) => e.expressionName) : [],
-  };
+  const standard = manager ? Object.keys(manager.presetExpressionMap) : [];
+  const extra = manager ? Object.keys(manager.customExpressionMap) : [];
+
+  return { expressions: standard.concat(extra), standard, extra };
 }
 
-function setExpression(name) {
+// Set one expression to a strength from 0 to 1, leaving the others as
+// they are, so that several can be tried together.
+function setExpression(name, strength) {
+  const manager = current && current.expressionManager;
+  if (!manager || !manager.getExpression(name)) return;
+
+  manager.setValue(name, Math.min(Math.max(Number(strength) || 0, 0), 1));
+}
+
+function resetExpressions() {
   const manager = current && current.expressionManager;
   if (!manager) return;
 
   manager.expressions.forEach((expression) => {
     manager.setValue(expression.expressionName, 0);
   });
-  if (name) manager.setValue(name, 1);
 }
 
-window.freyaAvatarView = { show, setExpression, clear };
+window.freyaAvatarView = { show, setExpression, resetExpressions, setView, clear };
 window.dispatchEvent(new Event("freya-avatar-view-ready"));

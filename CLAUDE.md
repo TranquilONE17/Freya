@@ -179,7 +179,7 @@ Spatial avatar: a client-side capability, not part of Core. Core must not import
 `freya.spatial_avatar`, and the overlay program must not import Core or open Freya's
 data; tests enforce both. The overlay is a separate process so that a renderer crash
 cannot affect Freya; all behaviour lives in `AvatarModel`, so a renderer only draws.
-Everything asked of the avatar is a broker call to one of three capabilities,
+Everything asked of the avatar on screen is a broker call to one of three capabilities,
 `avatar.display`, `screen.geometry.read`, and `avatar.point` (policy seed
 `alpha-avatar`); they are not offered to the model. **The avatar has no code for
 capturing the screen, reading other programs' windows, or sending input, and a test
@@ -206,6 +206,21 @@ listed in `STATIC_FILES`. The page's one inline script is its import map, allowe
 the content security policy by hash; do not add `unsafe-inline` or `unsafe-eval`. A
 chosen model is only previewed in the window: the desktop avatar is still the
 placeholder until the overlay has a 3D renderer.
+
+Finding and converting models: `spatial_avatar/sources.py` lists files in the
+owner's Downloads folder (`FREYA_AVATAR_SEARCH` overrides) that are or could become
+avatars, reading names only (`avatar.search`). `converter.py` makes one ready
+(`avatar.prepare`, policy seed `alpha-avatar-creator`): it copies a VRM, or unpacks
+and converts a character file by running Blender on the two scripts in
+`spatial_avatar/blender/`. Those scripts run inside Blender's own Python, not
+Freya's, and import nothing from Freya. Keep these rules: only a file the last
+search found may be prepared; Blender is always started with `--disable-autoexec`
+and the scripts never enable scripts from a model file; the original is never
+changed and an existing avatar is never overwritten; archive limits and the
+outside-the-folder check stay. Blender and its VRM add-on are installed by the
+owner (`FREYA_BLENDER` names the program). Converted models may be under terms that
+forbid passing them on: they live under `data/` and must never be committed or
+shipped to other nodes.
 
 Voice studio: the Voice tab offers each kind of voice work only through engines that
 declare that role, and shows only the controls an engine reports. Kokoro runs inside

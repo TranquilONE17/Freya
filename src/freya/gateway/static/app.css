@@ -746,3 +746,64 @@ button:disabled {
     flex: 1 1 100%;
   }
 }
+
+.tester-title {
+  margin: 14px 0 4px;
+  font-size: 14px;
+}
+
+.tester-strength {
+  display: block;
+  margin: 6px 0 10px;
+  font-size: 13px;
+  color: var(--muted);
+}
+
+.tester-strength input {
+  display: block;
+  width: 100%;
+  max-width: 260px;
+}
+
+.tester {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 12px;
+}
+
+.tester button {
+  padding: 4px 10px;
+  font-size: 13px;
+}
+
+.tester button.is-on {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.tester-more {
+  margin-bottom: 12px;
+  font-size: 13px;
+}
+
+.tester-more summary {
+  cursor: pointer;
+  color: var(--muted);
+  margin-bottom: 8px;
+}
+
+.tester-more .tester {
+  max-height: 220px;
+  overflow-y: auto;
+}
+
+#creator-author {
+  flex: 1 1 240px;
+  max-width: 340px;
+}
+
+#creator-notes:empty,
+#creator-job:empty {
+  display: none;
+}

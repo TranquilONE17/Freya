@@ -1167,6 +1167,7 @@ def audited(plane, capability):
 def test_only_the_listed_avatar_capabilities_exist(plane, service):
     assert AVATAR_CAPABILITIES == [
         AVATAR_DISPLAY, SCREEN_GEOMETRY, AVATAR_POINT, AVATAR_LIBRARY,
+        "avatar.search", "avatar.prepare",
     ]
 
     for name in AVATAR_CAPABILITIES:
