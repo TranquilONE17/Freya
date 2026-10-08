@@ -120,6 +120,68 @@ renderer announcing a different version is not used. Unknown fields are ignored.
 - "Realistic" is a coloured placeholder, not a photorealistic character.
 - GPU utilisation reporting: not implemented (the placeholder uses none).
 
+## 3a. Avatar library and preview (added after Phase 1)
+
+The first two stages of an avatar creation system. They let the owner bring in
+VRM avatar models and look at them; they do not yet put a model on the desktop.
+
+**Implemented**
+
+- **Reading VRM files** (`vrm.py`): a VRM file is a glTF binary file with an avatar
+  description. Freya reads the description only: name, authors, the terms of use,
+  expressions and mouth shapes, skeleton, a thumbnail, and size. Both VRM 0.x and
+  1.0 are read, and their differently-named terms are put into one plain form.
+- **Library** (`library.py`): the `.vrm` files directly inside
+  `data/avatar_models/`, which the owner fills. Freya never changes, moves, or
+  deletes them. A model is known by the SHA-256 of its contents. Files that are not
+  usable are listed with the reason.
+- **Saved avatars**: a named choice of one model, one of which can be marked as
+  Freya's. Kept in `data/avatar_library.json`.
+- **Terms of use**: every model's own terms are shown in plain words. A model whose
+  terms let only its author, or only licensed people, use it, or that states no
+  terms, can be saved as an avatar only with the owner's confirmation that they
+  may; what was confirmed, and when, is kept with the avatar.
+- **3D preview** (`gateway/static/avatar-view.js`): the model is drawn in the Avatar
+  tab, can be turned and zoomed, and its expressions tried. Drawing stops while the
+  tab is not showing.
+- A fourth capability, `avatar.library`, with its own policy seed
+  `alpha-avatar-library`. Looking at the folder and changing saved avatars go
+  through the broker and are audited.
+
+**Downloaded files are untrusted.** The format contains no code and nothing in a
+file is executed. Sizes and offsets are checked before reading; text is cut to
+length and stripped of control characters, and is only ever placed on the page as
+text; a thumbnail is served only if its bytes really begin as the PNG or JPEG the
+file claims; only models found by scanning the folder can be fetched, by their
+hash; links and files outside the folder are ignored.
+
+**Third-party code.** The preview uses three.js 0.186.1 and @pixiv/three-vrm 3.5.5,
+both MIT-licensed, copied unmodified into `gateway/static/vendor/` with their
+licences. Each package was checked against the npm registry's published SHA-512,
+and the SHA-256 of every copied file is recorded in `vendor/README.txt` and checked
+by a test. They run only in the window's page.
+
+**Content security policy.** Two narrow additions were needed: the page's import map
+(its one inline script, which only says where the page's own library files are) is
+allowed by the hash of its exact text; and `blob:` is allowed for images and
+fetches, because a model's textures are unpacked inside the page. Inline scripts in
+general, `eval`, and loading from anywhere else remain refused.
+
+**Not implemented**
+
+- **The desktop avatar is still the placeholder figure.** Marking a saved avatar as
+  Freya's records the choice; nothing draws it on the desktop yet. That needs a 3D
+  renderer for the overlay (stage 4).
+- Customising a model (scale, colours, the holographic material, expression
+  mapping) is stage 3.
+- Creating a character from scratch is stage 5 and may never be built here; VRoid
+  Studio already does it and exports VRM.
+- Importing through the window. Files are put in the folder by hand.
+- **Not tried with a real downloaded model.** It was tested with VRM files generated
+  for the purpose: correct in structure, but simple box figures with one plain
+  material. Real models use toon shading, many textures, spring bones, and VRM 0.x
+  quirks that these do not exercise.
+
 ## 4. Security and privacy
 
 **The avatar cannot see the screen or send input, because no such code exists.** It
@@ -134,6 +196,7 @@ Each permission is a separate capability, granted or withheld on its own by poli
 | `avatar.display` | Built | Show, hide, move, resize, restyle her |
 | `screen.geometry.read` | Built | Positions, sizes, usable areas, scale factors of displays. Nothing shown on them. |
 | `avatar.point` | Built | Point at or outline a place. Does not click, type, or change anything. |
+| `avatar.library` | Built | Read VRM model files from the avatar folder; keep the owner's saved avatars. Never changes a model file. |
 | `screen.accessibility.read` | Not built | Read what programs report about their windows and controls |
 | `screen.capture` | Not built | Capture screen content |
 | `screen.analyze` | Not built | Analyse captured content |

@@ -185,6 +185,42 @@
         </div>
 
         <article class="panel">
+          <h2>Avatar models</h2>
+          <p class="panel-note">VRM avatar files you have put in <span id="library-folder"></span>. Freya reads them and never changes them. The avatar on your desktop is still the placeholder figure; a chosen model is previewed here.</p>
+          <div class="actions">
+            <button type="button" class="primary" id="library-scan">Look for models</button>
+            <span class="panel-note" id="library-count"></span>
+          </div>
+          <ul class="engine-list model-list" id="library-models"></ul>
+          <ul class="engine-list" id="library-errors"></ul>
+
+          <div class="preview" id="library-preview" hidden>
+            <canvas id="avatar-canvas" aria-label="3D preview of the avatar model"></canvas>
+            <div class="preview-side">
+              <h2 id="preview-name"></h2>
+              <p class="panel-note" id="preview-status" role="status"></p>
+              <ul class="terms" id="preview-terms"></ul>
+              <p class="panel-note" id="preview-facts"></p>
+              <ul class="terms" id="preview-warnings"></ul>
+              <div class="fields">
+                <label>Expression <select id="preview-expression"></select></label>
+              </div>
+              <label class="check" id="preview-confirm-row" hidden><input type="checkbox" id="preview-confirm"> <span id="preview-confirm-text"></span></label>
+              <div class="actions">
+                <input type="text" id="preview-save-name" placeholder="Name for this avatar" maxlength="40" aria-label="Name for this avatar">
+                <button type="button" class="ghost" id="preview-save">Save as an avatar</button>
+              </div>
+            </div>
+          </div>
+        </article>
+
+        <article class="panel">
+          <h2>Saved avatars</h2>
+          <p class="panel-note">Avatars you have made from models. One can be marked as Freya's.</p>
+          <ul class="profile-list" id="library-avatars"></ul>
+        </article>
+
+        <article class="panel">
           <h2>Appearance and size</h2>
           <p class="panel-note" id="avatar-summary"></p>
           <div class="fields">
@@ -264,6 +300,8 @@
     </figure>
   </div>
 
+  <script type="importmap">{"imports":{"three":"/vendor/three/three.module.js","three/addons/":"/vendor/three/addons/","@pixiv/three-vrm":"/vendor/three-vrm/three-vrm.module.min.js"}}</script>
   <script src="/app.js"></script>
+  <script type="module" src="/avatar-view.js"></script>
 </body>
 </html>

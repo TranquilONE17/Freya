@@ -38,12 +38,14 @@ from freya.spatial_avatar.geometry import (
     single_display_layout,
 )
 from freya.spatial_avatar.host import STOPPED, AvatarError, AvatarHost
+from freya.spatial_avatar.library import AvatarLibrary
 from freya.spatial_avatar.model import AvatarModel
 from freya.spatial_avatar.placement import aim, keep_inside, place_beside
 from freya.spatial_avatar.renderers import choose_renderer, load_renderer
 from freya.spatial_avatar.service import (
     AVATAR_CAPABILITIES,
     AVATAR_DISPLAY,
+    AVATAR_LIBRARY,
     AVATAR_POINT,
     FUTURE_PERMISSIONS,
     SCREEN_GEOMETRY,
@@ -1144,6 +1146,7 @@ def service(plane, tmp_path):
         host=AvatarHost("null", log_path=tmp_path / "overlay.log"),
         publish=lambda kind, **fields: published({"event": kind, **fields}),
         probe=single_display_layout,
+        library=AvatarLibrary(tmp_path / "avatar_models", tmp_path / "avatar_library.json"),
     )
     service.published = published
     plane.register_avatar(service)
@@ -1161,8 +1164,10 @@ def audited(plane, capability):
     ]
 
 
-def test_only_three_avatar_capabilities_exist(plane, service):
-    assert AVATAR_CAPABILITIES == [AVATAR_DISPLAY, SCREEN_GEOMETRY, AVATAR_POINT]
+def test_only_the_listed_avatar_capabilities_exist(plane, service):
+    assert AVATAR_CAPABILITIES == [
+        AVATAR_DISPLAY, SCREEN_GEOMETRY, AVATAR_POINT, AVATAR_LIBRARY,
+    ]
 
     for name in AVATAR_CAPABILITIES:
         assert plane.broker.exists(name)

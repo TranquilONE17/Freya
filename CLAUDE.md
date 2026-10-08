@@ -193,6 +193,20 @@ user's boundary, on every frame. Targets are revalidated before each use. The
 placeholder renderer uses `tkinter` and no GPU. Settings are in
 `data/avatar_settings.json`, keyed by user (one user today).
 
+Avatar models: `spatial_avatar/vrm.py` reads the description inside a VRM file and
+`library.py` keeps the models in `data/avatar_models/` (filled by the owner; Freya
+never changes those files) and the owner's saved avatars. Downloaded VRM files are
+untrusted: keep every length and offset check, show text from them only as text, and
+serve a thumbnail only when its bytes match its claimed type. A model whose terms
+restrict who may use it needs the owner's recorded confirmation before it becomes an
+avatar. The 3D preview is `gateway/static/avatar-view.js`, using three.js and
+three-vrm copied unmodified into `static/vendor/` (checksums in `vendor/README.txt`,
+checked by a test; `.gitattributes` keeps them byte-exact). Every served file is
+listed in `STATIC_FILES`. The page's one inline script is its import map, allowed in
+the content security policy by hash; do not add `unsafe-inline` or `unsafe-eval`. A
+chosen model is only previewed in the window: the desktop avatar is still the
+placeholder until the overlay has a 3D renderer.
+
 Voice studio: the Voice tab offers each kind of voice work only through engines that
 declare that role, and shows only the controls an engine reports. Kokoro runs inside
 Freya (preset voices, and an experimental blend of its own supplied voices — a blend is
