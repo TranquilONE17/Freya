@@ -25,9 +25,18 @@ class FreyaImageGenerator:
         self,
         server_url=COMFYUI_URL,
         workflow_path=WORKFLOW_PATH,
+        ensure_running=None,
     ):
         self.server_url = server_url.rstrip("/")
         self.workflow_path = Path(workflow_path)
+
+        # Optional: called before generating, to start ComfyUI when
+        # it is not running. It raises RuntimeError if it cannot.
+        self._ensure_running = ensure_running
+
+    def ensure_running(self):
+        if self._ensure_running is not None:
+            self._ensure_running()
 
     def _request_json(
         self,

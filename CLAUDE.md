@@ -52,7 +52,31 @@ Rules for the spec:
   seed in `control_plane.py`. Its description is what the model chooses by, so say
   what it returns and when to prefer a neighbouring tool.
 - `src/freya/gpu/resource_manager.py` — Ollama/ComfyUI VRAM handoff.
-- `src/freya/voice/` — faster-whisper STT, Kokoro TTS. `src/freya/image/` — ComfyUI client.
+- `src/freya/voice/` — faster-whisper STT, Kokoro TTS, `wake.py` (deciding whether a
+  heard sentence is addressed to Freya), `listener.py` (utterance segmenting, the
+  attention window, and the background listener thread).
+- `src/freya/gateway/` — `server.py` (the loopback gateway: HTTP GET for the page and
+  images, one WebSocket for everything interactive) and `static/` (the window's page:
+  Chat and Images tabs). `src/freya/window.py` — opens that page in a standalone Edge
+  app window with its own browser profile, and builds the status strip.
+  `src/freya/events.py` — the event bus the console loop publishes to and the window
+  subscribes to. `src/freya/image/gallery.py` — Freya's own copies of generated images
+  in `data/images/`.
+- `src/freya/hands_free.py` — starts background listening and handles `/mute`,
+  `/unmute`, `/names`, `/name add|remove`. `src/freya/settings.py` — owner preferences
+  in `data/freya_settings.json` (currently the names Freya answers to).
+  `src/freya/turn_gate.py` — lets one turn run at a time, typed or spoken.
+- `src/freya/image/` — ComfyUI client. `src/freya/providers/image/comfyui.py` — the
+  `comfyui-local` provider. When an image is requested and ComfyUI is not answering,
+  Freya runs the ComfyUI server that Comfy Desktop installed, directly and with no
+  window (the Desktop app waits for a click before starting its server), using the
+  app's own model-path config and shared input/output folders. Output goes to
+  `data/comfyui_server.log`. Freya stops that server when she exits, and a Windows job
+  object ends it if her process dies without a normal exit; she never stops a ComfyUI
+  the owner started. `FREYA_COMFYUI_COMMAND` overrides how it is started. The
+  paths inside Comfy Desktop's install are discovered, not documented by its vendor, so
+  an app update could move them. Image generation itself still calls ComfyUI directly,
+  not through the broker.
 
 Known state: the system tools and every chat and embedding call run only through
 `CapabilityBroker`, which checks policy (deny by default), checks availability, writes
@@ -73,8 +97,56 @@ tool calling. Requested tools run through the broker, their JSON results go back
 the model, and it answers in its own words; at most three tool rounds per turn. The
 offered tools take no arguments, and arguments the model invents are discarded. Tool
 results are untrusted content from the model's point of view. The tool exchange is not
-kept in conversation history. Before adding a tool that takes arguments or has effects,
-decide how its arguments are validated and authorized.
+kept in conversation history. A tool that takes arguments declares them in its metadata
+(`tool_parameters`); `ModelToolHost` passes only declared arguments and requires each
+to be non-empty text within its declared length. `image.generate` is the one such tool:
+it is provided by Freya's in-process image service (`image-service-local`), which starts
+ComfyUI on demand and unloads the Ollama models while it runs, so the reply after an
+image waits for the model to reload. It has a local, reversible effect; before adding a
+tool with a consequential effect, decide how it is authorized, including whether a
+spoken request may trigger it.
+
+Always-on listening: the microphone stays open on a background thread while the
+keyboard prompt waits. Every utterance is transcribed locally and then discarded unless
+it is addressed to one of Freya's names at the start or end of the sentence; the name
+alone opens a ten-second window for one follow-up sentence. Typed turns run on the main
+thread and spoken turns on the listener thread, serialized by `TurnGate`, which is why
+the memory database connection allows cross-thread use. The microphone is ignored
+while Freya is speaking or handling a turn; she cannot be interrupted by voice. Voice
+is ambient input and is not authentication: before any tool with effects exists,
+decide what spoken requests may trigger (see proposed NEW-I).
+
+Two ways to start: `freya` (console plus window) and `freya-window`
+(`freya/launcher.py`, no console). The console-free launcher points stdout and stderr at
+`data/freya.log` before importing anything heavy, because a program without a console
+has nowhere to print and some libraries fail when they try. In that mode Freya exits
+about eight seconds after her last window closes, or after two minutes if none ever
+connects, so she is never left running unseen with the microphone open. Only one Freya
+runs per user (`single_instance.py`, a named mutex; `FREYA_ALLOW_MULTIPLE=1` lifts it
+for tests).
+
+The terminal inside the window: `console_tee.py` copies everything printed (to the
+real terminal or the log) into a bounded history and onto the event bus. Typing
+`/terminal` or `/console` in the window's chat reveals a Console tab that shows it.
+Text starting with a slash in the chat or the Console tab is sent as a `command`
+message and run by `window_commands.py`, which handles the same commands as the
+terminal loop (`/names`, `/name add|remove`, `/mute`, `/unmute`, `/interrupt`,
+`/image`, `/help`, and `exit` when there is no terminal). `/talk`, `/listen`,
+`/conversation`, and `/voice-file` need a real keyboard prompt and are explained
+rather than run. The two command paths (the loop in `main.py` and
+`window_commands.py`) are separate code; keep them in step.
+
+The window: Freya opens it at startup (`FREYA_WINDOW=0` disables that; `/window`
+reopens it). The gateway binds `127.0.0.1` only, port 8770 or a free one. A request is
+accepted only with a matching Host header and a session cookie, which is issued once in
+exchange for a single-use key in the address Freya opens; the WebSocket also requires
+this server as its Origin. This is a first step, not the authenticated gateway of the
+baseline: there is no pairing, no per-client scope, and window turns are attributed to
+the same fixed `local-owner` principal. The page shows everything with `textContent`
+and a strict Content-Security-Policy, because replies and tool results are untrusted.
+The window can only ask for a chat turn, an image, mute/unmute, or stopping speech;
+add new message types deliberately. `main.py` publishes conversation and image events
+on a module-level `EVENTS` bus; the console still prints as before.
 
 Audit log: `data/freya_control.db` holds policy rules and the append-only, hash-chained
 `audit_event` table. It is verified at startup; if verification fails, the broker
@@ -85,8 +157,9 @@ administrator. SQLite durability settings are provisional pending ADR-015; each 
 invocation currently costs roughly 30–60 ms in synchronous writes. Default policy rules
 are applied once per named seed (`policy_seed` table), so removed rules stay removed.
 
-`tests/` covers the registries, tool modules, policy, audit, broker, and model runtime,
-using a fake Ollama client (`tests/conftest.py`); `voice/stt_test.py` and
+`tests/` covers the registries, tool modules, policy, audit, broker, model runtime,
+name matching, the listener, and the listening commands, using a fake Ollama client
+(`tests/conftest.py`) and scripted microphone blocks; `voice/stt_test.py` and
 `voice/tts_test.py` are manual scripts, not automated tests. `memory_manager.py` locates
 `data/` relative to the source tree, so it only works from an editable install.
 
