@@ -6,7 +6,7 @@ decisions settle how this design should proceed. They do not approve any ADR, ad
 the pending amendments into the architecture, or assign requirement IDs; those
 remain matters for reconciliation.
 
-- Requirements in this document carry provisional labels **NEW-M to NEW-X**. They
+- Requirements in this document carry provisional labels **NEW-M to NEW-Y**. They
   continue from the pending amendments NEW-A to NEW-L and, like them, get final IDs
   only at reconciliation. No existing requirement or ADR ID is reused.
 - Where this document cites NEW-A to NEW-L it is citing **pending proposals**, not
@@ -111,6 +111,22 @@ These facts shape the prerequisites. They come from `CLAUDE.md` and the code on
   local interface, and Freya says which operations are paused and why. Local
   capabilities, including Ollama when its models and services are present, carry on
   (baseline failure table: "Internet lost").
+
+### Added requirement: changing her own code with no connection
+
+Stated by the owner on 2026-10-08, after the decisions in section 8.
+
+- **NEW-Y — Self-development does not depend on a remote.** Freya must be able to
+  change her own code while GitHub (or any remote host) cannot be reached. The whole
+  path works locally: propose, review, approve, apply, commit, bring the change into
+  the local main line, update the installed copy, and restart. Each step that has a
+  consequence is still separately approved (NEW-T). A pull request is a way to
+  publish and get further review when a connection exists; it is never a
+  precondition for a change taking effect.
+
+  This fits pending NEW-D, which requires "human review and the update path", not a
+  hosted pull request. Offline, the human review is the approval screen showing the
+  exact diff.
 
 ## 4. Design
 
@@ -225,7 +241,48 @@ Starting limits (decision D9), configurable and pending validation: 10 s to conn
 120 s in total, at most two retries for read-only operations. Operations with
 effects are never retried automatically; that is a rule (CAP-011), not a setting.
 
-### 4.6 Open item: starting with no internet
+### 4.6 Changing her own code with no connection (NEW-Y)
+
+`git` itself needs no network: history, branches, commits, and merges are all local.
+Only fetch, push, and pull requests reach a remote. So the offline path is:
+
+| Step | Where it happens | Needs a connection? | Approval |
+|---|---|---|---|
+| Propose, show the diff | staging, Core | No | none (a proposal changes nothing) |
+| Apply and commit | Freya's separate working copy | No | the patch; then the commit |
+| Merge into the local main line | local repository | No | its own |
+| Update the installed copy | installed copy, from an approved local commit | No | its own |
+| Restart | the running Freya | No | its own |
+| Push, open a pull request | remote | Yes; paused while offline | each its own, whenever a connection returns |
+
+What this adds to the design:
+
+- **Local review stands in for the pull request.** The approval screen is the
+  review. Because there is no second reviewer or CI run offline, the update step
+  shows the complete difference between the installed version and the commit being
+  installed, not just the last patch.
+- **The installed copy must be separate from the working copy.** Today Freya runs
+  directly from the development checkout (an editable install), so editing the
+  checkout edits the running program. Pending NEW-D says the deployed installation is
+  not a development working copy. Separating them is a prerequisite for this path.
+- **An update must be undoable without a connection.** Offline there is nowhere to
+  fetch a known-good copy from. The update step keeps the previous installed version
+  and, if the new one does not start and pass its start-up checks (including audit
+  verification), restores the previous one and says so. Going back is not a new
+  change and needs no new approval; going forward again does.
+- **Catching up later.** Local commits made offline are published only when the
+  owner approves a push. If the remote has moved in the meantime, that is a normal
+  divergence for the owner to resolve; Freya does not force-push or rewrite history.
+- **Checks.** Decision D6 still holds: Freya runs no repository code, her own
+  included, until isolation is validated. Until then an offline self-change is
+  reviewed by reading the diff, and the owner runs the tests.
+
+This does not by itself change *when* these steps are built. Decisions D2 and D7 put
+everything that changes files after the alpha, and merge, deploy, and restart later
+still. Whether NEW-Y moves local merge, update, and restart earlier is the open
+question D11 below.
+
+### 4.7 Open item: starting with no internet
 
 Freya's speech components load models through libraries that can contact a model
 hub. During the speech benchmark such a contact was observed from Freya's own
@@ -250,6 +307,9 @@ validated. Several are owner actions or pending ADRs.
    `dev.check` does not exist.
 6. Filesystem target resolution that resists traversal and link substitution
    (CAP-008).
+
+7. An installed copy of Freya that is separate from the development checkout, with
+   the previous version kept for going back (pending NEW-D; needed by NEW-Y).
 
 ## 6. Phases
 
@@ -320,6 +380,15 @@ A note on D8: the owner chose 60 minutes over the 15 proposed. A longer lifetime
 means an approval can be used later than it was given, so the binding in section
 4.4 carries the weight: whatever the lifetime, an approval is good for one use, of
 one exact patch, on a target whose files are still exactly what was shown.
+
+### Open after the decisions above
+
+- **D11. When are local merge, update, and restart built?** NEW-Y requires that they
+  exist and work offline. D7 placed merge, deploy, and restart "later, one at a
+  time". For remote merges that can stand. For the local path, either it is built
+  together with apply and commit (so a self-change can actually take effect
+  offline), or self-changes made offline wait as local commits until those steps
+  exist. Not yet decided.
 
 ## 9. Not covered
 
