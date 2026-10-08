@@ -90,6 +90,12 @@ GALLERY = None
 
 SHUTDOWN_WAIT_SECONDS = 30.0
 
+# Set when Freya begins to shut down. A reply being written stops at
+
+# its next piece instead of running to the end.
+
+SHUTTING_DOWN = threading.Event()
+
 
 
 
@@ -204,11 +210,25 @@ def stream_freya_response(
 
 
 
-    for chunk in freya.respond_stream(
+    reply = freya.respond_stream(
 
         user_input
 
-    ):
+    )
+
+    for chunk in reply:
+
+        if SHUTTING_DOWN.is_set():
+
+            # Closing the reply ends the model call and records
+
+            # its outcome while the audit log is still open.
+
+            reply.close()
+
+            speech_buffer = ""
+
+            break
 
         print(
 
@@ -976,6 +996,8 @@ def main(window_only=False):
     console_output.install()
 
     quit_requested = threading.Event()
+
+    SHUTTING_DOWN.clear()
 
     control_plane = build_local_control_plane()
 
@@ -1968,6 +1990,8 @@ def main(window_only=False):
         # being spoken, then wait for the turn in progress (from the
 
         # window or the microphone) before closing what turns use.
+
+        SHUTTING_DOWN.set()
 
         gate.close()
 

@@ -281,6 +281,63 @@ def test_closing_the_gate_releases_the_keyboards_hold(monkeypatch):
     assert gate.drain(WAIT) is True
 
 
+def test_reply_in_progress_stops_when_freya_shuts_down(monkeypatch):
+    from freya import main
+
+    closed = []
+    spoken = []
+    monkeypatch.setattr(main, "EVENTS", EventBus())
+    monkeypatch.setattr(main, "SHUTTING_DOWN", threading.Event())
+
+    class Assistant:
+        def respond_stream(self, text):
+            try:
+                yield "One. "
+                # Shutdown begins while the reply is being written.
+                main.SHUTTING_DOWN.set()
+                yield "Two. "
+                yield "Three. "
+            finally:
+                closed.append(True)
+
+    class Voice:
+        def speak(self, sentence):
+            spoken.append(sentence)
+
+    main.stream_freya_response(Assistant(), Voice(), "count")
+
+    chunks = [
+        e["text"] for e in main.EVENTS.history()
+        if e["type"] == "assistant_chunk"
+    ]
+    # The reply stopped at its next piece, the model call was closed,
+    # and the window was still told the reply had ended.
+    assert chunks == ["One. "]
+    assert spoken == ["One."]
+    assert closed == [True]
+    assert main.EVENTS.history()[-1]["type"] == "assistant_end"
+
+
+def test_server_thread_ends_quietly_when_its_socket_closes_under_it(
+    bus, gallery
+):
+    gateway = Gateway(bus, gallery, actions(), port=0)
+
+    class ClosedUnderneath:
+        def serve_forever(self):
+            raise OSError(10038, "not a socket")
+
+    gateway._server = ClosedUnderneath()
+
+    # While running, that is a real failure and is not hidden.
+    with pytest.raises(OSError):
+        gateway._serve()
+
+    # While stopping, it is just the server going away.
+    gateway._stopping.set()
+    gateway._serve()
+
+
 # -- 2. memory commands are rejected in the window ---------------------
 
 
