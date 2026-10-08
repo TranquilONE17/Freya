@@ -287,6 +287,32 @@ main {
   outline-offset: 2px;
 }
 
+.console {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  margin: 18px 0 14px;
+  padding: 14px 16px;
+  background: #0b0c10;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  color: #c9d1d9;
+  font: 13px/1.45 "Cascadia Mono", Consolas, monospace;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+#view-console .composer textarea,
+.prompt {
+  font: 13px/1.45 "Cascadia Mono", Consolas, monospace;
+}
+
+.prompt {
+  align-self: center;
+  padding-left: 6px;
+  color: var(--muted);
+}
+
 .working {
   margin: 14px 0 0;
   color: var(--warn);

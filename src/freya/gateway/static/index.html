@@ -13,6 +13,7 @@
     <nav class="tabs" role="tablist">
       <button class="tab is-active" role="tab" id="tab-chat" aria-selected="true" aria-controls="view-chat" data-view="chat">Chat</button>
       <button class="tab" role="tab" id="tab-images" aria-selected="false" aria-controls="view-images" data-view="images">Images <span class="badge" id="images-badge" hidden></span></button>
+      <button class="tab" role="tab" id="tab-console" aria-selected="false" aria-controls="view-console" data-view="console" hidden>Console</button>
     </nav>
 
     <div class="status" id="status" aria-live="polite">
@@ -31,7 +32,7 @@
       </div>
 
       <form class="composer" id="chat-form">
-        <textarea id="chat-input" rows="1" placeholder="Message Freya" aria-label="Message Freya" maxlength="4000"></textarea>
+        <textarea id="chat-input" rows="1" placeholder="Message Freya, or type /help for commands" aria-label="Message Freya" maxlength="4000"></textarea>
         <button type="button" class="ghost" id="stop-speaking" title="Stop her speaking">Stop voice</button>
         <button type="submit" class="primary">Send</button>
       </form>
@@ -48,6 +49,16 @@
       <div class="gallery" id="gallery">
         <p class="empty" id="gallery-empty">Images Freya generates will appear here.</p>
       </div>
+    </section>
+    <section class="view" id="view-console" role="tabpanel" aria-labelledby="tab-console">
+      <pre class="console" id="console-output" aria-live="off"></pre>
+
+      <form class="composer" id="console-form">
+        <span class="prompt" aria-hidden="true">You:</span>
+        <textarea id="console-input" rows="1" placeholder="Type a message or a /command" aria-label="Console input" maxlength="4000" spellcheck="false"></textarea>
+        <button type="button" class="ghost" id="console-hide" title="Hide the Console tab">Hide</button>
+        <button type="submit" class="primary">Enter</button>
+      </form>
     </section>
   </main>
 

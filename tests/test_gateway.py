@@ -22,6 +22,7 @@ class Recorder:
     def __init__(self, bus):
         self.bus = bus
         self.said = []
+        self.commands = []
         self.images = []
         self.muted = []
         self.interrupts = 0
@@ -34,7 +35,14 @@ class Recorder:
             set_muted=self.muted.append,
             interrupt=self.interrupt,
             status=lambda: {"microphone": "listening", "model": "healthy"},
+            run_command=self.run_command,
+            console_history=lambda: ["Freya online.", "You: "],
         )
+
+    def run_command(self, text):
+        self.commands.append(text)
+        self.bus.publish("console", text=f"You (window): {text}")
+        self.called.set()
 
     def say(self, text):
         self.said.append(text)
@@ -323,6 +331,29 @@ def test_failure_in_a_turn_is_reported_to_the_window(gateway, freya, bus):
         notice = receive(socket, "notice")
 
     assert "the model fell over" in notice["text"]
+
+
+def test_console_history_and_commands(gateway, freya):
+    with open_socket(gateway, sign_in(gateway)) as socket:
+        hello = receive(socket, "hello")
+        socket.send(json.dumps({"type": "command", "text": " /names "}))
+        line = receive(socket, "console")
+
+    assert hello["console"] == ["Freya online.", "You: "]
+    assert freya.commands == ["/names"]
+    assert line["text"] == "You (window): /names"
+    assert freya.said == []
+
+
+def test_page_offers_a_console_tab_opened_by_a_chat_command(gateway):
+    cookie = sign_in(gateway)
+
+    _, page = get(gateway, "/", cookie=cookie)
+    _, script = get(gateway, "/app.js", cookie=cookie)
+
+    assert b'id="tab-console"' in page and b'id="console-output"' in page
+    assert b'"terminal"' in script and b'"console"' in script
+    assert b'type: "command"' in script
 
 
 def test_gateway_knows_when_no_window_is_connected(gateway):

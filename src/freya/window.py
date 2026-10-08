@@ -38,6 +38,12 @@ class WindowActions:
     interrupt: Callable[[], None]
     status: Callable[[], dict]
 
+    # Run one of Freya's slash commands, as typed in the terminal.
+    run_command: Callable[[str], None] = lambda text: None
+
+    # What the terminal has shown so far, one entry per line.
+    console_history: Callable[[], list] = lambda: []
+
 
 def build_status(listener, settings, control_plane) -> dict:
     """

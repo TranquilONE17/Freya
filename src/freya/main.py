@@ -31,6 +31,9 @@ from freya.window import WINDOW_COMMAND
 from freya.window import FreyaWindow
 from freya.window import WindowActions
 from freya.window import build_status
+from freya.console_tee import ConsoleOutput
+from freya.window_commands import CommandContext
+from freya.window_commands import run_window_command
 from freya.single_instance import claim as claim_single_instance
 from freya.single_instance import show_message
 from freya.tools.tool_router import FreyaToolRouter
@@ -962,6 +965,14 @@ def main(window_only=False):
 
         return
 
+
+
+    console_output = ConsoleOutput(EVENTS)
+
+    console_output.install()
+
+    quit_requested = threading.Event()
+
     control_plane = build_local_control_plane()
 
     for message in control_plane.startup_messages():
@@ -1314,6 +1325,57 @@ def main(window_only=False):
     )
 
 
+    def command_from_window(text):
+
+        with gate.turn():
+
+            run_window_command(
+
+                text,
+
+                CommandContext(
+
+                    bus=EVENTS,
+
+                    voice=voice,
+
+                    listener=listener,
+
+                    settings=settings,
+
+                    window=window,
+
+                    normalize=normalize_command,
+
+                    run_image=lambda prompt: run_image_generation(
+
+                        image_generator,
+
+                        gpu_manager,
+
+                        prompt,
+
+                    ),
+
+                    publish_status=publish_status,
+
+                    request_quit=(
+
+                        quit_requested.set
+
+                        if window_only
+
+                        else None
+
+                    ),
+
+                ),
+
+            )
+
+            print("You: ", end="", flush=True)
+
+
     window = FreyaWindow(
 
         EVENTS,
@@ -1331,6 +1393,10 @@ def main(window_only=False):
             interrupt=voice.interrupt,
 
             status=current_status,
+
+            run_command=command_from_window,
+
+            console_history=console_output.history,
 
         ),
 
@@ -1360,7 +1426,13 @@ def main(window_only=False):
 
         # been closed, then leave as if 'exit' had been typed.
 
-        while not window.closed():
+        while not (
+
+            window.closed()
+
+            or quit_requested.is_set()
+
+        ):
 
             time.sleep(0.5)
 
@@ -1892,6 +1964,8 @@ def main(window_only=False):
         gate.close()
 
         window.stop()
+
+        console_output.uninstall()
 
         voice.shutdown()
 

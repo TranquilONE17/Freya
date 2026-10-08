@@ -9,11 +9,16 @@ const messages = $("messages");
 const gallery = $("gallery");
 const banner = $("banner");
 const imageWorking = $("image-working");
+const consoleOutput = $("console-output");
+
+const CONSOLE_LINE_LIMIT = 1000;
+const CONSOLE_SHOWN_KEY = "freya.consoleShown";
 
 let socket = null;
 let retryDelay = 500;
 let currentReply = null;
 let status = {};
+let consoleLines = [];
 
 const WHO = {
   window: "You",
@@ -63,6 +68,23 @@ function when(seconds) {
     dateStyle: "medium",
     timeStyle: "short",
   });
+}
+
+function remember(key, value) {
+  try {
+    if (value === null) localStorage.removeItem(key);
+    else localStorage.setItem(key, value);
+  } catch (error) {
+    // Storage can be unavailable; the tab then just starts hidden.
+  }
+}
+
+function recall(key) {
+  try {
+    return localStorage.getItem(key);
+  } catch (error) {
+    return null;
+  }
 }
 
 // -- conversation ------------------------------------------------------
@@ -123,6 +145,10 @@ function showEvent(event) {
       imageWorking.hidden = true;
       break;
 
+    case "console":
+      addConsoleLines([event.text]);
+      break;
+
     case "status":
       showStatus(event.status);
       break;
@@ -131,6 +157,48 @@ function showEvent(event) {
       addToChat(element("p", "notice", event.text));
       break;
   }
+}
+
+// -- console ---------------------------------------------------------
+
+function addConsoleLines(lines) {
+  const stick = nearBottom(consoleOutput);
+  consoleLines = consoleLines.concat(lines).slice(-CONSOLE_LINE_LIMIT);
+  consoleOutput.textContent = consoleLines.join("\n");
+  if (stick) consoleOutput.scrollTop = consoleOutput.scrollHeight;
+}
+
+function showConsoleTab(shown) {
+  $("tab-console").hidden = !shown;
+  remember(CONSOLE_SHOWN_KEY, shown ? "1" : null);
+  if (shown) {
+    showView("console");
+    consoleOutput.scrollTop = consoleOutput.scrollHeight;
+  } else if ($("view-console").classList.contains("is-active")) {
+    showView("chat");
+  }
+}
+
+function isCommand(text) {
+  return text.startsWith("/") || text.startsWith("\\");
+}
+
+// Typed text is a message for Freya unless it starts with a slash, in
+// which case it is one of her commands. Opening the Console tab is the
+// one command handled here in the window.
+function submitText(text) {
+  if (!isCommand(text)) {
+    return send({ type: "say", text });
+  }
+
+  const command = text.slice(1).trim().toLowerCase();
+
+  if (command === "terminal" || command === "console") {
+    showConsoleTab(true);
+    return true;
+  }
+
+  return send({ type: "command", text });
 }
 
 // -- images ----------------------------------------------------------
@@ -234,11 +302,14 @@ function connect() {
       $("chat-empty").hidden = false;
       $("gallery-empty").hidden = false;
       currentReply = null;
+      consoleLines = [];
       event.history.forEach(showEvent);
       finishReply();
       event.images.forEach((image) => addImage(image, false));
+      addConsoleLines(event.console || []);
       showStatus(event.status);
       messages.scrollTop = messages.scrollHeight;
+      consoleOutput.scrollTop = consoleOutput.scrollHeight;
       return;
     }
 
@@ -260,14 +331,14 @@ function autoGrow(box) {
   box.style.height = Math.min(box.scrollHeight, 180) + "px";
 }
 
-function wireComposer(formId, inputId, type) {
+function wireComposer(formId, inputId, deliver) {
   const form = $(formId);
   const input = $(inputId);
 
   const submit = () => {
     const text = input.value.trim();
     if (!text) return;
-    if (send({ type, text })) {
+    if (deliver(text)) {
       input.value = "";
       autoGrow(input);
     }
@@ -288,6 +359,12 @@ function wireComposer(formId, inputId, type) {
   input.addEventListener("input", () => autoGrow(input));
 }
 
+const VIEW_INPUT = {
+  chat: "chat-input",
+  images: "image-input",
+  console: "console-input",
+};
+
 function showView(name) {
   document.querySelectorAll(".tab").forEach((tab) => {
     const active = tab.dataset.view === name;
@@ -298,17 +375,20 @@ function showView(name) {
     view.classList.toggle("is-active", view.id === "view-" + name);
   });
   if (name === "images") $("images-badge").hidden = true;
-  $(name === "images" ? "image-input" : "chat-input").focus();
+  $(VIEW_INPUT[name]).focus();
 }
 
 document.querySelectorAll(".tab").forEach((tab) => {
   tab.addEventListener("click", () => showView(tab.dataset.view));
 });
 
-wireComposer("chat-form", "chat-input", "say");
-wireComposer("image-form", "image-input", "image");
+wireComposer("chat-form", "chat-input", submitText);
+wireComposer("console-form", "console-input", submitText);
+wireComposer("image-form", "image-input", (text) => send({ type: "image", text }));
 
 $("stop-speaking").addEventListener("click", () => send({ type: "interrupt" }));
+
+$("console-hide").addEventListener("click", () => showConsoleTab(false));
 
 $("pill-mic").addEventListener("click", () => {
   send({ type: "mute", muted: status.microphone === "listening" });
@@ -319,6 +399,8 @@ $("lightbox").addEventListener("click", closeLightbox);
 document.addEventListener("keydown", (event) => {
   if (event.key === "Escape") closeLightbox();
 });
+
+if (recall(CONSOLE_SHOWN_KEY)) $("tab-console").hidden = false;
 
 connect();
 $("chat-input").focus();

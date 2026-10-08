@@ -291,6 +291,7 @@ class Gateway:
                         "history": self._bus.history(),
                         "images": self._gallery.list(),
                         "status": self._actions.status(),
+                        "console": self._actions.console_history(),
                     }
                 )
             )
@@ -325,7 +326,7 @@ class Gateway:
 
         kind = message.get("type")
 
-        if kind in ("say", "image"):
+        if kind in ("say", "image", "command"):
             text = message.get("text")
 
             if not isinstance(text, str) or not text.strip():
@@ -366,8 +367,10 @@ class Gateway:
             try:
                 if kind == "say":
                     self._actions.say(text)
-                else:
+                elif kind == "image":
                     self._actions.generate_image(text)
+                else:
+                    self._actions.run_command(text)
             except Exception as exc:
                 self._bus.publish(
                     "notice",
