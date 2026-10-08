@@ -61,10 +61,18 @@ public:
         meta=(ClampMin="0.0", ClampMax="1.0"))
     float Volume = 1.0f;
 
-    /** Delay between feeding the solver and starting the sound, to line lips up with voice. */
+    /**
+     * Delay between feeding the solver and starting the sound, to line lips up with
+     * voice. Measured on this project with isolated words: the jaw moves about 0.8 to
+     * 0.9 s after the solver is given the sound, so the sound waits that long.
+     */
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Freya Probe|Playback",
-        meta=(ClampMin="0", ClampMax="500"))
-    int32 AudibleDelayMilliseconds = 80;
+        meta=(ClampMin="0", ClampMax="1500"))
+    int32 AudibleDelayMilliseconds = 900;
+
+    /** Keep adjusting the delay from what is measured as she speaks. */
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Freya Probe|Playback")
+    bool bCalibrateDelay = false;
 
     UFUNCTION(BlueprintCallable, Category="Freya Probe")
     bool InitializeProbe();
@@ -105,6 +113,7 @@ protected:
 
 private:
     void AutoStart();
+    void TrackSync();
     void ConfigureFace();
     void BeginAudiblePlayback();
     void StopAudiblePlayback();
@@ -121,6 +130,14 @@ private:
     double SpeechStartedAt = 0.0;
     bool bVoiceStarted = false;
     bool bSpeechOpen = false;
+    /** For measuring how far the lips are from the voice. */
+    TArray<float> LoudnessBins;
+    TArray<double> JawTimes;
+    TArray<float> JawValues;
+    int32 JawIndex = -1;
+    double FirstFedAt = 0.0;
+    int32 LastLipDelayMilliseconds = 0;
+    float LastLipMatch = 0.0f;
     float PeakCurve = 0.0f;
     int32 CurvesAtPeak = 0;
     double FixtureStartedAt = 0.0;
