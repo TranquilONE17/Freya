@@ -19,6 +19,7 @@ let retryDelay = 500;
 let currentReply = null;
 let status = {};
 let consoleLines = [];
+let replaying = false;
 
 const WHO = {
   window: "You",
@@ -134,10 +135,16 @@ function showEvent(event) {
       break;
 
     case "image_ready":
-      imageWorking.hidden = true;
-      addImage(event.image, true);
-      if (!$("view-images").classList.contains("is-active")) {
-        $("images-badge").hidden = false;
+      finishReply();
+      addChatImage(event.image);
+      // When an earlier conversation is being replayed, the gallery is
+      // filled from its own list instead.
+      if (!replaying) {
+        imageWorking.hidden = true;
+        addImage(event.image, true);
+        if (!$("view-images").classList.contains("is-active")) {
+          $("images-badge").hidden = false;
+        }
       }
       break;
 
@@ -226,6 +233,28 @@ function addImage(image, newest) {
   }
 }
 
+// The same image, shown in the conversation where it was asked for.
+function addChatImage(image) {
+  const bubble = element("div", "message from-freya has-image");
+  bubble.appendChild(element("span", "who", "Freya"));
+
+  // The picture changes the height of the chat once it arrives, so
+  // decide now whether the chat should stay at the bottom then.
+  const stick = replaying || nearBottom(messages);
+
+  const picture = element("img");
+  picture.src = "/images/" + encodeURIComponent(image.id);
+  picture.alt = image.prompt;
+  picture.addEventListener("click", () => openLightbox(image));
+  picture.addEventListener("load", () => {
+    if (stick) messages.scrollTop = messages.scrollHeight;
+  });
+
+  bubble.appendChild(picture);
+  bubble.appendChild(element("span", "caption", image.prompt));
+  addToChat(bubble);
+}
+
 function openLightbox(image) {
   $("lightbox-image").src = "/images/" + encodeURIComponent(image.id);
   $("lightbox-image").alt = image.prompt;
@@ -303,7 +332,9 @@ function connect() {
       $("gallery-empty").hidden = false;
       currentReply = null;
       consoleLines = [];
+      replaying = true;
       event.history.forEach(showEvent);
+      replaying = false;
       finishReply();
       event.images.forEach((image) => addImage(image, false));
       addConsoleLines(event.console || []);

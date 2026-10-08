@@ -209,6 +209,25 @@ main {
   align-self: flex-start;
 }
 
+.message.has-image {
+  max-width: min(420px, 78%);
+}
+
+.message.has-image img {
+  display: block;
+  width: 100%;
+  margin: 4px 0 8px;
+  border-radius: 8px;
+  cursor: zoom-in;
+  background: var(--panel-raised);
+}
+
+.message .caption {
+  display: block;
+  color: var(--muted);
+  font-size: 13px;
+}
+
 .message.is-writing::after {
   content: "▍";
   color: var(--accent);
