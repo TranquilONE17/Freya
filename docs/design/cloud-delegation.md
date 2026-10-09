@@ -538,12 +538,16 @@ Accepted, not yet done:
   days and a changed reset time no longer moves what was already counted. Later
   periods are assumed to follow at the stated length until the provider's dates are
   given (`set_period`).
-- **Exact identity of what was measured.** Reports name the model asked for, not the
-  digest of a local model or the model a cloud route actually served, and a cloud
-  report records thinking and size settings the route never applied.
-- **Grading.** Several checks look for words and limits, so a reply that contradicts
-  the text can pass, and two reject valid replies. To be tightened once the running
-  benchmark batch has finished, then every stored reply graded again.
+- **Exact identity of what was measured.** Fixed: a report now records the digest of
+  the local model, or the model a cloud route served, says when more than one model
+  answered (the record then refuses it), records only settings that were applied, and
+  names the exact set of tasks it was measured on. The runner also refuses to measure
+  a cloud-backed Ollama model as a local one, which Codex's branch review found.
+- **Grading.** Tightened: the checks Codex showed could be passed by a reply with the
+  right words and the wrong meaning now refuse those replies, and the two that
+  refused valid replies accept them. They remain checks of form and stated facts. A
+  reply can still be wrong in a way no pattern catches, so a pass means the automatic
+  checks passed, not that a person would agree.
 
 Decided by the owner after the review:
 

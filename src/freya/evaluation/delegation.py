@@ -8,7 +8,12 @@ import statistics
 import sys
 import time
 
-from freya.evaluation.delegation_tasks import KINDS, TASKS, tasks_of
+from freya.evaluation.delegation_tasks import (
+    KINDS,
+    TASKS,
+    suite_version,
+    tasks_of,
+)
 
 
 OLLAMA_HOST = "http://127.0.0.1:11434"
@@ -32,11 +37,24 @@ def local_route(model, request_timeout, context_tokens, output_tokens, think=Non
     """
     import ollama
 
-    client = ollama.Client(host=OLLAMA_HOST, timeout=request_timeout)
-    installed = {entry.model for entry in client.list().models}
+    from freya.providers.model.ollama import runs_elsewhere
 
-    if model not in installed and f"{model}:latest" not in installed:
+    # Pinned to this machine, with proxies ignored, like the provider.
+    client = ollama.Client(
+        host=OLLAMA_HOST, timeout=request_timeout, trust_env=False,
+    )
+    installed = {entry.model: entry.digest for entry in client.list().models}
+    name = model if model in installed else f"{model}:latest"
+
+    if name not in installed:
         raise RuntimeError(f"Required model is not installed: {model}")
+    if runs_elsewhere(model):
+        # A model Ollama runs on its own servers is a cloud model,
+        # whatever address it is asked at.
+        raise RuntimeError(
+            f"{model} does not run on this machine, so it cannot be "
+            "measured as a local model."
+        )
 
     def ask(brief):
         response = client.chat(
@@ -52,6 +70,7 @@ def local_route(model, request_timeout, context_tokens, output_tokens, think=Non
             "text": response["message"]["content"] or "",
             "input_tokens": response.get("prompt_eval_count") or 0,
             "output_tokens": response.get("eval_count") or 0,
+            "served_by": installed[name],
         }
 
     return ask
@@ -81,6 +100,7 @@ def claude_plan_route(model, request_timeout):
             "input_tokens": reply.input_tokens,
             "output_tokens": reply.output_tokens,
             "served_by": reply.model,
+            "truncated": reply.truncated,
         }
 
     return ask
@@ -106,6 +126,9 @@ def run_task(task, ask):
         }
 
     problem = task.grade(answer.get("text"))
+
+    if problem is None and answer.get("truncated"):
+        problem = "The reply was cut short."
 
     return {
         "task": task.name,
@@ -209,12 +232,14 @@ def main(argv=None):
         "created_at": datetime.now(timezone.utc).isoformat(),
         "route": route,
         "model": args.model,
-        # A result belongs to a model together with these settings.
-        "settings": {
+        # A result belongs to a model together with the settings that
+        # were really applied. The cloud route takes none of these.
+        "settings": {} if args.claude_plan else {
             "think": args.think or "default",
             "context_tokens": args.context_tokens,
             "output_tokens": args.output_tokens,
         },
+        "suite": suite_version(),
         "trials": args.trials,
         "tasks": len(selected),
         "grading": "Deterministic checks on synthetic tasks; no reply is executed.",
@@ -245,6 +270,14 @@ def main(argv=None):
                 attempt["trial"] = trial
                 attempts.append(attempt)
                 report["summary"] = summarize(attempts)
+                # What actually answered: a local model's digest, or
+                # the model a cloud route served. More than one means
+                # the report measures no single model.
+                served = sorted({
+                    a["served_by"] for a in attempts if a.get("served_by")
+                })
+                report["identity"] = served[0] if len(served) == 1 else None
+                report["mixed_models"] = len(served) > 1
                 # Keep what is finished if a later task fails.
                 output.seek(0)
                 output.truncate()

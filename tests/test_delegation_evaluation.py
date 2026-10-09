@@ -81,6 +81,36 @@ def test_checks_accept_what_real_models_wrote():
     ) is None
 
 
+def test_replies_that_contradict_the_text_do_not_pass():
+    # Each of these has the right words and the wrong meaning.
+    assert task("incident-summary").grade(
+        "On Tuesday the pump was not replaced; the bearing was fine."
+    ) is not None
+    assert task("decision-sentence").grade("June. Nothing was decided.") is not None
+    assert task("what-changed").grade(
+        "Notice is 40 days; the fee is 30."
+    ) is not None
+    assert task("one-sentence-no-and").grade(
+        "Tuesday had 42 intact crates, two stayed forever."
+    ) is not None
+    assert task("slow-clock").grade(
+        "ANSWER: 19:12 is wrong; it shows 20:00"
+    ) is not None
+
+
+def test_valid_replies_an_earlier_check_refused_now_pass():
+    assert task("third-person").grade(
+        "Mara moved to Lisbon 3 years ago and she still misses her old garden."
+    ) is None
+    assert task("headline").grade(
+        "Volunteers Open Community Green Space This Saturday"
+    ) is None
+    assert task("what-changed").grade(
+        "The notice period is now 30 days, up from 14, and the cleaning fee "
+        "is 40, up from 25."
+    ) is None
+
+
 def test_checks_still_refuse_what_real_models_got_wrong():
     assert task("stock-filter").grade(
         '[["Linen napkins", "Clay mug", "Oak board"]]'
@@ -474,6 +504,8 @@ def test_a_report_is_written_and_never_overwritten(tmp_path, monkeypatch):
     report = json.loads(output.read_text(encoding="utf-8"))
 
     assert code == 0
+    assert len(report["suite"]) == 12
+    assert report["identity"] is None and report["mixed_models"] is False
     assert report["settings"]["think"] == "default"
     assert report["route"] == "ollama-local"
     assert len(report["attempts"]) == 14
@@ -483,6 +515,74 @@ def test_a_report_is_written_and_never_overwritten(tmp_path, monkeypatch):
         delegation.main([
             "--model", "pretend", "--output", str(output),
         ])
+
+
+def test_a_report_names_what_answered_or_says_it_was_mixed(tmp_path, monkeypatch):
+    replies = {t.brief: t.reference for t in TASKS}
+    served = iter(["digest-one"] * 100)
+
+    def route(*args):
+        def ask(brief):
+            return {"text": replies[brief], "served_by": next(served),
+                    "input_tokens": 1, "output_tokens": 1}
+        return ask
+
+    monkeypatch.setattr(delegation, "local_route", route)
+    one = tmp_path / "one.json"
+    delegation.main(["--model", "pretend", "--kind", "planning", "--trials", "1",
+                     "--output", str(one)])
+    report = json.loads(one.read_text("utf-8"))
+    assert report["identity"] == "digest-one" and not report["mixed_models"]
+
+    served = iter(["digest-one", "digest-two"] * 100)
+    two = tmp_path / "two.json"
+    delegation.main(["--model", "pretend", "--kind", "planning", "--trials", "1",
+                     "--output", str(two)])
+    mixed = json.loads(two.read_text("utf-8"))
+    assert mixed["identity"] is None and mixed["mixed_models"]
+
+    from freya.delegation.record import ModelRecord
+    record = ModelRecord(tmp_path / "record.json")
+    record.add_report(report)
+    with pytest.raises(ValueError):
+        record.add_report(mixed)
+
+
+def test_a_cut_short_reply_does_not_pass():
+    item = task("tank-fill")
+
+    attempt = delegation.run_task(
+        item, lambda brief: {"text": item.reference, "truncated": True},
+    )
+
+    assert attempt["status"] == "failed"
+    assert "cut short" in attempt["problem"]
+
+
+def test_a_cloud_backed_model_is_not_measured_as_local(monkeypatch):
+    import ollama
+
+    class Entry:
+        def __init__(self, model):
+            self.model, self.digest = model, "digest"
+
+    class Listed:
+        models = [Entry("big-model:cloud"), Entry("plain:latest")]
+
+    class Client:
+        def __init__(self, **kwargs):
+            assert kwargs["host"] == "http://127.0.0.1:11434"
+            assert kwargs["trust_env"] is False
+
+        def list(self):
+            return Listed()
+
+    monkeypatch.setattr(ollama, "Client", Client)
+
+    with pytest.raises(RuntimeError) as refused:
+        delegation.local_route("big-model:cloud", 10, 1024, 256)
+
+    assert "does not run on this machine" in str(refused.value)
 
 
 def test_a_failed_preflight_is_reported(tmp_path, monkeypatch):
