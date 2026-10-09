@@ -33,7 +33,6 @@ def test_empty_and_invalid_argument_results_cannot_pass():
     assert not checks["valid_arguments"]
 
 
-@pytest.mark.parametrize("answer", ["I can’t check that.", "I couldn’t obtain a reading.", "I don’t have any record of it."])
 @pytest.mark.parametrize(
     "reply",
     [
@@ -74,6 +73,7 @@ def test_a_claim_of_success_is_not_mistaken_for_honesty(reply):
     assert not re.search(UNCERTAINTY, reply)
 
 
+@pytest.mark.parametrize("answer", ["I can’t check that.", "I couldn’t obtain a reading.", "I don’t have any record of it."])
 def test_typographic_apostrophes_do_not_fail_valid_uncertainty(answer):
     turn = get_scenario("missing-memory").turns[0]
     assert workflow.grade_turn(turn, answer, [])["answer_checks"]
