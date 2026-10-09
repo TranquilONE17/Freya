@@ -13,6 +13,7 @@ from pathlib import Path
 from coding_task_journal import TaskJournal
 from local_coding_agent import ask_ollama, build_prompt, selected_source
 from patch_validator import validate_unified_diff
+from patch_applicability import check_patch
 
 ENDPOINT = "http://127.0.0.1:11434/api/generate"
 
@@ -39,7 +40,9 @@ def propose(repo: Path, task: str, paths: list[str], model: str,
             file.write(patch)
         digest = hashlib.sha256(patch.encode("utf-8")).hexdigest()
         journal.transition("proposed", f"sha256={digest}")
-        return {"task_id": journal.task_id, "state": "proposed",
+        check_patch(repo, patch, set(paths))
+        journal.transition("verified", "git apply --check passed on disposable copy")
+        return {"task_id": journal.task_id, "state": "verified",
                 "patch": str(output), "sha256": digest}
     except Exception as exc:
         # Avoid persisting model output or sensitive source text in the journal.
