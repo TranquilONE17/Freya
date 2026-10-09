@@ -96,6 +96,15 @@ corrections are kept:
   setting; marking it not private only stops its words from holding a brief that
   happens to contain them.
 
+Screening and the two lists are built (`freya.delegation.screening`: `screen_brief`,
+`Corrections`, kept in `data/screening_corrections.json`) and tested with made-up
+memories. A brief is held when it contains a name, address or long number from a
+memory, four words in a row copied from one, an always-private phrase, or, when the
+caller supplies a closeness measure, a sentence close in meaning to one. Not yet
+built: reading the real memory store and its embeddings into it, the hold prompt in
+the window, and the local record of sent briefs. Four copied words in a row will
+sometimes be an ordinary phrase; that is what "this is not private" is for.
+
 This is a strong filter, not a proof. Screening catches copied and closely restated
 material; a loose paraphrase or an inference can pass. The owner's prompts, the local
 record and the per-provider switches are what bound the remainder.
