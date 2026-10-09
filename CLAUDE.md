@@ -139,6 +139,16 @@ file means the strict defaults; a part of unknown kind never leaves; an approval
 cannot release a kind set to never; nothing is sendable to a provider that is off.
 Nothing sends a brief yet.
 
+Brief screening: `freya.delegation.screening.screen_brief` compares a brief bound for
+a cloud model with (id, text) pairs from the personal store and returns what matched;
+any match holds the brief. `Corrections` (`data/screening_corrections.json`) holds the
+owner's "not private" and "always private" phrases and memories. Keep these rules:
+always-private wins over not-private; a not-private entry clears one phrase or one
+memory, never a kind; a damaged file means no corrections; entries are made only by
+the owner. It is a filter, not a guarantee, and a test records a paraphrase that
+passes so nobody claims otherwise. Tests use made-up memories only. Nothing calls it
+yet.
+
 Model record: `freya.delegation.record.ModelRecord` keeps, in
 `data/model_record.json`, what evaluation reports measured for each entry (a route, a
 model and its settings together) by kind of task: counts and timings only. `choose`
