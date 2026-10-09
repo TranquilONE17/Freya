@@ -21,7 +21,7 @@ class SameJournalConcurrencyTests(unittest.TestCase):
                     return False
 
             with ThreadPoolExecutor(max_workers=2) as pool:
-                outcomes = list(pool.map(finish, ["proposed", "failed"]))
+                outcomes = list(pool.map(finish, ["failed", "failed"]))
             self.assertEqual(sum(outcomes), 1)
             events = journal.read()
             self.assertEqual(len(events), 3)
