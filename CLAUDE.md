@@ -112,13 +112,17 @@ Rules for the spec:
   speaks).
   `src/freya/turn_gate.py` — lets one turn run at a time, typed or spoken.
 - `src/freya/image/` — ComfyUI client. `src/freya/providers/image/comfyui.py` — the
-  `comfyui-local` provider. When an image is requested and ComfyUI is not answering,
+  `comfyui-local` provider. As Freya comes online (unless `FREYA_COMFYUI_AT_START=0`),
+  and again whenever an image is requested and ComfyUI is not answering,
   Freya runs the ComfyUI server that Comfy Desktop installed, directly and with no
   window (the Desktop app waits for a click before starting its server), using the
   app's own model-path config and shared input/output folders. Output goes to
   `data/comfyui_server.log`. Freya stops that server when she exits, and a Windows job
   object ends it if her process dies without a normal exit; she never stops a ComfyUI
-  the owner started. `FREYA_COMFYUI_COMMAND` overrides how it is started. The
+  the owner started. `FREYA_COMFYUI_COMMAND` overrides how it is started. Starting it loads no image model; ComfyUI loads one at the first picture. Both
+  starts take `ControlPlane.image_start_lock`, so two servers are never launched. A
+  failed start says why when the server's log does (`failure_reason`), for example
+  when Windows Smart App Control blocks one of ComfyUI's files. The
   paths inside Comfy Desktop's install are discovered, not documented by its vendor, so
   an app update could move them. Image generation itself still calls ComfyUI directly,
   not through the broker.

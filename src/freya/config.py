@@ -35,6 +35,12 @@ COMFYUI_COMMAND = os.environ.get(
     "FREYA_COMFYUI_COMMAND"
 ) or None
 
+# Whether Freya starts the ComfyUI server as she comes online, so the
+# first image does not wait for it. No image model is loaded until a
+# picture is asked for. Set FREYA_COMFYUI_AT_START=0 to start it only
+# when a picture is first asked for.
+COMFYUI_AT_START = os.environ.get("FREYA_COMFYUI_AT_START", "1") != "0"
+
 # LibreHardwareMonitor's web server on this machine, which supplies
 # temperatures, fan speeds, and other sensor readings.
 SENSOR_URL = os.environ.get(
