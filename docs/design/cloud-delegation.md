@@ -143,8 +143,11 @@ confirms, changes a rule, changes a setting, or raises a cap.
 
 ## Limits and pacing
 
-Freya keeps a ledger per route in the control database (a new migration): each call's
-estimated and reported usage, each limit, how much of it is used, and when it resets.
+Freya keeps a ledger per route: each call's estimated and reported usage, each limit,
+how much of it is used, and when it resets. It is built (`freya.core.usage`,
+`UsageLedger`) and tested against made-up routes; nothing uses it yet. It has its own
+database, `data/freya_usage.db`, so the control database's schema is untouched. It
+holds amounts and times only, never prompts or replies.
 
 - **API routes.** Usage and remaining rate limits are read from each reply. Cost comes
   from a price table per model; a model with no price is refused. Money caps exist
