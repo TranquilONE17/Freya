@@ -6,6 +6,7 @@ The caller remains responsible for identity/policy authorization.
 from __future__ import annotations
 
 import json
+import contextlib
 import threading
 import os
 import time
@@ -21,6 +22,34 @@ def _journal_lock(path: Path):
     # Process-local serialization; cross-process locking remains a separate requirement.
     with _LOCKS_GUARD:
         return _JOURNAL_LOCKS.setdefault(str(path), threading.RLock())
+
+
+@contextlib.contextmanager
+def _process_lock(path: Path):
+    """Cross-process exclusive lock using standard-library OS file locking."""
+    lock_path = path.with_suffix(".lock")
+    with lock_path.open("a+b") as handle:
+        if os.name == "nt":
+            import msvcrt
+            handle.seek(0)
+            if handle.read(1) == b"":
+                handle.seek(0)
+                handle.write(b"0")
+                handle.flush()
+            handle.seek(0)
+            msvcrt.locking(handle.fileno(), msvcrt.LK_LOCK, 1)
+            try:
+                yield
+            finally:
+                handle.seek(0)
+                msvcrt.locking(handle.fileno(), msvcrt.LK_UNLCK, 1)
+        else:
+            import fcntl
+            fcntl.flock(handle.fileno(), fcntl.LOCK_EX)
+            try:
+                yield
+            finally:
+                fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
 
 
 STATES = ("requested", "generating", "proposed", "verified", "rejected", "failed")
@@ -77,7 +106,8 @@ class TaskJournal:
 
     def transition(self, state: str, details: str = "") -> TaskEvent:
         with _journal_lock(self.path):
-            return self._transition_locked(state, details)
+            with _process_lock(self.path):
+                return self._transition_locked(state, details)
 
     def _transition_locked(self, state: str, details: str = "") -> TaskEvent:
         if state not in STATES:
