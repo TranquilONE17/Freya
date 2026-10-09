@@ -69,6 +69,11 @@ def plain_spaces(text):
     """Models often write narrow or non-breaking spaces ("9\u202fam")."""
     return _SPACES.sub(" ", text)
 
+_RETRACTS = frozenset({
+    "wrong", "not", "isn't", "incorrect", "instead", "but", "actually",
+    "however", "rather",
+})
+
 JSON_ONLY = "Reply with JSON only, with no other text."
 ANSWER_LINE = (
     "You may explain briefly, then end with one line in exactly this "
@@ -187,10 +192,13 @@ def answer_is(*accepted):
         first = first.strip(".,:;)(*$")
         if first in wanted and len(answer.split()) > 1:
             # A longer answer may only add a unit or the option's text,
-            # not more values: "12" is not "12 / 14".
-            rest = answer.split()[1]
-            if rest[0].isdigit() or rest in ("/", "and", "or", ","):
+            # not more values or a retraction: "12" is not "12 / 14",
+            # and "19:12 is wrong; it shows 20:00" is not "19:12".
+            rest = answer.split()[1:]
+            if rest[0][0].isdigit() or rest[0] in ("/", "and", "or", ","):
                 return "The answer is wrong."
+            if _RETRACTS.intersection(word.strip(".,;:") for word in rest):
+                return "The answer is taken back in the same line."
         return None if first in wanted else "The answer is wrong."
 
     return check
@@ -336,7 +344,7 @@ def _check_title(reply):
         return "Longer than 8 words."
     if text.endswith("."):
         return "A title does not end with a full stop."
-    if not re.search("garden", text, re.IGNORECASE):
+    if not re.search(r"garden|green space|allotment", text, re.IGNORECASE):
         return "The garden is not mentioned."
     return None
 
@@ -345,7 +353,7 @@ def _check_third_person(reply):
     text = reply.strip()
     if re.search(r"\bI\b", text) or re.search(r"\b(my|me)\b", text, re.I):
         return "It is still in the first person."
-    for word in ("Mara", "Lisbon", "three"):
+    for word in ("Mara", "Lisbon", r"three|\b3\b"):
         if not re.search(word, text, re.IGNORECASE):
             return f"{word} is missing."
     return None
@@ -498,7 +506,12 @@ TASKS = (
         "Wednesday and found the bearing had not been greased since "
         "installation. The greasing schedule has been corrected, and line 4, "
         "which uses the same pump, will be inspected next week.",
-        text_rules(40, need=("pump", "tuesday", "replac", "bearing|greas")),
+        text_rules(
+            40,
+            need=("pump", "tuesday", "replac", "bearing|greas"),
+            forbid=(r"\bnot (been )?replaced\b", r"\b(was|were) fine\b",
+                    r"no (fault|failure)"),
+        ),
         "On Tuesday the line 2 cooling pump failed when an ungreased bearing "
         "seized. The standby pump took over with no loss, the pump was "
         "replaced on Wednesday, and greasing was rescheduled.",
@@ -513,7 +526,13 @@ TASKS = (
         "April to match the trade fair. After checking the test results, "
         "everyone agreed to move the launch to June and to show a demo at "
         "the fair instead.",
-        text_rules(30, need=("june",), forbid=("cancel",), lines=1),
+        text_rules(
+            30,
+            need=("june",),
+            forbid=("cancel", r"nothing was decided", r"no decision",
+                    r"not decided", "undecided"),
+            lines=1,
+        ),
         "The team agreed to move the launch from April to June and show a "
         "demo at the trade fair instead.",
         "The team decided to cancel the April launch.",
@@ -1074,9 +1093,14 @@ def _check_one_sentence(reply):
         return "Longer than 25 words."
     if re.search(r"\band\b", text, re.IGNORECASE):
         return "The word 'and' is used."
-    for pattern in ("tuesday", r"\b42\b", r"\btwo\b|\b2\b"):
+    for pattern in (
+        "tuesday", r"\b42\b", r"\btwo\b|\b2\b", r"damaged",
+        r"sent back|returned",
+    ):
         if not re.search(pattern, text, re.IGNORECASE):
             return f"Something required is missing ({pattern})."
+    if re.search(r"intact|undamaged|stayed|kept", text, re.IGNORECASE):
+        return "It says the opposite of the passage."
     return None
 
 
@@ -1231,8 +1255,14 @@ HARD_TASKS = (
         "New: Tenants must give 30 days' notice before leaving. A cleaning "
         "fee of 40 is charged. Pets are allowed with written consent. Keys "
         "are returned to the office.",
-        text_rules(40, need=(r"\b30\b", r"\b40\b", "notice", "fee"),
-                   forbid=("pet", "key")),
+        text_rules(
+            40,
+            # Each new figure must sit with the thing it belongs to.
+            need=(r"notice[^.]{0,60}\b30\b|\b30\b[^.]{0,25}notice",
+                  r"fee[^.]{0,60}\b40\b|\b40\b[^.]{0,25}fee"),
+            forbid=("pet", "key", r"notice[^.]{0,30}\b40\b",
+                    r"fee[^.]{0,30}\b30\b"),
+        ),
         "The notice period rises from 14 to 30 days, and the cleaning fee "
         "rises from 25 to 40.",
         "Notice is now 30 days and the fee is 40; pets still need consent "
@@ -1448,6 +1478,20 @@ HARD_TASKS = (
 )
 
 TASKS = TASKS + HARD_TASKS
+
+
+def suite_version() -> str:
+    """
+    A short name for this exact set of tasks. Results measured on one
+    set are not comparable with results measured on another.
+    """
+    import hashlib
+
+    digest = hashlib.sha256()
+    for task in TASKS:
+        digest.update(task.name.encode("utf-8"))
+        digest.update(task.brief.encode("utf-8"))
+    return digest.hexdigest()[:12]
 
 
 def tasks_of(kinds=None):
