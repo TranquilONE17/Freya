@@ -222,6 +222,32 @@ def test_impossible_results_are_refused_and_nothing_is_recorded(record, change):
     assert record.entries() == []
 
 
+def test_results_do_not_carry_over_to_a_different_exact_model(record):
+    first = report("small", 19, kind="extraction")
+    first["identity"] = "digest-one"
+    entry = record.add_report(first)
+    second = report("small", 12, kind="planning")
+    second["identity"] = "digest-two"
+
+    record.add_report(second)
+
+    assert record.result(entry, "extraction") is None
+    assert record.result(entry, "planning").passed == 12
+
+
+def test_damaged_stored_counts_measure_nothing(tmp_path):
+    path = tmp_path / "model_record.json"
+    entry = add(ModelRecord(path), "small", 18)
+    stored = json.loads(path.read_text("utf-8"))
+    stored["entries"][entry]["kinds"]["extraction"]["passed"] = 500
+    path.write_text(json.dumps(stored), encoding="utf-8")
+
+    damaged = ModelRecord(path)
+
+    assert damaged.result(entry, "extraction") is None
+    assert choose([Candidate(entry)], "extraction", "low", damaged).basis == UNMEASURED
+
+
 def test_a_report_answered_by_more_than_one_model_is_refused(record):
     mixed = report("claude", 18, route="anthropic-plan")
     mixed["mixed_models"] = True

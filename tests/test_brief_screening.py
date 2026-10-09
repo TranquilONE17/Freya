@@ -129,7 +129,11 @@ def test_always_private_wins_over_not_private(corrections):
     corrections.mark_not_private(phrase="Oriel")
     corrections.mark_always_private(memory_id="1")
 
-    assert screen_brief("A note for Oriel.", MEMORIES, corrections).held
+    result = screen_brief("A note for Oriel.", MEMORIES, corrections)
+
+    assert result.held
+    # However it matched, it is reported as always private.
+    assert kinds(result) == [MATCH_ALWAYS_PRIVATE]
 
 
 def test_corrections_are_kept_listed_and_removable(tmp_path):

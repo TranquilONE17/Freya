@@ -152,9 +152,12 @@ the only place a brief may leave from: `authorize` checks the provider switch, t
 material sorting, screening and the ledger and reserves usage; `send` takes only an
 authorization it issued, for that exact text (by hash), once, within two minutes,
 with unchanged settings, then settles the ledger and appends to the owner's record
-`data/sent_briefs.jsonl` (personal data, never the audit log). Do not add a prose
+`data/sent_briefs.jsonl` (personal data, never the audit log). `authorize` trusts nothing a composed brief says about itself: it sorts the
+parts again and requires the text to equal what they assemble to. The plan's value
+and urgent flag are suggestions; the caller passes the owner's. Do not add a prose
 field to the plan, do not show the writer anything not cleared to leave, and do not
-call a route's `ask` from anywhere but the dispatcher. Nothing in the running Freya
+call a route's `ask` from anywhere but the dispatcher (the Claude capability checks
+`Dispatcher.in_flight`). Nothing in the running Freya
 uses these yet.
 
 Brief screening: `freya.delegation.screening.screen_brief` compares a brief bound for

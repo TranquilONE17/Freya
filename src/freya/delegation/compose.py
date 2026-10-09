@@ -53,14 +53,19 @@ class AvailableInput:
 class DelegationPlan:
     """
     What the main model may decide about handing work over: the kind
-    of task, its value, whether it is urgent, and which available
-    inputs go with it. It holds no free text, on purpose.
+    of task and which available inputs go with it. It holds no free
+    text, on purpose.
+
+    The model may also suggest a value and that the task is urgent.
+    Those are suggestions to put to the owner. They never reach the
+    usage ledger from here: the value and urgency a task is sent with
+    are passed to the dispatcher by the caller acting for the owner.
     """
 
     kind: str
-    value: str
-    urgent: bool
     inputs: Tuple[str, ...]
+    suggested_value: str = VALUE_NORMAL
+    suggested_urgent: bool = False
 
 
 def parse_plan(raw, available: Sequence[AvailableInput]) -> DelegationPlan:
@@ -104,7 +109,7 @@ def parse_plan(raw, available: Sequence[AvailableInput]) -> DelegationPlan:
     if len(set(inputs)) != len(inputs):
         raise PlanRefused("The plan names an input twice.")
 
-    return DelegationPlan(raw["kind"], value, urgent, tuple(inputs))
+    return DelegationPlan(raw["kind"], tuple(inputs), value, urgent)
 
 
 def writer_messages(kind: str, parts: Sequence[BriefPart]) -> List[dict]:
@@ -139,17 +144,32 @@ class ComposedBrief:
     """
     A brief for one provider. `text` is None until every kind of
     material in it is cleared; `review` says what is still waiting.
+
+    `parts`, `approved_kinds` and `revision` are kept so that the
+    dispatcher can sort the material again and confirm the text,
+    rather than take this object's word for it.
     """
 
     provider: str
     plan: DelegationPlan
     review: BriefReview
+    parts: Tuple[BriefPart, ...] = ()
+    approved_kinds: FrozenSet[str] = frozenset()
+    revision: int = -1
     text: Optional[str] = None
     instructions: str = ""
 
     @property
     def ready(self) -> bool:
         return self.text is not None
+
+
+def assemble_brief(instructions: str, parts: Sequence[BriefPart]) -> str:
+    """The final text of a brief. Code builds it; a model does not."""
+    material = "\n\n".join(
+        f"[{number}]\n{part.text}" for number, part in enumerate(parts, 1)
+    )
+    return f"TASK\n{instructions}\n\nMATERIAL\n{material}"
 
 
 def compose_brief(
@@ -174,13 +194,19 @@ def compose_brief(
     requests = [item for item in by_id.values() if item.kind == KIND_REQUEST]
     ordered = requests + [item for item in chosen if item not in requests]
 
-    parts = [
+    parts = tuple(
         BriefPart(item.kind, item.text, item.input_id) for item in ordered
-    ]
+    )
+    revision = settings.revision
     review = review_brief(parts, provider, settings, approved_kinds)
+    common = dict(
+        parts=parts,
+        approved_kinds=frozenset(approved_kinds),
+        revision=revision,
+    )
 
     if not review.ready or not review.send:
-        return ComposedBrief(provider, plan, review)
+        return ComposedBrief(provider, plan, review, **common)
 
     instructions = writer(writer_messages(plan.kind, review.send))
 
@@ -188,15 +214,12 @@ def compose_brief(
         raise PlanRefused("The brief writer returned nothing.")
 
     instructions = instructions.strip()[:MAX_INSTRUCTION_CHARACTERS]
-    material = "\n\n".join(
-        f"[{number}]\n{part.text}"
-        for number, part in enumerate(review.send, 1)
-    )
 
     return ComposedBrief(
         provider,
         plan,
         review,
-        text=f"TASK\n{instructions}\n\nMATERIAL\n{material}",
+        text=assemble_brief(instructions, review.send),
         instructions=instructions,
+        **common,
     )

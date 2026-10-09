@@ -21,7 +21,9 @@ CLAUDE_PROGRAM_VARIABLE = "FREYA_CLAUDE"
 
 DEFAULT_TIMEOUT_SECONDS = 180
 SIGN_IN_TIMEOUT_SECONDS = 30
-SIGN_IN_CHECK_SECONDS = 300
+# The sign-in is asked before every brief: it is a separate program
+# run and the owner could have signed in differently in between.
+SIGN_IN_CHECK_SECONDS = 0
 MAX_BRIEF_CHARACTERS = 200_000
 MAX_REPLY_CHARACTERS = 200_000
 # No more than this much of the program's output is ever read.
@@ -62,12 +64,14 @@ FIXED_ARGUMENTS = (
 # a key that would bill elsewhere, or a telemetry address, is left out.
 ENVIRONMENT_ALLOWLIST = frozenset({
     "APPDATA", "LOCALAPPDATA", "USERPROFILE", "HOMEDRIVE", "HOMEPATH",
-    "HOME", "USERNAME", "USERDOMAIN", "COMPUTERNAME", "SYSTEMROOT",
+    "HOME", "SYSTEMROOT",
     "SYSTEMDRIVE", "WINDIR", "COMSPEC", "PATH", "PATHEXT", "TEMP", "TMP",
     "PROGRAMDATA", "PROGRAMFILES", "PROGRAMFILES(X86)", "PROGRAMW6432",
     "COMMONPROGRAMFILES", "OS", "NUMBER_OF_PROCESSORS",
     "PROCESSOR_ARCHITECTURE", "LANG", "LC_ALL", "TZ",
 })
+
+GIT_BASH_VARIABLE = "CLAUDE_CODE_GIT_BASH_PATH"
 
 # Set for the worker: no traffic beyond the request itself.
 WORKER_SETTINGS = {
@@ -118,6 +122,12 @@ def worker_environment(environ=None) -> Dict[str, str]:
         for name, value in environ.items()
         if name.upper() in ENVIRONMENT_ALLOWLIST
     }
+    # Some Windows installs must be told where Git Bash is. The path
+    # is passed on only if it names a real bash program.
+    bash = environ.get(GIT_BASH_VARIABLE, "")
+    if bash and Path(bash).is_file() and Path(bash).name.lower() == "bash.exe":
+        kept[GIT_BASH_VARIABLE] = bash
+
     kept.update(WORKER_SETTINGS)
     return kept
 
@@ -366,19 +376,25 @@ def create_claude_plan_provider(program=None) -> ProviderDefinition:
     )
 
 
-def register_claude_plan_capability(registry, program=None, model=None):
+def register_claude_plan_capability(registry, in_flight, program=None, model=None):
     """
     Register the one capability this route offers. It is not offered
     to the model as a tool and is in no default policy seed: only a
     rule the owner adds allows it.
 
-    Policy is one gate. Before this is registered in the running
-    control plane, the handler must also demand proof that this exact
-    brief passed the owner's switches, screening, approval and the
-    usage ledger; that sending boundary is not built yet.
+    Policy is one gate; the dispatcher is the other. `in_flight` is
+    the dispatcher's own check that it is sending this exact text
+    right now, so a call that did not come through the dispatcher is
+    refused even when policy allows the capability.
     """
 
     def ask(brief, timeout=DEFAULT_TIMEOUT_SECONDS):
+        if not in_flight(brief):
+            raise PlanRouteError(
+                "This brief did not come through the sending checks.",
+                sent=False,
+            )
+
         resolved = program or find_claude_program()
 
         if not resolved:

@@ -186,8 +186,13 @@ class ModelRecord:
             )
             # What actually answered, when the report says: a local
             # model's digest, or the model a cloud route served.
-            if report.get("identity"):
-                entry["identity"] = report["identity"]
+            identity = report.get("identity")
+            if identity and entry.get("identity") not in (None, identity):
+                # Another exact model now answers to this name; what
+                # the old one scored says nothing about it.
+                entry["kinds"] = {}
+            if identity:
+                entry["identity"] = identity
             entry["kinds"].update(rows)
             self._save()
 
@@ -205,7 +210,7 @@ class ModelRecord:
             return None
 
         try:
-            return KindResult(
+            result = KindResult(
                 graded=int(row["graded"]),
                 passed=int(row["passed"]),
                 errors=int(row.get("errors", 0)),
@@ -215,6 +220,16 @@ class ModelRecord:
             )
         except (KeyError, TypeError, ValueError):
             return None
+
+        if (
+            result.graded < 0
+            or result.errors < 0
+            or not 0 <= result.passed <= result.graded
+        ):
+            # A damaged record measures nothing.
+            return None
+
+        return result
 
     def forget(self, entry: str) -> None:
         """Drop an entry, for a model version that is no longer in use."""
