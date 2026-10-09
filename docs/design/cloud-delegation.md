@@ -74,6 +74,14 @@ task that matches none is described to the owner as ESC-004 requires (why local 
 enough, what would leave, which route, the cost) and waits for a yes that covers that
 task only.
 
+The prompt offers four answers: allow once, allow for this conversation, allow
+permanently, and deny. "This conversation" lasts for the current run of Freya and is
+kept in memory only. "Permanently" creates a standing rule for exactly what was shown:
+that kind of task, that route, and those kinds of material, with a plan limit of its
+own. It is listed in the window, where the owner can remove it. No answer can send a
+kind of material whose setting is never, and a later task that wants more than a rule
+covers asks again.
+
 Deciding which rule a task matches is done by Freya's code from the task's declared
 kind and the labels on its parts, never from a model's say-so. A task that picked up
 untrusted content (a web page, a file, a tool result) cannot widen what it sends.
