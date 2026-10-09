@@ -18,7 +18,7 @@ def _path(header: str, prefix: str, selected: set[str]) -> str:
     if not header.startswith(prefix):
         raise ValueError("Invalid patch header")
     name = header[len(prefix):]
-    if not name or "\\t" in name or "\\r" in name or "\\0" in name:
+    if not name or "\t" in name or "\r" in name or "\0" in name:
         raise ValueError("Patch path contains unsupported metadata")
     path = PurePosixPath(name)
     if path.is_absolute() or ".." in path.parts or "." in path.parts or "\\" in name:
@@ -31,7 +31,7 @@ def _path(header: str, prefix: str, selected: set[str]) -> str:
 def validate_unified_diff(patch: str, selected: set[str]) -> None:
     if not patch or len(patch.encode("utf-8")) > 1_000_000:
         raise ValueError("Empty or oversized patch")
-    if "\\r" in patch or "\\0" in patch or not patch.endswith("\\n"):
+    if "\r" in patch or "\0" in patch or not patch.endswith("\n"):
         raise ValueError("Patch must be LF-terminated text")
     lines = patch.splitlines()
     index = 0
