@@ -54,6 +54,30 @@
         label.append(node("span", "tag", "not set up yet"));
       }
       box.append(label);
+      if (provider.weekly_limit !== null && provider.weekly_limit !== undefined) {
+        const form = node("form", "actions");
+        const field = node("label", "", "Weekly allowance (tokens, Freya's estimate) ");
+        const amount = node("input");
+        amount.type = "number";
+        amount.min = "0";
+        amount.step = "1000";
+        amount.value = provider.weekly_limit;
+        field.append(amount);
+        const save = node("button", "ghost", "Save");
+        save.type = "submit";
+        form.append(field, save);
+        form.addEventListener("submit", (event) => {
+          event.preventDefault();
+          ask("limit", {name: provider.name, weekly: Math.round(Number(amount.value))});
+        });
+        box.append(form);
+        box.append(node(
+          "p", "panel-note",
+          "Used so far: " + (Number(provider.used) || 0).toLocaleString() +
+            " of " + Number(provider.weekly_limit).toLocaleString() +
+            ". Resets " + String(provider.resets_at || "").slice(0, 16).replace("T", " ") + " UTC.",
+        ));
+      }
     });
   }
 

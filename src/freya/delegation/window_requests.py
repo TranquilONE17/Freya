@@ -7,7 +7,7 @@ from freya.delegation.screening import Corrections
 # What the Cloud tab may ask for. Reading shows the owner's own
 # choices; every other action changes one of them.
 READS = ("state", "sent")
-CHANGES = ("provider", "material", "bars", "mark", "unmark")
+CHANGES = ("provider", "limit", "material", "bars", "mark", "unmark")
 
 SENT_SHOWN = 50
 MAX_PHRASE = 200
@@ -27,7 +27,30 @@ class CloudRequestRefused(ValueError):
     """A request from the Cloud tab was not one Freya will act on."""
 
 
-def cloud_state(cloud, available_providers) -> dict:
+def _provider_state(cloud, name) -> dict:
+    available = name in cloud.available_providers
+    entry = {
+        "name": name,
+        "label": PROVIDER_LABELS.get(name, name),
+        "enabled": cloud.settings.provider_enabled(name),
+        "available": available,
+        "weekly_limit": None,
+        "used": None,
+        "resets_at": None,
+    }
+    limit = cloud.weekly_limit(name) if available else None
+
+    if limit is not None:
+        entry["weekly_limit"] = limit.capacity
+        entry["used"] = limit.used
+        entry["resets_at"] = (
+            limit.resets_at.isoformat() if limit.resets_at else None
+        )
+
+    return entry
+
+
+def cloud_state(cloud) -> dict:
     """
     Everything the Cloud tab shows. A provider is listed whether or
     not Freya can reach it yet, so the owner sees what exists.
@@ -37,13 +60,10 @@ def cloud_state(cloud, available_providers) -> dict:
 
     return {
         "providers": [
-            {
-                "name": name,
-                "label": PROVIDER_LABELS.get(name, name),
-                "enabled": settings.provider_enabled(name),
-                "available": name in available_providers,
-            }
-            for name in sorted(set(PROVIDER_LABELS) | set(available_providers))
+            _provider_state(cloud, name)
+            for name in sorted(
+                set(PROVIDER_LABELS) | set(cloud.available_providers)
+            )
         ],
         "material": [
             {
@@ -75,6 +95,18 @@ def apply_cloud_change(cloud, message) -> None:
         if not isinstance(message.get("enabled"), bool):
             raise CloudRequestRefused("A provider is either on or off.")
         cloud.settings.set_provider(name, message["enabled"])
+        # Switching a provider on is the owner unlocking it: its
+        # policy rule and a starting allowance come with the switch.
+        if message["enabled"]:
+            cloud.unlock(name)
+        else:
+            cloud.lock(name)
+
+    elif action == "limit":
+        name = message.get("name")
+        if not isinstance(name, str) or name not in PROVIDER_LABELS:
+            raise CloudRequestRefused("That is not a provider Freya knows.")
+        cloud.set_weekly_limit(name, message.get("weekly"))
 
     elif action == "material":
         cloud.settings.set_material(message.get("kind"), message.get("setting"))
@@ -111,7 +143,6 @@ def cloud_window_request(
     cloud,
     message: dict,
     change: Callable[[dict], None],
-    available_providers=(),
 ) -> Dict[str, object]:
     """
     Answer one request from the Cloud tab.
@@ -138,6 +169,6 @@ def cloud_window_request(
     except Exception:
         answer["error"] = "That change could not be made."
 
-    answer["state"] = cloud_state(cloud, available_providers)
+    answer["state"] = cloud_state(cloud)
 
     return answer

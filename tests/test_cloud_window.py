@@ -41,6 +41,8 @@ def test_the_tab_starts_with_everything_shut(cloud):
         ("anthropic", False, True),
         ("openai", False, False),
     ]
+    assert all(p["weekly_limit"] is None for p in state["providers"])
+    assert not cloud.plane.policy.decide("local-owner", "cloud.anthropic_plan.ask").allow
     by_kind = {entry["kind"]: entry["setting"] for entry in state["material"]}
     assert by_kind["request"] == ALLOWED
     assert by_kind[KIND_MEMORY] == NEVER
@@ -53,6 +55,7 @@ def test_the_tab_starts_with_everything_shut(cloud):
 def test_each_change_is_made_and_audited_without_its_content(cloud):
     requests = [
         {"action": "provider", "name": "anthropic", "enabled": True},
+        {"action": "limit", "name": "anthropic", "weekly": 300_000},
         {"action": "material", "kind": KIND_CODE, "setting": ALLOWED},
         {"action": "bars", "bars": {"low": 0.6, "normal": 0.8, "high": 0.9}},
         {"action": "mark", "list": "always-private", "phrase": "Project Heron"},
@@ -123,12 +126,89 @@ def test_a_change_is_refused_when_policy_forbids_it(cloud):
     assert answer["state"]["providers"][0]["enabled"] is False
 
 
-def test_the_tab_cannot_send_anything_or_raise_a_usage_limit(cloud):
-    for action in ("send", "authorize", "limit", "policy", "ask"):
+def test_the_tab_cannot_send_anything_or_write_policy_directly(cloud):
+    for action in ("send", "authorize", "policy", "ask", "rule"):
         assert cloud.window_request({"action": action})["error"]
 
     assert cloud.sent.entries() == []
     assert cloud.ledger.status("anthropic-plan") == []
+    assert not cloud.plane.policy.decide("local-owner", "cloud.anthropic_plan.ask").allow
+
+
+def test_switching_a_provider_on_unlocks_it_and_off_locks_it(cloud):
+    capability = "cloud.anthropic_plan.ask"
+
+    on = cloud.window_request(
+        {"action": "provider", "name": "anthropic", "enabled": True},
+    )["state"]["providers"][0]
+
+    assert on["enabled"] and on["weekly_limit"] == 500_000 and on["used"] == 0
+    assert on["resets_at"]
+    assert cloud.plane.policy.decide("local-owner", capability).allow
+
+    # Switching it on again adds nothing twice.
+    cloud.window_request({"action": "provider", "name": "anthropic", "enabled": False})
+    cloud.window_request({"action": "provider", "name": "anthropic", "enabled": True})
+    rules = [r for r in cloud.plane.policy.list_rules() if r["capability"] == capability]
+    assert len(rules) == 1
+
+    off = cloud.window_request(
+        {"action": "provider", "name": "anthropic", "enabled": False},
+    )["state"]["providers"][0]
+
+    assert not off["enabled"]
+    assert not cloud.plane.policy.decide("local-owner", capability).allow
+    # The allowance and what was used are kept for next time.
+    assert off["weekly_limit"] == 500_000
+
+
+def test_each_provider_is_unlocked_by_itself(cloud):
+    cloud.window_request({"action": "provider", "name": "openai", "enabled": True})
+
+    state = cloud.window_request({"action": "state"})["state"]
+
+    assert [(p["name"], p["enabled"]) for p in state["providers"]] == [
+        ("anthropic", False), ("openai", True),
+    ]
+    assert not cloud.plane.policy.decide("local-owner", "cloud.anthropic_plan.ask").allow
+    # There is no route to OpenAI, so its switch opens nothing.
+    assert state["providers"][1]["weekly_limit"] is None
+
+
+def test_switching_off_leaves_a_rule_the_owner_added_by_hand(cloud):
+    capability = "cloud.anthropic_plan.ask"
+    cloud.plane.policy.add_rule("local-owner", capability, "allow", "added by hand")
+    cloud.window_request({"action": "provider", "name": "anthropic", "enabled": True})
+
+    cloud.window_request({"action": "provider", "name": "anthropic", "enabled": False})
+
+    reasons = [r["reason"] for r in cloud.plane.policy.list_rules() if r["capability"] == capability]
+    assert reasons == ["added by hand"]
+    # The switch being off still stops every brief.
+    assert not cloud.settings.provider_enabled("anthropic")
+
+
+def test_the_weekly_allowance_can_be_changed_and_keeps_its_week(cloud):
+    cloud.window_request({"action": "provider", "name": "anthropic", "enabled": True})
+    before = cloud.window_request({"action": "state"})["state"]["providers"][0]
+
+    after = cloud.window_request(
+        {"action": "limit", "name": "anthropic", "weekly": 200_000},
+    )["state"]["providers"][0]
+
+    assert after["weekly_limit"] == 200_000
+    assert after["resets_at"] == before["resets_at"]
+
+    for bad in (-1, 2.5, "lots", True, None, 10**12):
+        answer = cloud.window_request(
+            {"action": "limit", "name": "anthropic", "weekly": bad},
+        )
+        assert answer["error"], bad
+        assert answer["state"]["providers"][0]["weekly_limit"] == 200_000
+
+    assert cloud.window_request(
+        {"action": "limit", "name": "openai", "weekly": 5},
+    )["error"]
 
 
 def test_the_record_of_sent_briefs_is_shown_newest_first(cloud):
