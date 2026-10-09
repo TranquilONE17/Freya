@@ -65,26 +65,26 @@ def grade_turn(turn, answer, calls):
     }
 
 
-def model_inventory(model, embedding_model, timeout):
+def model_inventory(model, embedding_model, timeout, background_model=None):
     import ollama
 
     listed = ollama.Client(host="http://127.0.0.1:11434", timeout=timeout).list()
     inventory = [{"model": m.model, "digest": m.digest} for m in listed.models]
     names = {m["model"] for m in inventory}
-    for requested in (model, embedding_model):
+    for requested in filter(None, (model, embedding_model, background_model)):
         tagged = requested if ":" in requested else requested + ":latest"
         if requested not in names and tagged not in names:
             raise RuntimeError(f"Required model is not installed: {requested}")
     return inventory
 
 
-def run_trial(scenario, folder, model, embedding_model, request_timeout):
+def run_trial(scenario, folder, model, embedding_model, request_timeout, background_model=None):
     # Imports and mutable runtime configuration belong to the worker.
     import ollama
     from freya.core.assistant import FreyaAssistant
     from freya.core.audit import SqliteAuditLog
     from freya.core.capabilities import CapabilityBroker, CapabilityDefinition, CapabilityRegistry
-    from freya.core.model_runtime import ModelRuntime, configure_model_runtime
+    from freya.core.model_runtime import LLM_BACKGROUND_CHAT, ROLE_BACKGROUND, ModelRuntime, configure_model_runtime
     from freya.core.persistence import ControlStore
     from freya.core.policy import SqlitePolicyEngine
     from freya.core.providers import ProviderDefinition, ProviderRegistry
@@ -112,7 +112,7 @@ def run_trial(scenario, folder, model, embedding_model, request_timeout):
             stack.enter_context(patch.object(memory_manager, "DATABASE_PATH", folder / "memory.db"))
             store = ControlStore(folder / "control.db")
             providers = ProviderRegistry()
-            providers.register(model_provider.create_ollama_provider(model, embedding_model))
+            providers.register(model_provider.create_ollama_provider(model, embedding_model, background_model))
             providers.start(model_provider.OLLAMA_PROVIDER)
             providers.check_health(model_provider.OLLAMA_PROVIDER)
             providers.register(ProviderDefinition(
@@ -123,13 +123,16 @@ def run_trial(scenario, folder, model, embedding_model, request_timeout):
             providers.start(SYSTEM_TOOLS_PROVIDER)
             providers.check_health(SYSTEM_TOOLS_PROVIDER)
             registry = CapabilityRegistry(providers)
-            model_provider.register_ollama_capabilities(registry, model, embedding_model)
+            model_provider.register_ollama_capabilities(registry, model, embedding_model, background_model)
             register_system_tools(registry)
             policy = SqlitePolicyEngine(store)
             audit = SqliteAuditLog(store)
             audit.start()
             broker = CapabilityBroker(registry, policy, audit)
-            configure_model_runtime(ModelRuntime(broker))
+            routes = None
+            if registry.get(LLM_BACKGROUND_CHAT) is not None:
+                routes = {ROLE_BACKGROUND: tuple(model_provider.OLLAMA_BACKGROUND_CAPABILITIES)}
+            configure_model_runtime(ModelRuntime(broker, routes=routes))
 
             image_prompts = []
 
@@ -282,6 +285,7 @@ def main(argv=None):
     parser.add_argument("--trials", type=positive_int, default=3)
     parser.add_argument("--model", default=MODEL)
     parser.add_argument("--embedding-model", default=EMBEDDING_MODEL)
+    parser.add_argument("--background-model", help="Installed model for summaries and memory decisions; default is --model.")
     parser.add_argument("--timeout", type=positive_float, default=180, help="Hard deadline per isolated trial in seconds.")
     parser.add_argument("--request-timeout", type=positive_float, default=60)
     parser.add_argument("--output", type=Path, help="New JSON report; existing files are never overwritten.")
@@ -298,7 +302,7 @@ def main(argv=None):
     if args.worker:
         with tempfile.TemporaryDirectory(prefix="fixtures-", dir=args.output.parent) as scratch:
             try:
-                result = run_trial(get_scenario(args.scenario[0]), Path(scratch), args.model, args.embedding_model, args.request_timeout)
+                result = run_trial(get_scenario(args.scenario[0]), Path(scratch), args.model, args.embedding_model, args.request_timeout, args.background_model)
             except Exception as exc:
                 result = {"status": "error", "error": str(exc), "elapsed_seconds": 0}
         args.output.write_text(json.dumps(result, indent=2), encoding="utf-8")
@@ -309,13 +313,14 @@ def main(argv=None):
     report = {
         "schema_version": 1, "created_at": datetime.now(timezone.utc).isoformat(),
         "model": args.model, "embedding_model": args.embedding_model,
+        "background_model": args.background_model or args.model,
         "grading": "Narrow deterministic checks; human rubrics are not automatically scored.",
         "scenarios": [asdict(s) for s in selected], "trials": trials,
     }
     # Reserve the requested file before doing expensive model work.
     with args.output.open("x", encoding="utf-8") as output:
         try:
-            report["model_inventory"] = model_inventory(args.model, args.embedding_model, args.request_timeout)
+            report["model_inventory"] = model_inventory(args.model, args.embedding_model, args.request_timeout, args.background_model)
         except Exception as exc:
             report["preflight_error"] = str(exc)
             json.dump(report, output, indent=2)
@@ -329,6 +334,8 @@ def main(argv=None):
                                "--scenario", scenario.name, "--model", args.model,
                                "--embedding-model", args.embedding_model,
                                "--request-timeout", str(args.request_timeout), "--output", str(result_path)]
+                    if args.background_model:
+                        command += ["--background-model", args.background_model]
                     started = time.monotonic()
                     try:
                         completed = subprocess.run(command, capture_output=True, text=True, timeout=args.timeout,

@@ -3,6 +3,7 @@ from pathlib import Path
 from typing import List
 
 from freya.config import AUDIT_CHECKPOINT_PATH
+from freya.config import BACKGROUND_MODEL
 from freya.config import COMFYUI_COMMAND
 from freya.config import EMBEDDING_MODEL
 from freya.config import MODEL
@@ -27,6 +28,8 @@ from freya.core.policy import (
     seed_alpha_policy,
 )
 from freya.core.model_runtime import (
+    LLM_BACKGROUND_CHAT,
+    ROLE_BACKGROUND,
     ModelRuntime,
     configure_model_runtime,
 )
@@ -46,6 +49,7 @@ from freya.providers.image.comfyui import (
     create_comfyui_provider,
 )
 from freya.providers.model.ollama import (
+    OLLAMA_BACKGROUND_CAPABILITIES,
     OLLAMA_CAPABILITIES,
     OLLAMA_PROVIDER,
     create_ollama_provider,
@@ -97,6 +101,7 @@ class ControlPlane:
         warm_ollama_models(
             metadata["chat_model"],
             metadata["embedding_model"],
+            metadata["background_model"],
         )
 
     def register_image_generation(self, generate) -> None:
@@ -326,7 +331,7 @@ class ControlPlane:
         elif health != ProviderHealth.HEALTHY:
             messages.append(
                 "Ollama is running but a required model is not "
-                "installed. Freya cannot reply until both models "
+                "installed. Freya cannot reply until all her models "
                 "are available."
             )
 
@@ -381,7 +386,9 @@ def build_local_control_plane(
     providers.start(SYSTEM_TOOLS_PROVIDER)
     providers.check_health(SYSTEM_TOOLS_PROVIDER)
 
-    providers.register(create_ollama_provider(MODEL, EMBEDDING_MODEL))
+    providers.register(
+        create_ollama_provider(MODEL, EMBEDDING_MODEL, BACKGROUND_MODEL)
+    )
     providers.start(OLLAMA_PROVIDER)
     providers.check_health(OLLAMA_PROVIDER)
 
@@ -395,7 +402,13 @@ def build_local_control_plane(
 
     capabilities = CapabilityRegistry(providers)
     register_system_tools(capabilities)
-    register_ollama_capabilities(capabilities, MODEL, EMBEDDING_MODEL)
+    register_ollama_capabilities(
+        capabilities,
+        MODEL,
+        EMBEDDING_MODEL,
+        BACKGROUND_MODEL,
+    )
+    own_background = capabilities.get(LLM_BACKGROUND_CHAT) is not None
 
     policy = SqlitePolicyEngine(store)
     seed_alpha_policy(
@@ -424,6 +437,13 @@ def build_local_control_plane(
         LOCAL_OWNER.actor,
         OLLAMA_CAPABILITIES,
     )
+    if own_background:
+        seed_alpha_policy(
+            policy,
+            "alpha-model-background",
+            LOCAL_OWNER.actor,
+            OLLAMA_BACKGROUND_CAPABILITIES,
+        )
 
     sink = (
         FileCheckpointSink(checkpoint_path)
@@ -445,6 +465,11 @@ def build_local_control_plane(
     model_runtime = ModelRuntime(
         broker,
         refresh_health=lambda: providers.check_health(OLLAMA_PROVIDER),
+        routes=(
+            {ROLE_BACKGROUND: tuple(OLLAMA_BACKGROUND_CAPABILITIES)}
+            if own_background
+            else None
+        ),
     )
     configure_model_runtime(model_runtime)
 

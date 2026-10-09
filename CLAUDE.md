@@ -111,6 +111,16 @@ directly: Whisper, Kokoro, ComfyUI, the memory store, the GPU manager's Ollama u
 and the startup model warm-up. `CapabilityDefinition` is far smaller than the
 baseline's capability schema; its `destructive`/`requires_gpu` flags are interim.
 
+Model roles: a caller of `ModelRuntime` names a role, not a model. `conversation` is
+Freya's own replies; `background` is the unseen work around a turn (memory decisions,
+comparing and ranking memories, summaries, media summaries). Both use `MODEL` unless
+`FREYA_BACKGROUND_MODEL` names another installed Ollama model. Only then are
+`llm.background.chat` and `llm.background.chat_stream` registered and allowed (policy
+seed `alpha-model-background`), so each model's use is separately audited, and both
+models are checked for health and warmed. There is no cloud route yet: sending anything
+to an outside model is escalation under ESC-001 to ESC-006 and needs its own provider,
+a deny-by-default capability, and an owner decision first.
+
 Model tool calling: `FreyaAssistant.respond_stream` offers the model the capabilities
 whose metadata has `model_tool: True` (never destructive ones) using the model's native
 tool calling. Requested tools run through the broker, their JSON results go back to

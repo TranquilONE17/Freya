@@ -209,3 +209,81 @@ def test_warm_models_loads_both_models(plane, fake_ollama):
 
     fake_ollama.reachable = False
     plane.warm_models()
+
+
+@pytest.fixture
+def split_plane(tmp_path, fake_ollama, monkeypatch):
+    fake_ollama.installed.append("small-model:latest")
+    monkeypatch.setattr(
+        "freya.control_plane.BACKGROUND_MODEL",
+        "small-model",
+    )
+    plane = build_local_control_plane(tmp_path / "control.db", None)
+    yield plane
+    plane.close()
+
+
+def test_background_work_uses_the_reply_model_by_default(plane, fake_ollama):
+    llm.evaluate_memory("What is the capital of France?")
+
+    assert fake_ollama.calls[0][1] == "gpt-oss:20b"
+    assert plane.capabilities.get("llm.background.chat") is None
+    assert audit_rows(plane)[0]["capability"] == "llm.chat"
+
+
+def test_background_work_goes_to_its_own_model(split_plane, fake_ollama):
+    llm.evaluate_memory("What is the capital of France?")
+    llm.chat([{"role": "user", "content": "hi"}])
+    list(llm.chat_stream([{"role": "user", "content": "hi"}]))
+
+    assert [call[1] for call in fake_ollama.calls] == [
+        "small-model",
+        "gpt-oss:20b",
+        "gpt-oss:20b",
+    ]
+    assert [
+        row["capability"]
+        for row in audit_rows(split_plane)
+        if row["kind"] == "dispatch"
+    ] == ["llm.background.chat", "llm.chat", "llm.chat_stream"]
+
+
+def test_summaries_are_background_work(split_plane, fake_ollama):
+    llm.summarize_conversation(
+        "",
+        [{"role": "user", "content": "We talked about the garden."}],
+    )
+
+    assert fake_ollama.calls[0][1] == "small-model"
+
+
+def test_a_missing_background_model_is_reported(tmp_path, fake_ollama, monkeypatch):
+    monkeypatch.setattr(
+        "freya.control_plane.BACKGROUND_MODEL",
+        "small-model",
+    )
+    plane = build_local_control_plane(tmp_path / "control.db", None)
+
+    try:
+        assert any(
+            "required model is not installed" in m
+            for m in plane.startup_messages()
+        )
+        with pytest.raises(ModelRuntimeUnavailable):
+            llm.evaluate_memory("Remember that I like tea.")
+        assert fake_ollama.calls == []
+    finally:
+        plane.close()
+
+
+def test_both_models_are_warmed(split_plane, fake_ollama):
+    split_plane.warm_models()
+
+    assert [
+        call[1] for call in fake_ollama.calls if call[0] == "generate"
+    ] == ["gpt-oss:20b", "small-model"]
+
+
+def test_an_unknown_role_is_refused(plane):
+    with pytest.raises(ValueError):
+        get_model_runtime().chat([], role="somewhere-else")

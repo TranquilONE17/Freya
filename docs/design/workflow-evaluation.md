@@ -21,6 +21,9 @@ Run a subset or compare a different already installed model:
 python -m freya.evaluation.workflow --scenario fresh-followup --scenario result-injection --trials 5 --model gpt-oss:20b --output work/workflow-comparison.json
 ```
 
+Add `--background-model <name>` to send summaries and memory decisions to a second
+installed model while replies stay on `--model`; the report records both.
+
 The runner contacts only Ollama on `127.0.0.1:11434`; it does not download models.
 It checks chat and embedding model availability first. `--list` does not contact
 Ollama. Existing reports are refused rather than overwritten.
