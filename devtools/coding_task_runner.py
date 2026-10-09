@@ -12,7 +12,7 @@ from pathlib import Path
 from typing import Callable
 
 from coding_task_journal import TaskJournal
-from local_coding_agent import ask_ollama, build_prompt, selected_source
+from local_coding_agent import ask_ollama, ask_ollama_cancellable, build_prompt, selected_source
 from patch_validator import validate_unified_diff
 from patch_applicability import check_patch
 
@@ -35,7 +35,11 @@ def propose(repo: Path, task: str, paths: list[str], model: str,
     output = output_dir.resolve() / f"{journal.task_id}.patch"
     try:
         journal.transition("generating", f"model={model}; files={len(paths)}")
-        patch = generate(ENDPOINT, model, build_prompt(task, sources))
+        prompt = build_prompt(task, sources)
+        if generate is ask_ollama and checkpoint is not None:
+            patch = ask_ollama_cancellable(ENDPOINT, model, prompt, checkpoint)
+        else:
+            patch = generate(ENDPOINT, model, prompt)
         if checkpoint is not None:
             checkpoint()
         validate_unified_diff(patch, set(paths))
