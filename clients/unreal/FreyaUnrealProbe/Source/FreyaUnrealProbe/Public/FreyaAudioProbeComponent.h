@@ -86,6 +86,9 @@ public:
     /** Add signed 16-bit samples to the utterance in progress. */
     void PushSpeech(const int16* Samples, int32 Count);
 
+    /** The utterance in progress has been given in full. */
+    void EndSpeech();
+
     /** True from the first sound queued until all of it has been heard. */
     bool IsSpeechAudible() const;
 
@@ -114,6 +117,7 @@ protected:
 private:
     void AutoStart();
     void TrackSync();
+    void MeasureSync();
     void ConfigureFace();
     void BeginAudiblePlayback();
     void StopAudiblePlayback();
@@ -130,6 +134,7 @@ private:
     double SpeechStartedAt = 0.0;
     bool bVoiceStarted = false;
     bool bSpeechOpen = false;
+    bool bSpeechInputEnded = false;
     /** For measuring how far the lips are from the voice. */
     TArray<float> LoudnessBins;
     TArray<double> JawTimes;
