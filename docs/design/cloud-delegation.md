@@ -38,8 +38,31 @@ separately and the audit log shows which route served each call. No cloud capabi
 is ever in a default policy seed: the owner adds the rule. A new vendor is a new
 provider module plus a price table and a list of limits; nothing else changes.
 
-The existing roles (`conversation`, `background`) stay local. Cloud routes are reached
-only by delegation: a task Freya hands over, not her ordinary replies.
+## How a turn flows
+
+The owner only ever talks to Freya's main local reasoning model. No other model,
+local or cloud, answers the owner directly.
+
+1. The owner says something. The main model decides whether she can answer herself or
+   whether part of the work should go to another model.
+2. For each part she hands over, she writes the prompt: a self-contained brief made
+   for that model and that job, as short as it can be while still complete.
+3. The router chooses the route for each brief (local first, then plan, then paid API)
+   under the limits, check boxes, rules and prompts described below, and sends it.
+4. What comes back is untrusted text. It goes to the main model as labelled input, the
+   same way tool results do.
+5. The main model writes the reply in her own words, saying which models contributed.
+
+This can happen inside an ordinary conversation turn; it does not need the owner to
+declare a task. The existing `background` role (memory decisions, ranking, summaries)
+stays local always, because it reads the personal store.
+
+One consequence needs care. The main model sees stored memories and past
+conversations while she talks, and those are set never to leave. If she wrote a cloud
+brief from that same context she could restate a memory in her own words, and no
+label check would catch it. So a brief bound for a cloud route is written in a
+separate model call whose context holds only the kinds of material allowed for that
+route. What she cannot see there, she cannot pass on.
 
 Plan routes drive a program that can read files and run commands by itself. Freya
 starts it with no tools, no file access beyond what she passes in, and a filtered
