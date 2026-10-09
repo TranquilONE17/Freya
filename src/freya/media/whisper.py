@@ -10,6 +10,7 @@ import threading
 import time
 
 from freya.child_environment import child_environment
+from freya.media.files import UnsafePath
 
 MAX_LINE = 3 * 1024 * 1024
 
@@ -25,14 +26,16 @@ class WhisperTranscriber:
     def available(self):
         return hasattr(self._model(), "transcribe_media_chunk")
 
-    def transcribe(self, path, cancelled=None):
+    def transcribe(self, path, cancelled=None, *, size, modified_ns):
         speech = self._model()
         if not hasattr(speech, "transcribe_media_chunk"):
             raise RuntimeError("The local speech recognizer is not ready.")
         path = Path(path)
         info = path.stat()
+        if info.st_size != size or info.st_mtime_ns != modified_ns:
+            raise UnsafePath("That file changed since it was imported. Delete its old catalog record and import it again.")
         process = subprocess.Popen(
-            [sys.executable, str(Path(__file__).with_name("decode_worker.py")), str(path), str(info.st_size), str(info.st_mtime_ns)],
+            [sys.executable, str(Path(__file__).with_name("decode_worker.py")), str(path), str(size), str(modified_ns)],
             stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
             env=child_environment(),
             creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),

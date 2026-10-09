@@ -289,7 +289,9 @@ class Analyzer:
 
         path = self._resolve_file(record)
         progress("transcribing", 0.0, "Starting speech recognition")
-        segments, info = self._transcriber.transcribe(path, cancelled=cancelled)
+        segments, info = self._transcriber.transcribe(
+            path, cancelled=cancelled, size=record["size"], modified_ns=record["modified_ns"]
+        )
         duration = info.get("duration") if isinstance(info, dict) else None
 
         if isinstance(duration, (int, float)) and duration > 0 and not record.get("duration"):
