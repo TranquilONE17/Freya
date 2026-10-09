@@ -24,7 +24,7 @@ jobs:
         run: python -m piptools compile pyproject.toml --output-file resolved-requirements.txt --quiet
       - name: Audit resolved dependencies (advisory)
         run: |
-          python -m pip_audit --no-deps --progress-spinner off --format json --output dependency-audit.json -r resolved-requirements.txt || true
+          python -m pip_audit --no-deps --progress-spinner off --format json --output dependency-audit.json -r resolved-requirements.txt
       - name: Upload dependency report
         if: always()
         uses: actions/upload-artifact@v4
