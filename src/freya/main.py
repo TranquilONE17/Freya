@@ -10,6 +10,7 @@ import threading
 
 from freya.core.assistant import FreyaAssistant
 
+from freya.core.model_runtime import ROLE_BACKGROUND
 from freya.core.model_runtime import ModelRuntimeUnavailable
 
 from freya.gpu.resource_manager import GPUResourceManager
@@ -1467,7 +1468,10 @@ def main(window_only=False):
 
     def media_chat(messages):
         with gate.turn():
-            return control_plane.model_runtime.chat(messages)
+            return control_plane.model_runtime.chat(
+                messages,
+                role=ROLE_BACKGROUND,
+            )
 
     media = None
     try:

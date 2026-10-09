@@ -4,6 +4,12 @@ import os
 MODEL = "gpt-oss:20b"
 EMBEDDING_MODEL = "nomic-embed-text"
 
+# The model for the unseen work around a turn: deciding what to
+# remember, comparing and ranking memories, and writing summaries.
+# Unset means the same model as Freya's replies, so nothing changes
+# until the owner points this role at another installed model.
+BACKGROUND_MODEL = os.environ.get("FREYA_BACKGROUND_MODEL") or MODEL
+
 # Context capacity is an explicit per-request model setting. These do
 # not alter Ollama's system-wide settings or the owner's configuration.
 CONTEXT_WINDOW_TOKENS = int(os.environ.get("FREYA_CONTEXT_WINDOW_TOKENS", "16384"))
