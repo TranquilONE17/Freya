@@ -100,6 +100,16 @@ This is a strong filter, not a proof. Screening catches copied and closely resta
 material; a loose paraphrase or an inference can pass. The owner's prompts, the local
 record and the per-provider switches are what bound the remainder.
 
+The Claude plan route is built (`providers/model/claude_plan.py`, provider
+`anthropic-plan`, capability `cloud.anthropic_plan.ask`) and tested with a fake
+program. It is not registered in the running control plane and nothing calls it. One
+real trial on 2026-10-09 with a made-up arithmetic brief returned the right answer in
+3.3 seconds and reported 896 input and 7 output tokens, from the program's default
+model (`claude-opus-5-5`). That trial was started from inside a Claude Code session,
+so it does not show which sign-in a run started by Freya would use. Reading a "limit
+reached" notice and its reset time from the program's output is not built: the
+notice's exact form has not been seen.
+
 Plan routes drive a program that can read files and run commands by itself. Freya
 starts it with no tools, no file access beyond what she passes in, and a filtered
 environment (`child_environment.py`), and treats its reply as untrusted text.

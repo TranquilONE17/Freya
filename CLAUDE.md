@@ -139,6 +139,18 @@ file means the strict defaults; a part of unknown kind never leaves; an approval
 cannot release a kind set to never; nothing is sendable to a provider that is off.
 Nothing sends a brief yet.
 
+Claude plan route: `providers/model/claude_plan.py` sends one brief to Claude by
+running the owner's own signed-in Claude Code program (`claude.exe` from the desktop
+app, found directly, never through the `.cmd` launcher; `FREYA_CLAUDE` overrides) and
+returns the reply as untrusted text with its token counts. Keep these rules: the brief
+goes in on standard input and never as an argument; the fixed arguments give the
+worker no tools, no owner settings, memory, plugins or MCP servers, and no saved
+session; it runs in an empty temporary folder with a filtered environment; Freya never
+reads the program's sign-in; never add a `--dangerously-` flag. The provider
+`anthropic-plan` and capability `cloud.anthropic_plan.ask` exist but are not
+registered by `build_local_control_plane`, are in no policy seed, and are not model
+tools. Nothing calls the route yet. Tests use a fake program.
+
 Model tool calling: `FreyaAssistant.respond_stream` offers the model the capabilities
 whose metadata has `model_tool: True` (never destructive ones) using the model's native
 tool calling. Requested tools run through the broker, their JSON results go back to
