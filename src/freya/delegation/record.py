@@ -55,26 +55,40 @@ def entry_id(route, model, settings) -> str:
     One measured thing: a model on a route with particular settings.
     The same model with different settings is a different entry.
     """
-    settings = settings or {}
-    detail = ",".join(f"{name}={settings[name]}" for name in sorted(settings))
-    return f"{route}|{model or 'default'}|{detail}"
+    # Written as JSON so that no choice of names or values can make
+    # two different sets of settings look the same.
+    return json.dumps(
+        [route, model or "default", settings or {}],
+        sort_keys=True,
+        separators=(",", ":"),
+    )
 
 
 @dataclass(frozen=True)
 class KindResult:
     graded: int
     passed: int
+    errors: int = 0
     median_seconds: Optional[float] = None
     mean_tokens: Optional[float] = None
     measured_at: str = ""
 
     @property
+    def attempts(self) -> int:
+        return self.graded + self.errors
+
+    @property
     def measured(self) -> bool:
-        return self.graded >= MINIMUM_ATTEMPTS
+        return self.attempts >= MINIMUM_ATTEMPTS
 
     @property
     def pass_rate(self) -> Optional[float]:
-        return self.passed / self.graded if self.graded else None
+        """
+        Passes out of every attempt. An attempt that got no reply at
+        all (a timeout, a failed route) counts against the model: a
+        worker that often fails to answer is not a reliable one.
+        """
+        return self.passed / self.attempts if self.attempts else None
 
 
 class ModelRecord:
@@ -127,6 +141,35 @@ class ModelRecord:
         if not isinstance(summary, dict) or not summary:
             raise ValueError("The report has no results to record.")
 
+        if report.get("mixed_models"):
+            raise ValueError(
+                "More than one model answered in this report, so it "
+                "measures none of them."
+            )
+
+        rows = {}
+
+        for kind, row in summary.items():
+            try:
+                graded = int(row["graded"])
+                passed = int(row["passed"])
+                errors = int(row.get("errors", 0))
+            except (KeyError, TypeError, ValueError) as exc:
+                raise ValueError(f"The results for {kind} are unreadable.") from exc
+
+            if graded < 0 or errors < 0 or not 0 <= passed <= graded:
+                raise ValueError(f"The results for {kind} are impossible.")
+
+            rows[kind] = {
+                "graded": graded,
+                "passed": passed,
+                "errors": errors,
+                "median_seconds": row.get("median_seconds"),
+                "mean_tokens": row.get("mean_tokens"),
+                "measured_at": report.get("created_at", ""),
+                "suite": report.get("suite", ""),
+            }
+
         key = entry_id(
             report.get("route"), report.get("model"), report.get("settings"),
         )
@@ -141,16 +184,11 @@ class ModelRecord:
                     "kinds": {},
                 },
             )
-
-            for kind, row in summary.items():
-                entry["kinds"][kind] = {
-                    "graded": int(row["graded"]),
-                    "passed": int(row["passed"]),
-                    "median_seconds": row.get("median_seconds"),
-                    "mean_tokens": row.get("mean_tokens"),
-                    "measured_at": report.get("created_at", ""),
-                }
-
+            # What actually answered, when the report says: a local
+            # model's digest, or the model a cloud route served.
+            if report.get("identity"):
+                entry["identity"] = report["identity"]
+            entry["kinds"].update(rows)
             self._save()
 
         return key
@@ -170,6 +208,7 @@ class ModelRecord:
             return KindResult(
                 graded=int(row["graded"]),
                 passed=int(row["passed"]),
+                errors=int(row.get("errors", 0)),
                 median_seconds=row.get("median_seconds"),
                 mean_tokens=row.get("mean_tokens"),
                 measured_at=str(row.get("measured_at", "")),
@@ -211,6 +250,7 @@ def choose(
     value: str,
     record: ModelRecord,
     bars=None,
+    unmeasured_allowed=None,
 ) -> Choice:
     """
     The least costly allowed entry that is measured good enough for
@@ -220,6 +260,10 @@ def choose(
     looked at. If no measured entry reaches the bar, an unmeasured one
     may be used, least costly first, and the choice says so. If every
     candidate is measured and none reaches the bar, nothing is chosen.
+
+    High-value work is not given to an unmeasured model unless the
+    caller passes `unmeasured_allowed=True`, which stands for the
+    owner having said yes to that for this task.
     """
     bars = validate_bars(DEFAULT_BARS if bars is None else bars)
 
@@ -252,6 +296,16 @@ def choose(
             MEASURED,
             f"Measured at {rate:.0%} on {kind}, against a bar of {bar:.0%}.",
             rate,
+        )
+
+    if unmeasured and not (
+        value != VALUE_HIGH if unmeasured_allowed is None else unmeasured_allowed
+    ):
+        return Choice(
+            None,
+            None,
+            f"No measured model reaches {bar:.0%} on {kind}. An unmeasured "
+            "one could be tried, with your permission.",
         )
 
     if unmeasured:

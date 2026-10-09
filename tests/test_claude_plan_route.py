@@ -32,6 +32,17 @@ import json, os, sys, time
 from pathlib import Path
 
 script = Path(__file__)
+behaviour = json.loads((script.parent / "behaviour.json").read_text("utf-8"))
+
+if sys.argv[1:3] == ["auth", "status"]:
+    (script.parent / "asked_sign_in").write_text("yes", encoding="utf-8")
+    sys.stdout.write(json.dumps(behaviour.get("sign_in", {
+        "loggedIn": True, "authMethod": "claude.ai",
+        "apiProvider": "firstParty", "subscriptionType": "pro",
+        "email": "someone@example.org",
+    })))
+    sys.exit(0)
+
 brief = sys.stdin.buffer.read().decode("utf-8")
 (script.parent / "seen.json").write_text(json.dumps({
     "arguments": sys.argv[1:],
@@ -41,7 +52,6 @@ brief = sys.stdin.buffer.read().decode("utf-8")
     "environment": sorted(os.environ),
 }), encoding="utf-8")
 
-behaviour = json.loads((script.parent / "behaviour.json").read_text("utf-8"))
 time.sleep(behaviour.get("sleep", 0))
 sys.stdout.write(behaviour.get("output", ""))
 sys.exit(behaviour.get("exit", 0))
@@ -86,6 +96,8 @@ def fake(tmp_path):
             return (tmp_path / "seen.json").exists()
 
     Fake.behave(output=reply())
+    # Each test starts without a remembered sign-in check.
+    claude_plan._sign_in_checked.clear()
     return Fake
 
 
@@ -148,17 +160,63 @@ def test_the_worker_runs_in_an_empty_folder_that_is_then_removed(fake, tmp_path)
 
     import os
     assert not os.path.exists(seen["folder"])
+    assert not os.path.exists(os.path.dirname(seen["folder"]))
 
 
-def test_credentials_in_freyas_environment_are_not_passed_on(fake, monkeypatch):
-    monkeypatch.setenv("SOME_SERVICE_API_KEY", "not-a-real-key")
-    monkeypatch.setenv("FREYA_HARMLESS_SETTING", "1")
+def test_only_allowed_variables_reach_the_worker(fake, monkeypatch):
+    # Each of these could bill elsewhere, point Claude at another
+    # server, or send the brief to a collector.
+    for name in (
+        "ANTHROPIC_API_KEY", "ANTHROPIC_BASE_URL", "ANTHROPIC_AUTH_TOKEN",
+        "CLAUDE_CODE_USE_BEDROCK", "CLAUDE_CONFIG_DIR", "HTTPS_PROXY",
+        "OTEL_EXPORTER_OTLP_ENDPOINT", "FREYA_HARMLESS_SETTING",
+    ):
+        monkeypatch.setenv(name, "set-by-the-test")
 
     ask_claude_plan("A brief.", fake.program)
 
-    environment = fake.seen()["environment"]
-    assert "SOME_SERVICE_API_KEY" not in environment
-    assert "FREYA_HARMLESS_SETTING" in environment
+    environment = {name.upper() for name in fake.seen()["environment"]}
+    assert environment <= claude_plan.ENVIRONMENT_ALLOWLIST | set(
+        claude_plan.WORKER_SETTINGS
+    )
+    assert "USERPROFILE" in environment
+    assert set(claude_plan.WORKER_SETTINGS) <= environment
+
+
+@pytest.mark.parametrize(
+    "sign_in",
+    [
+        {"loggedIn": False},
+        {"loggedIn": True, "authMethod": "apiKey", "apiProvider": "firstParty", "subscriptionType": "pro"},
+        {"loggedIn": True, "authMethod": "claude.ai", "apiProvider": "bedrock", "subscriptionType": "pro"},
+        {"loggedIn": True, "authMethod": "claude.ai", "apiProvider": "firstParty", "subscriptionType": None},
+        {"loggedIn": "yes", "authMethod": "claude.ai", "apiProvider": "firstParty", "subscriptionType": "pro"},
+        [],
+    ],
+)
+def test_nothing_is_sent_unless_signed_in_with_a_subscription(fake, sign_in):
+    fake.behave(output=reply(), sign_in=sign_in)
+
+    with pytest.raises(PlanRouteError) as error:
+        ask_claude_plan("A brief.", fake.program)
+
+    assert error.value.sent is False
+    assert not fake.ran()
+
+
+def test_the_sign_in_is_checked_once_for_several_briefs(fake, tmp_path):
+    ask_claude_plan("A brief.", fake.program)
+    (tmp_path / "asked_sign_in").unlink()
+
+    ask_claude_plan("Another brief.", fake.program)
+
+    assert not (tmp_path / "asked_sign_in").exists()
+
+
+def test_nothing_about_the_sign_in_is_kept_but_that_it_passed(fake):
+    ask_claude_plan("A brief.", fake.program)
+
+    assert "someone@example.org" not in repr(claude_plan._sign_in_checked)
 
 
 @pytest.mark.parametrize("brief", ["", "   \n", None, 5])
@@ -197,8 +255,19 @@ def test_an_error_from_claude_is_reported_and_counts_as_sent(fake):
     with pytest.raises(PlanRouteError) as error:
         ask_claude_plan("A brief.", fake.program)
 
-    assert "Usage limit reached" in str(error.value)
+    # What the vendor said may repeat the brief, so it is kept apart
+    # from the message that gets shown and recorded.
+    assert "Usage limit reached" not in str(error.value)
+    assert "Usage limit reached" in error.value.detail
     assert error.value.sent is True
+
+
+def test_only_a_bounded_amount_of_output_is_read(fake, monkeypatch):
+    monkeypatch.setattr(claude_plan, "MAX_OUTPUT_BYTES", 200)
+    fake.behave(output=reply("x" * 5000))
+
+    with pytest.raises(PlanRouteError):
+        ask_claude_plan("A brief.", fake.program)
 
 
 @pytest.mark.parametrize(
@@ -309,6 +378,13 @@ def test_the_route_is_denied_until_the_owner_allows_it(brokered, fake):
 
     assert allowed.success
     assert allowed.result.text == "A worker's answer."
+
+    fake.behave(
+        output=json.dumps({"is_error": True, "result": "echo: A brief."}),
+        exit=1,
+    )
+    failed = broker.invoke(CLOUD_ANTHROPIC_PLAN_ASK, "A brief.")
+    assert not failed.success
     assert allowed.provider == ANTHROPIC_PLAN_PROVIDER
 
     rows = [

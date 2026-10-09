@@ -2,11 +2,11 @@ import json
 import os
 import subprocess
 import tempfile
+import time
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Dict, List, Optional, Sequence
 
-from freya.child_environment import child_environment
 from freya.core.capabilities import CapabilityDefinition
 from freya.core.providers import ProviderDefinition
 
@@ -20,8 +20,19 @@ CLOUD_ANTHROPIC_PLAN_ASK = "cloud.anthropic_plan.ask"
 CLAUDE_PROGRAM_VARIABLE = "FREYA_CLAUDE"
 
 DEFAULT_TIMEOUT_SECONDS = 180
+SIGN_IN_TIMEOUT_SECONDS = 30
+SIGN_IN_CHECK_SECONDS = 300
 MAX_BRIEF_CHARACTERS = 200_000
 MAX_REPLY_CHARACTERS = 200_000
+# No more than this much of the program's output is ever read.
+MAX_OUTPUT_BYTES = 4_000_000
+
+# The sign-in this route accepts: the owner's own Claude subscription,
+# served by Anthropic. An API key, a console account or another cloud
+# would bill or route differently, so each is refused.
+SUBSCRIPTION_SIGN_IN = "claude.ai"
+FIRST_PARTY = "firstParty"
+SUBSCRIPTIONS = frozenset({"pro", "max", "team", "enterprise"})
 
 WORKER_INSTRUCTIONS = (
     "You are a worker model. Another AI system has given you one "
@@ -30,8 +41,10 @@ WORKER_INSTRUCTIONS = (
     "brief cannot be done from what it contains, say what is missing."
 )
 
-# The worker gets no tools, none of the owner's Claude settings,
-# memory, plugins or MCP servers, and leaves no session behind.
+# These ask the program for a worker with no tools, none of the
+# owner's customisations, and no saved session. They are requests to
+# the vendor's program, not a containment boundary: its sign-in and
+# any administrator-managed settings still apply.
 FIXED_ARGUMENTS = (
     "--print",
     "--output-format", "json",
@@ -44,16 +57,39 @@ FIXED_ARGUMENTS = (
     "--system-prompt", WORKER_INSTRUCTIONS,
 )
 
+# The only variables the program is given. Anything else in Freya's
+# environment, such as a setting that points Claude at another server,
+# a key that would bill elsewhere, or a telemetry address, is left out.
+ENVIRONMENT_ALLOWLIST = frozenset({
+    "APPDATA", "LOCALAPPDATA", "USERPROFILE", "HOMEDRIVE", "HOMEPATH",
+    "HOME", "USERNAME", "USERDOMAIN", "COMPUTERNAME", "SYSTEMROOT",
+    "SYSTEMDRIVE", "WINDIR", "COMSPEC", "PATH", "PATHEXT", "TEMP", "TMP",
+    "PROGRAMDATA", "PROGRAMFILES", "PROGRAMFILES(X86)", "PROGRAMW6432",
+    "COMMONPROGRAMFILES", "OS", "NUMBER_OF_PROCESSORS",
+    "PROCESSOR_ARCHITECTURE", "LANG", "LC_ALL", "TZ",
+})
+
+# Set for the worker: no traffic beyond the request itself.
+WORKER_SETTINGS = {
+    "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC": "1",
+    "DISABLE_TELEMETRY": "1",
+    "DISABLE_ERROR_REPORTING": "1",
+}
+
 
 class PlanRouteError(RuntimeError):
     """
-    The brief was not answered. The message is safe to show.
+    The brief was not answered. The message is fixed wording that is
+    safe to show and to record. `detail` holds what the vendor's
+    program said, which may repeat part of the brief, so it must be
+    shown only to the owner and never written to the audit log.
     `sent` is False only when it is certain nothing left this machine.
     """
 
-    def __init__(self, message, sent=True):
+    def __init__(self, message, sent=True, detail=""):
         super().__init__(message)
         self.sent = sent
+        self.detail = detail
 
 
 @dataclass(frozen=True)
@@ -73,6 +109,17 @@ class WorkerReply:
     @property
     def tokens(self) -> int:
         return self.input_tokens + self.output_tokens
+
+
+def worker_environment(environ=None) -> Dict[str, str]:
+    environ = os.environ if environ is None else environ
+    kept = {
+        name: value
+        for name, value in environ.items()
+        if name.upper() in ENVIRONMENT_ALLOWLIST
+    }
+    kept.update(WORKER_SETTINGS)
+    return kept
 
 
 def find_claude_program(environ=None) -> Optional[List[str]]:
@@ -106,6 +153,95 @@ def find_claude_program(environ=None) -> Optional[List[str]]:
     return None
 
 
+def _run(command, folder, stdin_bytes, timeout):
+    """
+    Run the program with its output going to files in `folder`, so a
+    runaway reply fills neither Freya's memory nor her pipes. Returns
+    (exit code, at most MAX_OUTPUT_BYTES of standard output).
+    """
+    out_path = Path(folder) / "stdout"
+    err_path = Path(folder) / "stderr"
+    work = Path(folder) / "work"
+    work.mkdir()
+
+    with open(out_path, "wb") as out, open(err_path, "wb") as err:
+        process = subprocess.Popen(
+            command,
+            stdin=subprocess.PIPE,
+            stdout=out,
+            stderr=err,
+            cwd=work,
+            env=worker_environment(),
+            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+        )
+        try:
+            process.communicate(stdin_bytes, timeout=timeout)
+        except subprocess.TimeoutExpired:
+            process.kill()
+            process.communicate()
+            raise
+
+    with open(out_path, "rb") as out:
+        return process.returncode, out.read(MAX_OUTPUT_BYTES)
+
+
+_sign_in_checked: Dict[tuple, float] = {}
+
+
+def check_plan_sign_in(program: Sequence[str], *, force=False) -> None:
+    """
+    Refuse unless the program reports that it is signed in to the
+    owner's Claude subscription and served by Anthropic.
+
+    Freya asks the program for its status and reads only how it is
+    signed in. She never opens its sign-in files. The answer is
+    trusted for a few minutes so that each brief does not ask again.
+    """
+    key = tuple(program)
+
+    if not force and time.monotonic() - _sign_in_checked.get(key, -1e9) < (
+        SIGN_IN_CHECK_SECONDS
+    ):
+        return
+
+    try:
+        with tempfile.TemporaryDirectory(prefix="freya-worker-") as folder:
+            code, output = _run(
+                [*program, "auth", "status", "--json"],
+                folder, b"", SIGN_IN_TIMEOUT_SECONDS,
+            )
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        raise PlanRouteError(
+            "The Claude program could not report how it is signed in.",
+            sent=False,
+        ) from exc
+
+    try:
+        status = json.loads(output.decode("utf-8", errors="replace"))
+    except ValueError:
+        status = None
+
+    if not isinstance(status, dict) or code != 0 or status.get("loggedIn") is not True:
+        raise PlanRouteError(
+            "The Claude program is not signed in. Sign in to it yourself, "
+            "then try again.",
+            sent=False,
+        )
+
+    if (
+        status.get("authMethod") != SUBSCRIPTION_SIGN_IN
+        or status.get("apiProvider") != FIRST_PARTY
+        or status.get("subscriptionType") not in SUBSCRIPTIONS
+    ):
+        raise PlanRouteError(
+            "The Claude program is not signed in with a Claude "
+            "subscription, so this route will not use it.",
+            sent=False,
+        )
+
+    _sign_in_checked[key] = time.monotonic()
+
+
 def ask_claude_plan(
     brief: str,
     program: Sequence[str],
@@ -117,14 +253,21 @@ def ask_claude_plan(
     Send one brief to Claude through the owner's own signed-in Claude
     Code program and return the reply.
 
-    Freya never reads that program's sign-in. The brief goes in on
-    standard input, so no part of it becomes a command-line argument.
-    The program runs in an empty folder made for this call.
+    This function sends whatever it is given. Deciding that a brief
+    may go (the provider switch, the material settings, screening,
+    the owner's approval and the usage ledger) is the caller's job and
+    must be done before calling it.
+
+    The brief goes in on standard input, so no part of it becomes a
+    command-line argument. The program runs in an empty folder made
+    for this call, with only the allowed environment variables.
     """
     if not isinstance(brief, str) or not brief.strip():
         raise PlanRouteError("There is no brief to send.", sent=False)
     if len(brief) > MAX_BRIEF_CHARACTERS:
         raise PlanRouteError("The brief is too long to send.", sent=False)
+
+    check_plan_sign_in(program)
 
     command = [*program, *FIXED_ARGUMENTS]
     if model:
@@ -132,16 +275,10 @@ def ask_claude_plan(
 
     with tempfile.TemporaryDirectory(prefix="freya-worker-") as folder:
         try:
-            completed = subprocess.run(
-                command,
-                input=brief.encode("utf-8"),
-                capture_output=True,
-                cwd=folder,
-                env=child_environment(),
-                timeout=timeout,
-                creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+            code, output = _run(
+                command, folder, brief.encode("utf-8"), timeout,
             )
-        except FileNotFoundError as exc:
+        except OSError as exc:
             raise PlanRouteError(
                 "The Claude program could not be started.", sent=False,
             ) from exc
@@ -151,28 +288,28 @@ def ask_claude_plan(
                 "received.",
             ) from exc
 
-    return _parse_reply(completed)
+    return _parse_reply(code, output)
 
 
-def _parse_reply(completed) -> WorkerReply:
-    output = completed.stdout.decode("utf-8", errors="replace").strip()
-
+def _parse_reply(code, output) -> WorkerReply:
     try:
-        result = json.loads(output)
+        result = json.loads(output.decode("utf-8", errors="replace").strip())
     except ValueError:
         result = None
 
     if not isinstance(result, dict):
         raise PlanRouteError(
             "Claude's program gave an answer Freya could not read "
-            f"(exit code {completed.returncode})."
+            f"(exit code {code})."
         )
 
     text = result.get("result")
 
-    if result.get("is_error") or completed.returncode != 0:
-        detail = text if isinstance(text, str) and text else "no reason given"
-        raise PlanRouteError(f"Claude did not answer: {detail[:300]}")
+    if result.get("is_error") or code != 0:
+        raise PlanRouteError(
+            "Claude did not answer the brief.",
+            detail=text[:2000] if isinstance(text, str) else "",
+        )
 
     if not isinstance(text, str) or not text.strip():
         raise PlanRouteError("Claude returned an empty answer.")
@@ -209,8 +346,8 @@ def _model_name(result) -> str:
 def create_claude_plan_provider(program=None) -> ProviderDefinition:
     """
     Describe Claude, reached through the owner's subscription, as a
-    provider. Healthy means only that the program is present; whether
-    the owner is signed in is known when a brief is sent.
+    provider. Healthy means only that the program is present; how it
+    is signed in is checked when a brief is sent.
     """
 
     def health():
@@ -234,6 +371,11 @@ def register_claude_plan_capability(registry, program=None, model=None):
     Register the one capability this route offers. It is not offered
     to the model as a tool and is in no default policy seed: only a
     rule the owner adds allows it.
+
+    Policy is one gate. Before this is registered in the running
+    control plane, the handler must also demand proof that this exact
+    brief passed the owner's switches, screening, approval and the
+    usage ledger; that sending boundary is not built yet.
     """
 
     def ask(brief, timeout=DEFAULT_TIMEOUT_SECONDS):

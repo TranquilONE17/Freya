@@ -44,6 +44,41 @@ def test_health_reflects_server_and_installed_models(fake_ollama):
     assert check_ollama_health(models) == ProviderHealth.OFFLINE
 
 
+def test_the_real_client_is_pinned_to_this_machine(monkeypatch):
+    import importlib
+
+    monkeypatch.setenv("OLLAMA_HOST", "http://models.example.org:11434")
+    monkeypatch.setenv("HTTPS_PROXY", "http://proxy.example.org:8080")
+    from freya.providers.model import ollama as provider
+
+    provider = importlib.reload(provider)
+
+    assert str(provider.ollama._client.base_url).rstrip("/") == (
+        "http://127.0.0.1:11434"
+    )
+    assert provider.ollama._client.trust_env is False
+
+
+def test_a_model_that_runs_elsewhere_is_not_a_local_model(fake_ollama):
+    from freya.providers.model.ollama import runs_elsewhere
+
+    fake_ollama.installed = ["big-model:cloud", "nomic-embed-text:latest"]
+    assert runs_elsewhere("big-model:cloud")
+    assert check_ollama_health(["big-model:cloud", "nomic-embed-text"]) == (
+        ProviderHealth.UNHEALTHY
+    )
+
+    fake_ollama.installed = ["plain-name:latest", "nomic-embed-text:latest"]
+    fake_ollama.show = lambda model: (
+        {"remote_host": "https://elsewhere.example"}
+        if model == "plain-name" else {}
+    )
+    assert check_ollama_health(["plain-name", "nomic-embed-text"]) == (
+        ProviderHealth.UNHEALTHY
+    )
+    assert check_ollama_health(["nomic-embed-text"]) == ProviderHealth.HEALTHY
+
+
 def test_runtime_is_unavailable_until_configured():
     with pytest.raises(ModelRuntimeUnavailable):
         get_model_runtime()

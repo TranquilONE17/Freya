@@ -120,8 +120,10 @@ reached" notice and its reset time from the program's output is not built: the
 notice's exact form has not been seen.
 
 Plan routes drive a program that can read files and run commands by itself. Freya
-starts it with no tools, no file access beyond what she passes in, and a filtered
-environment (`child_environment.py`), and treats its reply as untrusted text.
+asks it for a worker with no tools and none of the owner's customisations, gives it
+only an allowlisted environment and an empty folder, and treats its reply as
+untrusted text. Those are requests to the vendor's program, not a containment
+boundary.
 
 ## Choosing the model
 
@@ -418,6 +420,66 @@ and unused; this becomes an option only if the plan changes.
    is reliable at a 95% bar, and they will need to grow and be kept unseen.
 7. A second opinion from Codex on this design, as the project rules ask before an
    architecture decision, once its allowance resets.
+
+## Codex's second opinion (2026-10-09)
+
+Codex read this note and the code read-only and reported fifteen points. Each was
+checked against the code.
+
+Fixed:
+
+- The Claude worker inherited Freya's environment minus credential-named variables,
+  which still let through settings that point Claude at another server, bill another
+  account, or send telemetry. It now gets a short allowlist only.
+- "Local Ollama" was not enforced: the client followed `OLLAMA_HOST`, and Ollama can
+  serve models that run on its own servers. The client is now pinned to this machine,
+  and a model that runs elsewhere makes the provider unhealthy.
+- The route assumed a subscription. It now asks the program how it is signed in and
+  refuses unless that is a Claude subscription served by Anthropic.
+- The vendor's error text, which can repeat a brief, was part of the error message
+  and so could reach the audit log. It is now kept apart from the message.
+- The program's output was read without limit. It now goes to files and a bounded
+  amount is read.
+- Ledger: a zero cap let through a call estimated at nothing; work larger than a hard
+  allowance was told to wait for a reset that could never help; a call reserved before
+  a reset stopped counting after it while still in flight.
+- Record: two different sets of settings could produce the same entry; impossible
+  counts were accepted; attempts that got no reply were left out, so an unreliable
+  model could look perfect; high-value work could fall back to an unmeasured model
+  without the owner's say.
+
+Accepted, not yet done:
+
+- **One sending boundary.** The function that sends a brief sends whatever it is
+  given. Before the route is registered in the running control plane, sending must
+  require proof, bound to the exact brief, recipient, settings and reservation, that
+  the owner's switches, the material sorting, screening, approval and the ledger all
+  passed, checked again at the moment of sending. This is the next thing to build and
+  nothing else should call the route first.
+- **The program's flags are requests, not containment.** Safe mode leaves sign-in,
+  model choice and administrator-managed settings in force, and a temporary folder
+  does not confine a program. The route's wording now says so. What the worker can
+  really reach needs testing against the installed version.
+- **Periods.** A period is still a fixed number of seconds counted back from the next
+  reset, which cannot follow calendar billing months and lets a changed reset time
+  move the start of the period. Periods need their own recorded start and end.
+- **Exact identity of what was measured.** Reports name the model asked for, not the
+  digest of a local model or the model a cloud route actually served, and a cloud
+  report records thinking and size settings the route never applied.
+- **Grading.** Several checks look for words and limits, so a reply that contradicts
+  the text can pass, and two reject valid replies. To be tightened once the running
+  benchmark batch has finished, then every stored reply graded again.
+
+For the owner to decide:
+
+- **Private context and briefs.** Codex's most serious design point is the one raised
+  earlier: because the main model writes cloud briefs with memories in view, a fact it
+  restates as its own words is labelled as part of the request and passes the material
+  sorting, and screening can miss it. Codex recommends building briefs only from
+  inputs that were explicitly authorised, keeping track of where each part came from,
+  with screening as a second safeguard. The owner chose full context for the main
+  model on 2026-10-09 with screening and the local record as the guards; this is
+  recorded as an open disagreement between that choice and the reviewer's advice.
 
 ## Suggested build order
 
