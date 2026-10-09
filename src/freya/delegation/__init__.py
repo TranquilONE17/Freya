@@ -1,3 +1,11 @@
+from freya.delegation.record import (
+    DEFAULT_BARS,
+    Candidate,
+    Choice,
+    ModelRecord,
+    choose,
+    entry_id,
+)
 from freya.delegation.material import (
     ALLOWED,
     ASK,
@@ -20,6 +28,12 @@ from freya.delegation.material import (
 )
 
 __all__ = [
+    "DEFAULT_BARS",
+    "Candidate",
+    "Choice",
+    "ModelRecord",
+    "choose",
+    "entry_id",
     "ALLOWED",
     "ASK",
     "CLOUD_SETTINGS_PATH",

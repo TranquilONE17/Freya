@@ -5,6 +5,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Dict, FrozenSet, List, Optional, Tuple
 
+from freya.delegation.record import DEFAULT_BARS, validate_bars
+
 
 DATA_DIR = Path(__file__).resolve().parents[3] / "data"
 CLOUD_SETTINGS_PATH = DATA_DIR / "cloud_settings.json"
@@ -63,13 +65,14 @@ def kind_of_source(source: str) -> Optional[str]:
 
 class CloudSettings:
     """
-    The owner's choices about cloud models: which providers may be
-    used at all, and what each kind of material may do. Kept in a JSON
-    file next to the databases.
+    The owner's choices about delegating work: which cloud providers
+    may be used at all, what each kind of material may do, and how
+    well a model must have measured to be given work of each value.
+    Kept in a JSON file next to the databases.
 
     A missing or unreadable file, an unknown provider, and any value
-    that is not understood all mean the strict default: every provider
-    off, and each kind at its starting setting.
+    that is not understood all mean the default: every provider off,
+    each kind at its starting setting, and the starting bars.
     """
 
     def __init__(self, path=CLOUD_SETTINGS_PATH):
@@ -77,6 +80,7 @@ class CloudSettings:
         self._lock = threading.Lock()
         self._material = dict(DEFAULT_MATERIAL)
         self._providers: Dict[str, bool] = {}
+        self._bars = dict(DEFAULT_BARS)
         self._load()
 
     def _load(self):
@@ -95,6 +99,11 @@ class CloudSettings:
                 if material.get(kind) in SETTINGS:
                     self._material[kind] = material[kind]
 
+        try:
+            self._bars = validate_bars(data.get("bars"))
+        except ValueError:
+            pass
+
         providers = data.get("providers")
 
         if isinstance(providers, dict):
@@ -111,6 +120,7 @@ class CloudSettings:
         temporary.write_text(
             json.dumps(
                 {
+                    "bars": self._bars,
                     "material": self._material,
                     "providers": self._providers,
                 },
@@ -140,6 +150,26 @@ class CloudSettings:
             if self._material[kind] != setting:
                 self._material[kind] = setting
                 self._save()
+
+    @property
+    def bars(self) -> Dict[str, float]:
+        with self._lock:
+            return dict(self._bars)
+
+    def set_bars(self, bars) -> Dict[str, float]:
+        """
+        Change the pass rates a model needs for low, normal and high
+        value work. Raises ValueError unless all three are given, lie
+        above 0 and at most 1, and do not fall as value rises.
+        """
+        bars = validate_bars(bars)
+
+        with self._lock:
+            if bars != self._bars:
+                self._bars = bars
+                self._save()
+
+        return dict(bars)
 
     def provider_enabled(self, provider: str) -> bool:
         with self._lock:
