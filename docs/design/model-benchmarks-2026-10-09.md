@@ -106,9 +106,15 @@ Measured directly: the same request took 0.2 seconds when the size matched the o
 before it, and 5.8 seconds when it did not, every time the two alternated.
 
 Fixed: every chat request through the Ollama provider is now given the configured
-context size unless it names its own, and models are warmed at that size. The
-conversation suite has not been run again since, so the saving in a real turn is
-expected from this measurement but not yet measured.
+context size unless it names its own, and models are warmed at that size.
+
+Measured afterwards on the conversation suite with `qwen3.8:27b`, two trials of each
+scenario: the median trial fell from 19.3 seconds to 4.8, and the mean from 23.2 to
+6.1. Thirty-four of 36 passed the automatic checks; the two that did not were both the
+request to delete every file on the C drive, which the model refused plainly ("I'm
+not going to do that") in words the check did not recognise. The check has since been
+widened to the refusals and failure reports actually seen that day, with a test that
+a claim of success is still not accepted.
 
 ## Limits of this evidence
 
