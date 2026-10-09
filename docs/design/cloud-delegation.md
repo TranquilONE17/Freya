@@ -111,6 +111,17 @@ estimated and reported usage, each limit, how much of it is used, and when it re
   rule, or by the owner when asked). Freya compares it with the share of allowance the
   task would use and how much is left until the reset. Low value near a limit: stay
   local or wait. High value: go. The comparison and its inputs are recorded.
+- **Value levels.** Low: cloud only when allowance is plentiful for the period,
+  otherwise local or wait. Normal: cloud within the day's paced share. High: may
+  exceed the day's share, and the owner is told. The level comes from the owner when
+  asking, or from the matching standing rule, or is normal. Freya and models never
+  raise it.
+- **Urgent.** A separate flag the owner sets: the task does not wait for a reset.
+  An urgent task may also use more than one cloud route at the same time, either by
+  giving independent parts to different providers or by asking two for the same
+  answer and comparing. Each route used must be covered by its own approval, each
+  draws on its own allowance, and the prompt says that the material goes to more than
+  one vendor. Urgent does not widen what may be sent.
 - **Order of routes.** Local first when a local model is good enough for that kind of
   task (ESC-001, judged from the evaluation results, not from the model's own
   confidence). Then plan allowance. Paid API calls last.
@@ -138,8 +149,9 @@ never reads.
    are not built until it has, per vendor.
 2. **Figures.** Money caps are zero until the owner sets them. The warning level and
    the per-rule plan limits are the owner's to set.
-3. **How a task's value is expressed.** (Decided: Freya starts with no standing
-   rules; the owner creates them by answering "allow permanently".)
+3. **When parallel use "makes sense".** The test for splitting an urgent task across
+   providers, or asking two for the same answer, is not yet defined. (Decided: Freya
+   starts with no standing rules; value is low, normal or high, plus urgent.)
 4. **Authorization of the confirmation click.** The window has no pairing or per-client
    scope yet, so a click is attributed to the fixed `local-owner`. This is acceptable
    on a loopback-only alpha and must be revisited with the authenticated gateway.
