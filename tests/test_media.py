@@ -272,11 +272,72 @@ def test_decoder_handles_synthetic_audio_in_bounded_chunks(tmp_path, monkeypatch
         def wait(self, timeout): return 0
     monkeypatch.setattr("freya.media.whisper.subprocess.Popen", lambda *args, **kwargs: Process())
     transcriber = WhisperTranscriber(lambda: Speech())
-    segments, info = transcriber.transcribe(path)
+    segments, info = transcriber.transcribe(path, size=stat.st_size, modified_ns=stat.st_mtime_ns)
     values = list(segments)
     assert max(lengths) <= 16000 * 30
     assert len(values) == 2 and values[1][0] == 30
     assert info["complete"] is True
+
+
+@pytest.mark.parametrize("change", ["size", "modified"])
+def test_analysis_rejects_changed_imported_media(store, tmp_path, monkeypatch, change):
+    path = tmp_path / "imported.wav"
+    path.write_bytes(b"synthetic original")
+    original = path.stat()
+    record = store.add_media("local", str(path), "Synthetic audio", "audio", "local-folder",
+                             root=str(tmp_path), relative=path.name, size=original.st_size,
+                             modified_ns=original.st_mtime_ns, fingerprint="synthetic-original")
+    if change == "size":
+        path.write_bytes(b"synthetic replacement of a different size")
+    else:
+        os.utime(path, ns=(original.st_atime_ns, original.st_mtime_ns + 1000000000))
+
+    class Speech:
+        def transcribe_media_chunk(self, audio):
+            pytest.fail("Changed media must not reach speech recognition")
+
+    monkeypatch.setattr("freya.media.whisper.subprocess.Popen", lambda *args, **kwargs: pytest.fail("Changed media must not start decoding"))
+    analyzer = Analyzer(store, lambda messages: pytest.fail("Changed media must not reach the model"), "synthetic",
+                        transcriber=WhisperTranscriber(lambda: Speech()),
+                        resolve_file=lambda item: resolve_inside([tmp_path], item["root"], item["relative"]))
+    with pytest.raises(UnsafePath, match="changed since it was imported"):
+        analyzer.run(record["media_id"], threading.Event())
+    assert store.segments(record["media_id"]) == []
+    assert store.summaries(record["media_id"]) == []
+    assert store.get(record["media_id"])["fingerprint"] == "synthetic-original"
+
+
+def test_decoder_rechecks_imported_identity_after_parent_validation(tmp_path, monkeypatch):
+    import io
+    from freya.media import decode_worker
+
+    path = tmp_path / "racing.wav"
+    path.write_bytes(b"synthetic original")
+    original = path.stat()
+    monkeypatch.setattr(decode_worker, "checked", lambda handle, source: None)
+
+    class Speech:
+        def transcribe_media_chunk(self, audio):
+            pytest.fail("Replacement media must not reach speech recognition")
+
+    class Process:
+        stdout = io.BytesIO(json.dumps({"type": "error", "message": "Input changed."}).encode() + b"\n")
+        def poll(self): return 1
+        def wait(self, timeout): return 1
+
+    def start(command, **kwargs):
+        assert command[-2:] == [str(original.st_size), str(original.st_mtime_ns)]
+        path.write_bytes(b"synthetic replacement between validation and opening")
+        monkeypatch.setattr("av.open", lambda *args, **kwargs: pytest.fail("Replacement media must not be decoded"))
+        with pytest.raises(ValueError, match="Input changed"):
+            decode_worker.decode(path, int(command[-2]), int(command[-1]))
+        return Process()
+
+    monkeypatch.setattr("freya.media.whisper.subprocess.Popen", start)
+    transcriber = WhisperTranscriber(lambda: Speech())
+    segments, _ = transcriber.transcribe(path, size=original.st_size, modified_ns=original.st_mtime_ns)
+    with pytest.raises(RuntimeError, match="Input changed"):
+        list(segments)
 
 
 def test_media_schema_reopen_and_tombstone_persistence(tmp_path):

@@ -192,7 +192,10 @@ def start_media_decoder(tmp_path, monkeypatch):
         def transcribe_media_chunk(self, audio):
             return []
 
-    WhisperTranscriber(Speech).transcribe(recording)
+    imported = recording.stat()
+    WhisperTranscriber(Speech).transcribe(
+        recording, size=imported.st_size, modified_ns=imported.st_mtime_ns
+    )
 
 
 def start_gpu_query(tmp_path, monkeypatch):
