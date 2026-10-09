@@ -37,6 +37,37 @@ class FakeConnection:
 
 
 class OllamaCancellationTests(unittest.TestCase):
+    def test_malformed_event_is_rejected_and_connection_closed(self):
+        class MalformedResponse(FakeResponse):
+            def __init__(self):
+                self.data = iter(b'[]\\n')
+
+        with (patch("local_coding_agent.http.client.HTTPConnection", FakeConnection),
+              patch.object(FakeConnection, "getresponse", return_value=MalformedResponse()),
+              patch("local_coding_agent.select.select", return_value=([object()], [], []))):
+            with self.assertRaises(ValueError):
+                ask_ollama_cancellable(
+                    "http://127.0.0.1:11434/api/generate", "mock", "task",
+                    lambda: None)
+        self.assertTrue(FakeConnection.instance.closed)
+
+    def test_stalled_stream_checks_revocation(self):
+        checks = 0
+
+        def checkpoint():
+            nonlocal checks
+            checks += 1
+            if checks == 3:
+                raise PermissionError("revoked while idle")
+
+        with (patch("local_coding_agent.http.client.HTTPConnection", FakeConnection),
+              patch("local_coding_agent.select.select", return_value=([], [], []))):
+            with self.assertRaises(PermissionError):
+                ask_ollama_cancellable(
+                    "http://127.0.0.1:11434/api/generate", "mock", "task",
+                    checkpoint)
+        self.assertTrue(FakeConnection.instance.closed)
+
     def test_revocation_closes_stream(self):
         checks = 0
 
