@@ -3,6 +3,10 @@ from __future__ import annotations
 
 import argparse
 import json
+import http.client
+import socket
+import time
+from typing import Callable
 import urllib.error
 import urllib.request
 from pathlib import Path
@@ -67,6 +71,65 @@ def ask_ollama(endpoint: str, model: str, prompt: str) -> str:
     if len(data) > MAX_RESPONSE_BYTES:
         raise ValueError("Ollama response exceeds size limit")
     return str(json.loads(data)["response"])
+
+
+
+def ask_ollama_cancellable(endpoint: str, model: str, prompt: str,
+                           checkpoint: Callable[[], None], *,
+                           timeout: float = 240) -> str:
+    """Stream locally and close the HTTP connection on revoked authorization.
+
+    Socket polling bounds detection delay during idle streaming; closing this
+    connection does not guarantee that Ollama immediately stops GPU work.
+    """
+    if endpoint not in ("http://127.0.0.1:11434/api/generate",
+                        "http://localhost:11434/api/generate"):
+        raise ValueError("Only local Ollama endpoints are permitted")
+    checkpoint()
+    payload = json.dumps({"model": model, "prompt": prompt, "stream": True}).encode()
+    host = "127.0.0.1" if "127.0.0.1" in endpoint else "localhost"
+    connection = http.client.HTTPConnection(host, 11434, timeout=0.5)
+    deadline = time.monotonic() + timeout
+    chunks = []
+    total = 0
+    pending = b""
+    try:
+        connection.request("POST", "/api/generate", body=payload,
+                           headers={"Content-Type": "application/json"})
+        response = connection.getresponse()
+        if response.status != 200:
+            raise RuntimeError(f"Local Ollama HTTP status {response.status}")
+        while True:
+            checkpoint()
+            if time.monotonic() >= deadline:
+                raise TimeoutError("Local Ollama generation timed out")
+            try:
+                byte = response.read(1)
+            except (socket.timeout, TimeoutError):
+                continue
+            if not byte:
+                raise RuntimeError("Ollama stream ended without completion")
+            pending += byte
+            if len(pending) > MAX_RESPONSE_BYTES:
+                raise ValueError("Ollama response exceeds size limit")
+            if byte != b"\\n":
+                continue
+            item = json.loads(pending)
+            pending = b""
+            fragment = item.get("response", "")
+            if not isinstance(fragment, str):
+                raise ValueError("Invalid Ollama response fragment")
+            total += len(fragment.encode("utf-8"))
+            if total > MAX_RESPONSE_BYTES:
+                raise ValueError("Ollama response exceeds size limit")
+            chunks.append(fragment)
+            if item.get("done") is True:
+                checkpoint()
+                return "".join(chunks)
+            if item.get("error"):
+                raise RuntimeError("Local Ollama reported generation error")
+    finally:
+        connection.close()
 
 
 def validate_proposal(patch: str, selected: set[str]) -> None:
