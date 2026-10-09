@@ -113,7 +113,7 @@ def ask_ollama_cancellable(endpoint: str, model: str, prompt: str,
             pending += byte
             if len(pending) > MAX_RESPONSE_BYTES:
                 raise ValueError("Ollama response exceeds size limit")
-            if byte != b"\\n":
+            if byte != b"\n":
                 continue
             item = json.loads(pending)
             pending = b""
