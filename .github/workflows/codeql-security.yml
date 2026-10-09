@@ -11,7 +11,6 @@ on:
 permissions:
   contents: read
   actions: read
-  security-events: write
 jobs:
   codeql:
     runs-on: ubuntu-latest
@@ -23,5 +22,39 @@ jobs:
         with:
           languages: python
           queries: security-extended
-      - name: Analyze Python
+      - name: Analyze Python and generate local SARIF
         uses: github/codeql-action/analyze@v3
+        with:
+          upload: never
+          output: codeql-results
+      - name: Summarize CodeQL findings
+        run: |
+          python - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          files = sorted(Path("codeql-results").rglob("*.sarif"))
+          if not files:
+              raise SystemExit("CodeQL did not produce SARIF results")
+          lines = ["## CodeQL security analysis", ""]
+          count = 0
+          for path in files:
+              data = json.loads(path.read_text(encoding="utf-8"))
+              for run in data.get("runs", []):
+                  results = run.get("results", [])
+                  count += len(results)
+                  lines.append(f"- {path.name}: {len(results)} findings")
+          lines.append(f"- Total findings: {count}")
+          summary = "\n".join(lines) + "\n"
+          print(summary)
+          with open(os.environ["GITHUB_STEP_SUMMARY"], "a", encoding="utf-8") as output:
+              output.write(summary)
+          PY
+      - name: Upload CodeQL findings
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: codeql-security-sarif
+          path: codeql-results/
+          if-no-files-found: error
