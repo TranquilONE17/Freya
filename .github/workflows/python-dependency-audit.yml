@@ -18,14 +18,13 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
-      - name: Install dependency auditor
-        run: python -m pip install --disable-pip-version-check pip-audit
-      - name: Audit resolved project dependencies
+      - name: Install dependency tools
+        run: python -m pip install --disable-pip-version-check pip-tools pip-audit
+      - name: Resolve project dependencies without installing runtime packages
+        run: python -m piptools compile pyproject.toml --output-file resolved-requirements.txt --quiet
+      - name: Audit resolved dependencies (advisory)
         run: |
-          python -m pip_audit --disable-pip --progress-spinner off --no-deps --requirement /dev/null || true
-      - name: Audit project manifest (advisory; resolve without installing GPU packages)
-        run: |
-          python -m pip_audit --progress-spinner off --no-deps --format json --output dependency-audit.json pyproject.toml || true
+          python -m pip_audit --no-deps --progress-spinner off --format json --output dependency-audit.json -r resolved-requirements.txt || true
       - name: Upload dependency report
         if: always()
         uses: actions/upload-artifact@v4
