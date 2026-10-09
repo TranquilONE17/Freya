@@ -37,7 +37,7 @@ def policy_checkpoint(policy, actor: str, *,
             decision = policy.decide(actor, CODING_PROPOSE)
         except Exception as exc:
             raise CodingAuthorizationRevoked("Policy state unavailable") from exc
-        if decision.allow is not True:
+        if getattr(decision, "allow", None) is not True:
             raise CodingAuthorizationRevoked("Coding permission revoked")
 
     return check
