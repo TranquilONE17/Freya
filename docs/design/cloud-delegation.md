@@ -146,6 +146,35 @@ opinion of itself.
   owner's approval like any other cloud work, is kept small, and is repeated only when
   the model version changes.
 
+**Starting kinds of task and bars (a draft for the owner to adjust).**
+
+| Kind | What it covers |
+|---|---|
+| extraction | Pulling stated facts out of text into a fixed form |
+| summarising | Shortening text within a limit, keeping what matters, adding nothing |
+| classification | Sorting items into given labels |
+| rewriting | Changing form, tone or units while keeping every fact |
+| reasoning | Multi-step problems with one right answer |
+| code-review | Finding a defect or saying what code does, by reading it |
+| planning | Ordering or allocating things under stated rules |
+
+| Task value | Pass rate a model needs for that kind |
+|---|---|
+| low | 70% |
+| normal | 85% |
+| high | 95% |
+
+A model counts as measured for a kind once it has at least 15 graded attempts on the
+exact version in use. Writing code is not a kind yet: grading it means running what a
+model wrote, which must wait for the isolation the baseline requires (ARCH-017).
+
+The tasks are built: `freya.evaluation.delegation_tasks` holds 36 synthetic tasks,
+at least five per kind, each with a deterministic check, a reply that must pass and
+one that must fail. `python -m freya.evaluation.delegation` runs them against an
+installed Ollama model, or against Claude on the plan with `--claude-plan`, which is
+refused without `--owner-approved-cloud-run`. No reply is executed. The record the
+router reads, and the router, are not built.
+
 ## What may leave the machine
 
 Every delegated request is assembled from labelled parts, using the source labels the
@@ -348,9 +377,9 @@ and unused; this becomes an option only if the plan changes.
    on a loopback-only alpha and must be revisited with the authenticated gateway.
 5. **Codex's ledger work** (`feat/synthetic-self-design`) holds reservation and
    accounting ideas that may be reusable for the usage ledger. It has not been reviewed.
-6. **The kinds of task and the bar for each value level** are not yet chosen, and
-   the evaluation tasks for them are not written. The present 18 scenarios test tool
-   use in conversation and did not separate the three local models.
+6. **The kinds of task and the bar for each value level** are a draft awaiting the
+   owner. Thirty-six tasks are few: they can rank models but cannot show that a model
+   is reliable at a 95% bar, and they will need to grow and be kept unseen.
 7. A second opinion from Codex on this design, as the project rules ask before an
    architecture decision, once its allowance resets.
 

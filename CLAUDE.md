@@ -351,6 +351,14 @@ administrator. SQLite durability settings are provisional pending ADR-015; each 
 invocation currently costs roughly 30–60 ms in synchronous writes. Default policy rules
 are applied once per named seed (`policy_seed` table), so removed rules stay removed.
 
+`python -m freya.evaluation.delegation` measures a model on 36 synthetic delegated
+tasks in seven kinds (`evaluation/delegation_tasks.py`), each with a deterministic
+check. It runs an installed Ollama model, or Claude on the owner's plan with
+`--claude-plan`, which is refused without `--owner-approved-cloud-run` because it
+sends the tasks to the vendor and uses allowance. Replies are read, never executed;
+do not add a task that is graded by running what a model wrote. Every task carries a
+reply that must pass and one that must fail, and a test checks both.
+
 `python -m freya.evaluation.workflow` runs opt-in local-model evaluations with
 synthetic memory and simulated tools; see `docs/design/workflow-evaluation.md`.
 It never uses the owner's data or live hardware tools.
