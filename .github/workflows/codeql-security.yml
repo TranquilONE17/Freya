@@ -1,0 +1,26 @@
+name: CodeQL security analysis
+on:
+  push:
+    branches: [work/security-local-coding-alpha]
+  pull_request:
+    paths:
+      - 'devtools/**'
+      - 'src/**'
+      - '.github/workflows/codeql-security.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+  security-events: write
+jobs:
+  codeql:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@v3
+        with:
+          languages: python
+          queries: security-extended
+      - name: Analyze Python
+        uses: github/codeql-action/analyze@v3
