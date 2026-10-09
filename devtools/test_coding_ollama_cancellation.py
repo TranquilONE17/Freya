@@ -9,7 +9,7 @@ class FakeResponse:
     status = 200
 
     def __init__(self):
-        self.data = iter(b'{"response":"partial","done":false}\\n')
+        self.data = iter(b'{"response":"partial","done":false}\n')
 
     def read(self, count):
         return bytes([next(self.data)])
