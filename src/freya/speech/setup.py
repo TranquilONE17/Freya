@@ -75,6 +75,9 @@ def build_voice_studio(
     )
 
     def apply_live_voice(profile):
+        if not getattr(voice, "enabled", True):
+            return
+
         if profile is None:
             voice.reset_voice()
             return

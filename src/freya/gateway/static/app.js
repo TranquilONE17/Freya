@@ -2029,6 +2029,12 @@ function showStatus(next) {
     status.model === "healthy" ? "good" : "bad",
   );
 
+  setPill(
+    "pill-voice",
+    status.voice === "ready" ? "Voice ready" : "Voice unavailable",
+    status.voice === "ready" ? "good" : "warn",
+  );
+
   const images = {
     healthy: ["Images ready", "good"],
     startable: ["Images on demand", "warn"],

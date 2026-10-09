@@ -1118,7 +1118,7 @@ def main(window_only=False):
 
     print("Freya online.")
 
-    print("Voice: enabled")
+    print("Voice: enabled" if voice.enabled else "Voice: unavailable (text chat ready)")
 
     print("Streaming: enabled")
 
@@ -1255,6 +1255,8 @@ def main(window_only=False):
             settings,
 
             control_plane,
+
+            voice=voice,
 
         )
 

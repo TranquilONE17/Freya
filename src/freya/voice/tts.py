@@ -14,8 +14,9 @@ SAMPLE_RATE = 24000
 
 
 class FreyaVoice:
-    def __init__(self):
-        self.enabled = VOICE_ENABLED
+    def __init__(self, enabled=None):
+        self.enabled = VOICE_ENABLED if enabled is None else enabled
+        self.startup_error = None
         self.voice = FREYA_VOICE
         self.speed = VOICE_SPEED
         # How loud speech is played, from 0 (silent) to 1 (as generated).
@@ -40,10 +41,17 @@ class FreyaVoice:
 
         if self.enabled:
             print("Loading Freya voice engine...")
-            self.pipeline = KPipeline(
-                lang_code="a",
-                repo_id="hexgrad/Kokoro-82M",
-            )
+            try:
+                self.pipeline = KPipeline(
+                    lang_code="a",
+                    repo_id="hexgrad/Kokoro-82M",
+                )
+            except Exception as exc:
+                # Speech is optional: a missing model must not prevent chat.
+                self.enabled = False
+                self.startup_error = str(exc)
+                print("Voice unavailable; text chat remains available.")
+                return
 
             self._worker = threading.Thread(
                 target=self._speech_worker,
