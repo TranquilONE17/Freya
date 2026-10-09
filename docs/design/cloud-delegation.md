@@ -68,6 +68,11 @@ minimum the task needs is sent (ESC-005).
 
 ## Approval
 
+The chat window has a check box for whether cloud models may be used at all. While it
+is clear, no cloud route is used and no approval prompt appears, whatever rules exist;
+Freya says the work stayed local. It starts clear. Only a click in the window changes
+it, never speech or a model, and each change is audited.
+
 A standing rule names a kind of task, the routes it may use, the kinds of material it
 may send, and its own usage limit. A task that matches a rule goes without asking. A
 task that matches none is described to the owner as ESC-004 requires (why local is not
