@@ -138,8 +138,8 @@ never reads.
    are not built until it has, per vendor.
 2. **Figures.** Money caps are zero until the owner sets them. The warning level and
    the per-rule plan limits are the owner's to set.
-3. **The first standing rules.** Which kinds of task are approved in advance, and how a
-   task's value is expressed.
+3. **How a task's value is expressed.** (Decided: Freya starts with no standing
+   rules; the owner creates them by answering "allow permanently".)
 4. **Authorization of the confirmation click.** The window has no pairing or per-client
    scope yet, so a click is attributed to the fixed `local-owner`. This is acceptable
    on a loopback-only alpha and must be revisited with the authenticated gateway.
