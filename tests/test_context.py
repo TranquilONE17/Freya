@@ -51,6 +51,39 @@ def test_budget_keeps_current_request_and_whole_recent_exchanges():
     assert history == original
 
 
+def test_the_assistant_estimate_keeps_more_than_a_few_exchanges(assistant):
+    from freya.kernel.context import estimated_tokens
+
+    assert assistant.context.counter is estimated_tokens
+    # Plain text is charged about a third of its bytes, other scripts more.
+    assert estimated_tokens("a" * 300) <= 110
+    assert estimated_tokens("語" * 100) >= 200
+    # Numbers and JSON are dense in tokens: every digit and mark is charged.
+    assert estimated_tokens("1 2 3 4 5 6 7 8 9 0 " * 100) >= 1000
+    assert estimated_tokens({"temperature": 61.5, "fan": 1200}) >= 15
+    # A long run of spaces is charged by its length, not as one token.
+    assert estimated_tokens("x" + " " * 5000 + "y") >= 5000
+    with pytest.raises(ContextLimitError):
+        assistant.context.build("System", [], "x" + " " * 100_000 + "y")
+    # Twenty exchanges of a paragraph each: all of them fit the default window.
+    history = [
+        {"role": role, "content": f"{index}: " + "word " * 80}
+        for index in range(20) for role in ("user", "assistant")
+    ]
+    messages = assistant.context.build("System", history, "And now?")
+    assert assistant.context.last_report["history_exchanges_omitted"] == 0
+    assert len(messages) == 42
+    assert "estimate" in assistant.context.last_report["accounting"]
+
+
+def test_media_recall_that_is_not_enabled_is_not_mentioned_to_the_model(assistant, monkeypatch):
+    monkeypatch.setattr(assistant_module, "rerank_memory_candidates", lambda **_: {"relevant_ids": []})
+    assistant.media_recall = lambda query: None
+    messages = assistant._prepare_context("What is the weather like?")
+    assert "Media retrieval" not in json.dumps(messages)
+    assert not any("Media" in note for note in assistant.context.last_report["retrieval_notes"])
+
+
 def test_pinned_request_is_never_silently_truncated():
     authority = ContextAuthority(ContextBudget(1200, 256, 128))
     with pytest.raises(ContextLimitError):

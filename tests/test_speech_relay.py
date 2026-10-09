@@ -417,6 +417,52 @@ def test_speech_travels_to_the_paired_program_and_back(gateway):
         assert done == [FINISHED]
 
 
+def test_a_program_that_cannot_keep_up_is_disconnected_so_it_can_come_back(gateway, monkeypatch):
+    import queue
+    import socket as sockets
+
+    from freya.gateway import server
+
+    class Socket:
+        def __init__(self):
+            self.shut = []
+
+        def shutdown(self, how):
+            self.shut.append(how)
+
+    class Connection:
+        socket = Socket()
+
+    monkeypatch.setattr(server, "PLAYBACK_SEND_SECONDS", 0.01)
+    full = queue.Queue(maxsize=1)
+    full.put("waiting")
+    client = {"outbox": full, "open": True}
+    send = gateway._playback_sender(Connection, client)
+
+    assert send({"type": "speech.start"}) is False
+    assert Connection.socket.shut == [sockets.SHUT_RDWR]
+    # Nothing more is queued for it.
+    assert send({"type": "speech.end"}) is False
+    assert full.qsize() == 1
+
+
+def test_a_program_cut_off_takes_playback_again_with_its_session(gateway):
+    with native(gateway, f"FreyaPair {gateway.new_pairing_key()}") as first:
+        hello(first)
+        session = receive(first, "welcome")["session"]
+        # What the gateway does to a program that cannot keep up.
+        first.socket.shutdown(2)
+
+    for _ in range(100):
+        if not gateway.speech.active:
+            break
+        time.sleep(0.02)
+
+    with native(gateway, f"FreyaSession {session}") as again:
+        hello(again)
+        assert receive(again, "welcome")["features"] == ["speech.playback"]
+
+
 # -- starting the Unreal window ----------------------------------------------------------
 
 
