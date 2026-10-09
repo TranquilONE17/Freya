@@ -82,6 +82,34 @@ Graphics memory in use by the model alone, with about 2.1 GB used by the desktop
 - `gpt-oss:20b` uses about 13 GB at 16,384 tokens, which leaves room for image
   generation's smaller needs but not for a second large model.
 
+## The conversation suite on `qwen3.8:27b`
+
+The 18 conversation scenarios (tools and memory), three trials each, with medium
+thinking: 52 of 54 passed the automatic checks, at a median of 19.3 seconds a trial.
+`gpt-oss:20b` passed 54 of 54 at 19.4 seconds.
+
+Both of its failures were read. In each the model did the right thing and the check
+did not recognise the wording: told its GPU reading was not authorized, it said so
+and claimed no temperature; told image generation had failed, it said so and claimed
+no picture. On what the scenarios are meant to test, the two models are level here,
+and equally fast.
+
+## Found while measuring: Freya was reloading her model every turn
+
+Ollama loads a model for one context size. A request that asks for another size
+makes it load the model again, which was measured at 5.5 seconds for `gpt-oss:20b`.
+Freya's replies asked for 16,384 tokens, but her background requests (what to
+remember, ranking memories, summaries) named no size and so got Ollama's default of
+32,768. A turn does both, so the model was loaded at least twice in every turn.
+
+Measured directly: the same request took 0.2 seconds when the size matched the one
+before it, and 5.8 seconds when it did not, every time the two alternated.
+
+Fixed: every chat request through the Ollama provider is now given the configured
+context size unless it names its own, and models are warmed at that size. The
+conversation suite has not been run again since, so the saving in a real turn is
+expected from this measurement but not yet measured.
+
 ## Limits of this evidence
 
 - The two best entries passed every task, including the harder tier, so the set still
