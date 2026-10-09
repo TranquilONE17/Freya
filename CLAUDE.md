@@ -455,7 +455,10 @@ name matching, the listener, and the listening commands, using a fake Ollama cli
 - `freya` is an installable package (src layout) and imports are absolute
   (e.g. `from freya.core.llm import ...`). It is installed in `.venv` in editable mode;
   run it from any directory with `freya` or `python -m freya`.
-- Requires Ollama on `127.0.0.1:11434` with `gpt-oss:20b` and `nomic-embed-text`.
+- Requires Ollama on `127.0.0.1:11434` with `qwen3.8:27b` and `nomic-embed-text`.
+  `FREYA_MODEL` names another installed model (`gpt-oss:20b` was the main model until
+  2026-10-09; see `docs/design/model-benchmarks-2026-10-09.md`). `qwen3.8:27b` uses
+  about 19 GB of video memory at the 16,384-token context, against about 13 GB.
   Image generation requires ComfyUI on `127.0.0.1:8188`.
 - Direct dependencies are declared in `pyproject.toml`; `uv.lock` pins the full resolved
   set for Windows and Linux (Python 3.12). After changing dependencies, run `uv lock`
