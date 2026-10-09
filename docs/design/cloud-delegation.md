@@ -439,6 +439,34 @@ and unused; this becomes an option only if the plan changes.
 7. A second opinion from Codex on this design, as the project rules ask before an
    architecture decision, once its allowance resets.
 
+## The OpenAI plan route is not built, and why
+
+Looked at on 2026-10-09 with Codex 0.162 as installed here. `codex exec` can be driven
+the same way as the Claude program: the brief on standard input, an empty working
+folder, `--ephemeral`, `--ignore-user-config`, `--ignore-rules`, `--json`, and
+`codex login status` reports "Logged in using ChatGPT" without Freya reading any
+sign-in file.
+
+The difference that stops it: the Claude program can be asked for a worker with no
+tools at all (`--tools ""`), and in the trial it reported none. Codex has no such
+switch. Its worker is an agent that can run commands, and its tightest sandbox,
+read-only, still lets those commands read files anywhere on this PC, which is what the
+project's own rules already say about it. A brief can carry material from a web page
+or a file, and that material can contain instructions. A Codex worker that follows
+them could read the owner's files, and whatever it reads is sent to OpenAI as part of
+its own working. Screening checks what Freya sends; it cannot see what a worker reads
+for itself.
+
+Codex does have feature switches (`--disable shell_tool` and others), but this
+version lists well over a hundred features, several of them other ways to act
+(a newer command runner, browser and computer use, apps, hooks, image generation),
+and which of them a non-interactive run can use is not documented. Proving a
+no-tools worker would take real runs against the owner's plan.
+
+So `openai-plan` is left unbuilt. The owner's choices are in the list of decisions.
+The Cloud tab shows the OpenAI box as "not set up yet"; ticking it does nothing
+because no route exists.
+
 ## The Cloud tab
 
 Built: a Cloud tab in the window (`gateway/static/cloud.js`, message type `cloud`,
