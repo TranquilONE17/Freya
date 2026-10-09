@@ -114,6 +114,38 @@ Plan routes drive a program that can read files and run commands by itself. Frey
 starts it with no tools, no file access beyond what she passes in, and a filtered
 environment (`child_environment.py`), and treats its reply as untrusted text.
 
+## Choosing the model
+
+Owner decision: one evaluation system decides every choice of model. The router picks
+among a vendor's cloud models the same way it picks between a local model and the
+cloud: from measured results, not from a fixed default and not from any model's
+opinion of itself.
+
+- **A record per model and kind of task.** For each model Freya can reach, local or
+  cloud, and each kind of task (for example code review, summarising, extraction,
+  multi-step reasoning), the record holds how often it passed the evaluation tasks of
+  that kind, how long it took, and what it used: VRAM and time for a local model,
+  plan allowance for a cloud one. Each entry names the exact model version it was
+  measured on and when.
+- **Where the record comes from.** The existing evaluation runner
+  (`freya.evaluation.workflow`), extended with tasks per kind and able to run them
+  against a cloud route. Tasks are synthetic and contain nothing personal. Later,
+  verified outcomes of real delegated tasks can add to it; a model never grades
+  itself.
+- **How the router uses it.** Among the models allowed for the task (provider
+  switched on, approval in place, limits not exceeded), it takes those whose measured
+  pass rate for that kind meets the bar for the task's value, and of those the one
+  that uses least. Low value accepts a lower bar than high value. If none meets the
+  bar it says so instead of sending the task to a model that is likely to fail
+  (ESC-002).
+- **Unmeasured models.** A model with no record for a kind is not assumed good or
+  bad. It is used only when no measured model qualifies, the least costly first, and
+  the reply says the choice was unmeasured.
+- **Measuring cloud models uses the plan.** An evaluation run against a cloud route
+  draws on the allowance and sends the synthetic tasks to the vendor, so it needs the
+  owner's approval like any other cloud work, is kept small, and is repeated only when
+  the model version changes.
+
 ## What may leave the machine
 
 Every delegated request is assembled from labelled parts, using the source labels the
@@ -316,7 +348,10 @@ and unused; this becomes an option only if the plan changes.
    on a loopback-only alpha and must be revisited with the authenticated gateway.
 5. **Codex's ledger work** (`feat/synthetic-self-design`) holds reservation and
    accounting ideas that may be reusable for the usage ledger. It has not been reviewed.
-6. A second opinion from Codex on this design, as the project rules ask before an
+6. **The kinds of task and the bar for each value level** are not yet chosen, and
+   the evaluation tasks for them are not written. The present 18 scenarios test tool
+   use in conversation and did not separate the three local models.
+7. A second opinion from Codex on this design, as the project rules ask before an
    architecture decision, once its allowance resets.
 
 ## Suggested build order
