@@ -46,6 +46,52 @@ The largest files Freya uses are the Ollama models, which Ollama keeps in its ow
 folder outside `data/`. They are loaded often and belong on the SSD; they are not part
 of this plan.
 
+## Backups
+
+Looking at the backups showed that there were none to speak of: the `backups` folder
+held one copy of the memory database, made once when the conversation tables were
+added. Nothing copied the databases regularly, against the baseline's target of losing
+at most a day's data.
+
+`freya.storage.backup` makes a dated backup on another drive:
+
+```powershell
+python -m freya.storage.backup            # make one, on the other drive
+python -m freya.storage.backup --check D:\FreyaBackups\2026-10-09_170618
+```
+
+- It copies the memory, control and usage databases with SQLite's own backup, which
+  gives a consistent copy even while Freya is running, and checks each copy.
+- It copies the small settings files, including the cloud settings, the screening
+  lists and the record of sent briefs.
+- It refuses a target on the same drive as the data.
+- Each run makes a new folder with a manifest of sizes and checksums. It never moves
+  or deletes anything, so old backups are not cleared away; that is not built.
+- It does not copy images, media, voice clips or models.
+
+The first backup was made on 2026-10-09 to `D:\FreyaBackups`, at the owner's request.
+It is personal data, on an unencrypted drive, like the data it copies.
+
+Not built: making a backup automatically (when Freya closes, or daily), removing old
+ones, restoring from one, and checking that a restored copy works. Until a backup is
+made automatically, it is only as recent as the last time the command was run.
+
+## Moving bulk data off the SSD
+
+The owner asked (2026-10-09) to keep on the SSD only what needs to be there. That is
+not done yet, and it should not be done by copying folders by hand:
+
+- Every store's location is fixed in its own module, next to the source tree. Moving
+  a folder without changing the code would make Freya start an empty one.
+- Some stores are referred to from others (the avatar library lists model files; the
+  media library records where files are). Each needs checking for how it records a
+  location before its folder moves.
+- It has to be done with Freya closed.
+
+The amount involved today is under 300 MB, so nothing is lost by doing it properly:
+one setting for where bulk data lives, each bulk store reading it, and a move that
+copies, checks, switches over, and leaves the originals for the owner to remove.
+
 ## Not built
 
 - Moving anything. A move of the memory database needs a backup first and the owner's
