@@ -41,8 +41,12 @@ class CodingBrokerAdapterTests(unittest.TestCase):
                 policy=policy, actor="local-owner"
             )
             handler = plane.capabilities.register.call_args.args[0].handler
-            with patch("coding_broker_adapter.propose") as proposal:
-                handler("test", ["example.py"])
+            token = enter_broker_context(LOCAL_OWNER, policy)
+            try:
+                with patch("coding_broker_adapter.propose") as proposal:
+                    handler("test", ["example.py"])
+            finally:
+                exit_broker_context(token)
             callback = proposal.call_args.kwargs["checkpoint"]
             with self.assertRaises(PermissionError):
                 callback()
