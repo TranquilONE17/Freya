@@ -20,6 +20,7 @@ REWRITING = "rewriting"
 REASONING = "reasoning"
 CODE_REVIEW = "code-review"
 PLANNING = "planning"
+ANALYSIS = "analysis"
 
 KINDS = (
     EXTRACTION,
@@ -29,6 +30,7 @@ KINDS = (
     REASONING,
     CODE_REVIEW,
     PLANNING,
+    ANALYSIS,
 )
 
 
@@ -845,6 +847,85 @@ TASKS = (
         ),
         '["announce", "rehearse", "backup", "migrate", "verify", "notify"]',
         '["backup", "announce", "rehearse", "migrate", "verify", "notify"]',
+    ),
+
+    # Analysis
+    DelegationTask(
+        "sales-table", ANALYSIS,
+        "Study the monthly sales below. Give a JSON object with "
+        "steady_grower (the one product whose sales rose every month) and "
+        "best_month (the month with the highest total across all three "
+        "products).\n\n"
+        "Month, Awl, Brace, Chisel\n"
+        "January, 10, 20, 15\n"
+        "February, 12, 18, 15\n"
+        "March, 15, 22, 14\n"
+        "April, 19, 21, 16\n\n" + JSON_ONLY,
+        json_fields({"steady_grower": "Awl", "best_month": "April"}),
+        '{"steady_grower": "Awl", "best_month": "April"}',
+        '{"steady_grower": "Brace", "best_month": "March"}',
+    ),
+    DelegationTask(
+        "likely-cause", ANALYSIS,
+        "A service began returning errors at 10:42 today. Every error reads "
+        "'timed out waiting for cache'. These changes were made:\n\n"
+        "A. Yesterday 16:00, a database migration, verified at the time.\n"
+        "B. Today 10:40, the cache service was restarted with new settings.\n"
+        "C. Today 09:15, a wording change on the help page.\n"
+        "D. Today 11:30, the security certificate was renewed.\n\n"
+        "Which change is the most likely cause?\n\n" + ANSWER_LINE,
+        answer_is("b"),
+        "The errors name the cache and began two minutes after its "
+        "restart.\nANSWER: B",
+        "ANSWER: D",
+    ),
+    DelegationTask(
+        "odd-reading", ANALYSIS,
+        "A sensor gave these daily readings for days 1 to 8: 21.1, 21.4, "
+        "20.9, 21.2, 31.8, 21.0, 21.3, 21.1. Give a JSON object with day "
+        "(the day whose reading does not fit the rest) and mean_without "
+        "(the mean of the other seven readings, to one decimal place).\n\n"
+        + JSON_ONLY,
+        json_fields({"day": 5, "mean_without": 21.1}),
+        '{"day": 5, "mean_without": 21.1}',
+        '{"day": 5, "mean_without": 22.5}',
+    ),
+    DelegationTask(
+        "supplier-choice", ANALYSIS,
+        "Choose a supplier. Delivery must take 5 days or fewer and the "
+        "defect rate must be under 2 percent. Of those that qualify, choose "
+        "the cheapest.\n\n"
+        "Alder: 9.50 each, 7 days, 1.0 percent defects\n"
+        "Birch: 10.20 each, 4 days, 1.5 percent defects\n"
+        "Cedar: 9.90 each, 5 days, 2.5 percent defects\n"
+        "Dune: 10.80 each, 3 days, 0.5 percent defects\n\n" + ANSWER_LINE,
+        answer_is("birch"),
+        "Only Birch and Dune qualify, and Birch is cheaper.\nANSWER: Birch",
+        "ANSWER: Alder",
+    ),
+    DelegationTask(
+        "contradiction", ANALYSIS,
+        "Two of these four statements from one report cannot both be true. "
+        "Give a JSON array of their two numbers, smaller first.\n\n"
+        "1. All 40 units were shipped on Monday.\n"
+        "2. Six of the 40 units were held back for rework until Wednesday.\n"
+        "3. The customer confirmed receipt of the order on Thursday.\n"
+        "4. Shipping cost less than was budgeted.\n\n" + JSON_ONLY,
+        json_list([1, 2]),
+        "[1, 2]",
+        "[2, 3]",
+    ),
+    DelegationTask(
+        "totals-and-averages", ANALYSIS,
+        "A shop has 120 customers who use its app, who spent 6,000 in total, "
+        "and 300 customers who do not, who spent 13,500 in total. A report "
+        "says: 'Customers who do not use the app spend more each, because "
+        "their total is higher.' Do the figures support that statement? "
+        "Answer yes or no.\n\n" + ANSWER_LINE,
+        answer_is("no"),
+        "App users average 50 each and the others 45, so the statement is "
+        "not supported.\nANSWER: No",
+        "ANSWER: Yes",
     ),
 )
 

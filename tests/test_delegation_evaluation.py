@@ -158,6 +158,37 @@ def test_the_best_pack_is_what_the_check_expects():
     assert best == PACK_BEST_VALUE
 
 
+def test_the_analysis_answers():
+    sales = {
+        "January": (10, 20, 15),
+        "February": (12, 18, 15),
+        "March": (15, 22, 14),
+        "April": (19, 21, 16),
+    }
+    rows = list(sales.values())
+    rising = [
+        name
+        for column, name in enumerate(("Awl", "Brace", "Chisel"))
+        if all(a[column] < b[column] for a, b in zip(rows, rows[1:]))
+    ]
+    assert rising == ["Awl"]
+    assert max(sales, key=lambda month: sum(sales[month])) == "April"
+
+    others = [21.1, 21.4, 20.9, 21.2, 21.0, 21.3, 21.1]
+    assert round(sum(others) / len(others), 1) == 21.1
+
+    suppliers = {
+        "alder": (9.50, 7, 1.0),
+        "birch": (10.20, 4, 1.5),
+        "cedar": (9.90, 5, 2.5),
+        "dune": (10.80, 3, 0.5),
+    }
+    fit = {n: v for n, v in suppliers.items() if v[1] <= 5 and v[2] < 2}
+    assert min(fit, key=lambda name: fit[name][0]) == "birch"
+
+    assert 6000 / 120 > 13500 / 300
+
+
 def test_kilometre_rounding():
     assert round(26 * 1.609344) == 42
     assert round(5 * 1.609344) == 8
@@ -210,6 +241,8 @@ def test_listing_contacts_nothing(capsys):
     listed = capsys.readouterr().out.splitlines()
     assert len(listed) == 5
     assert all(line.startswith("planning: ") for line in listed)
+    assert delegation.main(["--list"]) == 0
+    assert len(capsys.readouterr().out.splitlines()) == len(TASKS)
 
 
 def test_a_cloud_run_needs_the_owners_approval(tmp_path, monkeypatch):
