@@ -73,7 +73,7 @@ def validate_unified_diff(patch: str, selected: set[str]) -> None:
                 if old_count < 0 or new_count < 0:
                     raise ValueError("Hunk line counts exceeded")
                 index += 1
-            if index < len(lines) and lines[index] == "\\ No newline at end of file":
+            if index < len(lines) and lines[index] == "\\\\ No newline at end of file":
                 index += 1
         if not hunk_count:
             raise ValueError("Patch file has no hunks")
