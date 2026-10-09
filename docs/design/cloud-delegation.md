@@ -504,6 +504,52 @@ Decided by the owner after the review:
   inputs only. It is built (`freya.delegation.compose`) and described under "How a
   turn flows".
 
+### Re-evaluation after the changes (2026-10-09)
+
+Codex read the changed design and code again. It found no way to alter or replay an
+authorization, and confirmed the environment, error-text, zero-cap and hard-cap fixes.
+It found these, all then fixed:
+
+- Authorization trusted the composed brief's own account of itself. A brief composed
+  before a setting was tightened, or one whose text had been swapped, could be
+  authorized. Authorization now sorts the parts again under the present settings and
+  requires the text to be exactly what the cleared parts assemble to.
+- A match against a memory marked always private was reported as an ordinary match,
+  so "send it once anyway" released it. It is now reported, and held, as always
+  private.
+- Nothing was screened again at the moment of sending. It now is, so a memory or an
+  always-private mark added after authorizing still stops the brief.
+- The plan's value and urgent flag went straight to the usage ledger, letting the
+  model raise a task's value against the owner-only rule above. They are now
+  suggestions only; the value and urgency a task is sent with come from the caller
+  acting for the owner.
+- A model whose location could not be established was treated as local.
+- A wrong copy of an authorization cancelled the real one; unused authorizations kept
+  their reserved usage for ever; a reply with no usage figure was counted as zero;
+  stored record counts were not checked when read; results stayed attached to a name
+  after the exact model behind it changed.
+- The Claude route's capability accepted any caller that policy allowed. It now
+  refuses unless the dispatcher confirms it is sending that exact text.
+- The worker was given the Windows user, domain and computer names, which it does not
+  need. The sign-in is now asked before every brief instead of being trusted for five
+  minutes.
+
+Left as they are, and why:
+
+- The owner's request always goes in a brief, and can itself contain something private
+  that is in no memory. That is the owner's own text and the owner's choice; screening
+  catches what matches the store.
+- Which material the main model picks, and in what order, can reflect what it knows.
+  The plan carries ids and fixed choices only, so this is a very narrow channel.
+- The brief writer is told to add nothing but cannot be made to. It has no private
+  material in view, and what it writes is screened.
+- The last settings check and the send are made together inside Freya, but a change
+  made in the instant between them is not excluded.
+- The program's output files can grow until the time limit. Periods are still counted
+  back from the reset. Neither is fixed yet.
+- A real run of the Claude program under the allowlisted environment has not been
+  made since the allowlist was introduced.
+
 ## Suggested build order
 
 1. Usage ledger and limits, with no cloud provider (tested with a fake route).

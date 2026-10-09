@@ -60,8 +60,9 @@ def runs_elsewhere(model) -> bool:
     try:
         details = show(model)
     except Exception:
-        # An unreadable model is caught by the installed check.
-        return False
+        # Where it runs could not be established, so it is not
+        # treated as local.
+        return True
 
     def field(name):
         if isinstance(details, dict):

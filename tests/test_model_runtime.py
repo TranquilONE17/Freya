@@ -78,6 +78,13 @@ def test_a_model_that_runs_elsewhere_is_not_a_local_model(fake_ollama):
     )
     assert check_ollama_health(["nomic-embed-text"]) == ProviderHealth.HEALTHY
 
+    # If where a model runs cannot be found out, it is not local.
+    def broken(model):
+        raise RuntimeError("show failed")
+
+    fake_ollama.show = broken
+    assert check_ollama_health(["nomic-embed-text"]) == ProviderHealth.UNHEALTHY
+
 
 def test_runtime_is_unavailable_until_configured():
     with pytest.raises(ModelRuntimeUnavailable):

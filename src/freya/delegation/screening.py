@@ -216,6 +216,10 @@ def screen_brief(
     seen = set()
 
     def add(kind, text, memory_id=None, score=None):
+        if memory_id in always_memories:
+            # However it matched, it matched something the owner
+            # marked always private, and is treated as that.
+            kind = MATCH_ALWAYS_PRIVATE
         if (kind, text, memory_id) not in seen:
             seen.add((kind, text, memory_id))
             matches.append(Match(kind, text, memory_id, score))

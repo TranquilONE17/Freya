@@ -126,9 +126,9 @@ def test_a_plan_holds_choices_and_ids_and_nothing_else():
         AVAILABLE,
     )
 
-    assert (plan.kind, plan.value, plan.urgent, plan.inputs) == (
-        "analysis", "high", True, ("code:add",),
-    )
+    assert (plan.kind, plan.inputs) == ("analysis", ("code:add",))
+    # What the model thinks the task is worth is only a suggestion.
+    assert (plan.suggested_value, plan.suggested_urgent) == ("high", True)
 
 
 @pytest.mark.parametrize(
@@ -206,6 +206,157 @@ def test_a_writer_that_returns_nothing_is_an_error(h):
 
 # Sending
 
+def test_the_models_view_of_value_never_reaches_the_ledger(h):
+    h.ledger.set_limit(
+        ROUTE, "week", SCOPE_PERIOD, "tokens", 70_000,
+        period_seconds=7 * 86400, resets_at=NOW + timedelta(days=7),
+        hard=True, now=NOW,
+    )
+    eager = parse_plan(
+        {"kind": "code-review", "value": "high", "urgent": True, "inputs": ["code:add"]},
+        AVAILABLE,
+    )
+    brief = h.compose(eager)
+    # A normal task may use today's share of 10,000; this estimate is
+    # under it, so pad the day first.
+    first = h.dispatcher.authorize(brief, ROUTE, "t", now=NOW)
+    h.dispatcher.send(first, brief.text)
+    h.ledger.settle(
+        h.ledger.reserve(ROUTE, "tokens", 9_000, "pad", now=NOW).event_id, 9_000,
+    )
+
+    with pytest.raises(DispatchRefused) as paced:
+        h.dispatcher.authorize(h.compose(eager), ROUTE, "t", now=NOW)
+
+    assert paced.value.assessment.verdict == "ask"
+    # The owner saying it is urgent is what lets it through.
+    assert h.dispatcher.authorize(
+        h.compose(eager), ROUTE, "t", urgent=True, now=NOW,
+    )
+
+
+def test_a_brief_composed_under_old_settings_cannot_be_authorized(h):
+    brief = h.compose()
+
+    h.settings.set_material(KIND_CODE, "never")
+
+    with pytest.raises(DispatchRefused):
+        h.dispatcher.authorize(brief, ROUTE, "task-1", now=NOW)
+    assert h.used() == 0
+
+
+def test_a_brief_whose_text_was_swapped_cannot_be_authorized(h):
+    import dataclasses
+
+    brief = h.compose()
+    swapped = dataclasses.replace(
+        brief, text=brief.text + "\n\n[3]\nOriel lives in Tromso.",
+    )
+    relabelled = dataclasses.replace(
+        brief,
+        parts=brief.parts + (
+            type(brief.parts[0])(KIND_REQUEST, MEMORIES[1][1], "request-2"),
+        ),
+    )
+
+    with pytest.raises(DispatchRefused):
+        h.dispatcher.authorize(swapped, ROUTE, "task-1", now=NOW)
+    with pytest.raises(DispatchRefused):
+        h.dispatcher.authorize(relabelled, ROUTE, "task-1", now=NOW)
+    assert h.used() == 0
+
+
+def test_an_always_private_memory_cannot_be_released_with_one_click(h):
+    h.corrections.mark_always_private(memory_id="1")
+    available = [
+        AvailableInput("request", KIND_REQUEST, "Draft a note to Oriel about the move."),
+    ]
+    brief = h.compose(parse_plan({"kind": "rewriting"}, available), available=available)
+
+    with pytest.raises(DispatchRefused) as held:
+        h.dispatcher.authorize(
+            brief, ROUTE, "task-1", owner_released_hold=True, now=NOW,
+        )
+
+    assert {m.kind for m in held.value.screening.matches} == {"always-private"}
+
+
+def test_a_mark_made_after_authorizing_still_stops_the_send(h):
+    brief = h.compose()
+    authorization = h.dispatcher.authorize(brief, ROUTE, "task-1", now=NOW)
+
+    h.corrections.mark_always_private(phrase="function for mistakes")
+
+    with pytest.raises(DispatchRefused) as held:
+        h.dispatcher.send(authorization, brief.text)
+
+    assert held.value.screening.held
+    assert h.asked == [] and h.used() == 0
+
+
+def test_a_wrong_copy_does_not_cancel_the_real_authorization(h):
+    brief = h.compose()
+    real = h.dispatcher.authorize(brief, ROUTE, "task-1", now=NOW)
+    altered = type(real)(
+        "0" * 64, real.route_id, real.provider, real.settings_revision,
+        real.event_id, real.issued, real.serial,
+    )
+
+    with pytest.raises(DispatchRefused):
+        h.dispatcher.send(altered, brief.text)
+
+    assert h.dispatcher.send(real, brief.text).text == "A worker's answer."
+
+
+def test_authorizations_nobody_used_give_their_usage_back(h):
+    brief = h.compose()
+    h.dispatcher.authorize(brief, ROUTE, "task-1", now=NOW)
+    assert h.used() > 0
+
+    h.time += AUTHORIZATION_SECONDS + 1
+    h.dispatcher.authorize(h.compose(), ROUTE, "task-2", now=NOW)
+
+    assert h.used() == len(brief.text.encode("utf-8")) + 4096
+
+
+def test_a_reply_without_a_usage_figure_keeps_the_estimate(h):
+    class NoFigure:
+        text, tokens = "An answer.", None
+
+    h.ask = lambda text: NoFigure()
+    h.dispatcher = Dispatcher(
+        h.settings, h.ledger, [Route(ROUTE, VENDOR, h.ask)],
+        lambda: MEMORIES, h.sent, h.corrections, clock=lambda: h.time,
+    )
+    brief = h.compose()
+
+    h.dispatcher.send(
+        h.dispatcher.authorize(brief, ROUTE, "task-1", now=NOW), brief.text,
+    )
+
+    assert h.used() == len(brief.text.encode("utf-8")) + 4096
+    assert [e["outcome"] for e in h.sent.entries()] == ["answered"]
+
+
+def test_the_dispatcher_can_tell_a_route_what_it_is_sending(h):
+    brief = h.compose()
+    seen = []
+    h.ask = lambda text: seen.append(
+        (h.dispatcher.in_flight(text), h.dispatcher.in_flight(text + "x"))
+    ) or Reply()
+    h.dispatcher = Dispatcher(
+        h.settings, h.ledger, [Route(ROUTE, VENDOR, h.ask)],
+        lambda: MEMORIES, h.sent, h.corrections, clock=lambda: h.time,
+    )
+
+    assert not h.dispatcher.in_flight(brief.text)
+    h.dispatcher.send(
+        h.dispatcher.authorize(brief, ROUTE, "task-1", now=NOW), brief.text,
+    )
+
+    assert seen == [(True, False)]
+    assert not h.dispatcher.in_flight(brief.text)
+
 def test_a_checked_brief_is_sent_recorded_and_counted(h):
     brief = h.compose()
     authorization = h.dispatcher.authorize(brief, ROUTE, "task-1", now=NOW)
@@ -250,6 +401,8 @@ def test_a_made_up_authorization_is_refused(h):
         real.brief_hash, real.route_id, real.provider,
         real.settings_revision, real.event_id, real.issued, real.serial + 50,
     )
+    h.dispatcher.send(real, brief.text)
+    h.asked.clear()
     altered = type(real)(
         "0" * 64, real.route_id, real.provider,
         real.settings_revision, real.event_id, real.issued, real.serial,

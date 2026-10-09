@@ -178,7 +178,7 @@ def test_only_allowed_variables_reach_the_worker(fake, monkeypatch):
     environment = {name.upper() for name in fake.seen()["environment"]}
     assert environment <= claude_plan.ENVIRONMENT_ALLOWLIST | set(
         claude_plan.WORKER_SETTINGS
-    )
+    ) | {claude_plan.GIT_BASH_VARIABLE}
     assert "USERPROFILE" in environment
     assert set(claude_plan.WORKER_SETTINGS) <= environment
 
@@ -204,13 +204,31 @@ def test_nothing_is_sent_unless_signed_in_with_a_subscription(fake, sign_in):
     assert not fake.ran()
 
 
-def test_the_sign_in_is_checked_once_for_several_briefs(fake, tmp_path):
+def test_the_sign_in_is_asked_before_every_brief(fake, tmp_path):
     ask_claude_plan("A brief.", fake.program)
     (tmp_path / "asked_sign_in").unlink()
 
     ask_claude_plan("Another brief.", fake.program)
 
-    assert not (tmp_path / "asked_sign_in").exists()
+    assert (tmp_path / "asked_sign_in").exists()
+
+
+def test_who_and_where_are_not_passed_to_the_worker(fake, monkeypatch, tmp_path):
+    for name in ("USERNAME", "USERDOMAIN", "COMPUTERNAME"):
+        monkeypatch.setenv(name, "set-by-the-test")
+    bash = tmp_path / "bash.exe"
+    bash.write_bytes(b"")
+    monkeypatch.setenv("CLAUDE_CODE_GIT_BASH_PATH", str(bash))
+
+    ask_claude_plan("A brief.", fake.program)
+    environment = {name.upper() for name in fake.seen()["environment"]}
+
+    assert not {"USERNAME", "USERDOMAIN", "COMPUTERNAME"} & environment
+    assert "CLAUDE_CODE_GIT_BASH_PATH" in environment
+
+    # A path that is not a real bash program is not passed on.
+    monkeypatch.setenv("CLAUDE_CODE_GIT_BASH_PATH", str(tmp_path / "other.exe"))
+    assert "CLAUDE_CODE_GIT_BASH_PATH" not in claude_plan.worker_environment()
 
 
 def test_nothing_about_the_sign_in_is_kept_but_that_it_passed(fake):
@@ -353,19 +371,21 @@ def brokered(tmp_path, fake):
     providers.start(ANTHROPIC_PLAN_PROVIDER)
     providers.check_health(ANTHROPIC_PLAN_PROVIDER)
     registry = CapabilityRegistry(providers)
-    register_claude_plan_capability(registry, fake.program)
+    going = set()
+    register_claude_plan_capability(registry, going.__contains__, fake.program)
     policy = SqlitePolicyEngine(store)
     audit = SqliteAuditLog(store)
     audit.start()
     broker = CapabilityBroker(registry, policy, audit, LOCAL_OWNER)
 
-    yield broker, policy, store, registry
+    yield broker, policy, store, registry, going
 
     store.close()
 
 
 def test_the_route_is_denied_until_the_owner_allows_it(brokered, fake):
-    broker, policy, store, _ = brokered
+    broker, policy, store, _, going = brokered
+    going.add("A brief.")
 
     denied = broker.invoke(CLOUD_ANTHROPIC_PLAN_ASK, "A brief.")
 
@@ -396,8 +416,21 @@ def test_the_route_is_denied_until_the_owner_allows_it(brokered, fake):
     assert "A brief." not in json.dumps(rows)
 
 
+def test_policy_alone_does_not_let_a_brief_through(brokered, fake):
+    broker, policy, _, _, going = brokered
+    policy.add_rule("local-owner", CLOUD_ANTHROPIC_PLAN_ASK, "allow", "test")
+
+    direct = broker.invoke(CLOUD_ANTHROPIC_PLAN_ASK, "A brief nobody checked.")
+
+    assert not direct.success
+    assert not fake.ran()
+
+    going.add("A brief nobody checked.")
+    assert broker.invoke(CLOUD_ANTHROPIC_PLAN_ASK, "A brief nobody checked.").success
+
+
 def test_the_route_is_not_offered_to_the_model_as_a_tool(brokered):
-    _, _, _, registry = brokered
+    _, _, _, registry, _ = brokered
 
     capability = registry.get(CLOUD_ANTHROPIC_PLAN_ASK)
 

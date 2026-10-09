@@ -8,9 +8,9 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Callable, Dict, Iterable, List, Optional, Tuple
 
-from freya.core.usage import GO, Assessment, UsageLedger
-from freya.delegation.compose import ComposedBrief
-from freya.delegation.material import CloudSettings
+from freya.core.usage import GO, VALUE_NORMAL, UsageLedger
+from freya.delegation.compose import ComposedBrief, assemble_brief
+from freya.delegation.material import CloudSettings, review_brief
 from freya.delegation.screening import (
     MATCH_ALWAYS_PRIVATE,
     Corrections,
@@ -80,6 +80,7 @@ class Authorization:
     event_id: int
     issued: float
     serial: int
+    hold_released: bool = False
 
 
 class SentBriefs:
@@ -122,13 +123,16 @@ class Dispatcher:
     """
     The one place a brief can leave from.
 
-    Sending takes two steps. `authorize` runs every check on a
-    composed brief and reserves its usage: the provider's switch, the
-    material sorting, screening against the personal store, and the
-    usage ledger. `send` accepts only an authorization made here, for
-    the same text, once, soon, and only if the owner's settings have
-    not changed since. A route's own `ask` is never called from
-    anywhere else.
+    Sending takes two steps. `authorize` checks a composed brief
+    again from its parts, under the owner's present settings, and
+    reserves its usage. `send` accepts only an authorization made
+    here, for the same text, once, soon, and only if the owner's
+    settings are unchanged and the brief still passes screening. A
+    route's own `ask` is never called from anywhere else, and a route
+    can ask `in_flight` to confirm that.
+
+    The value of a task and whether it is urgent come from the caller
+    acting for the owner, never from the model's plan.
     """
 
     def __init__(
@@ -153,11 +157,60 @@ class Dispatcher:
         self._lock = threading.Lock()
         self._serial = 0
         self._open: Dict[int, Authorization] = {}
+        self._in_flight: Dict[str, int] = {}
 
     def screen(self, text: str) -> ScreeningResult:
         return screen_brief(
             text, self._memories(), self._corrections, self._closeness,
         )
+
+    def in_flight(self, text: str) -> bool:
+        """
+        Whether this exact text is being sent by the dispatcher right
+        now. A route's capability uses it to refuse any other caller.
+        """
+        with self._lock:
+            return self._in_flight.get(brief_hash(text), 0) > 0
+
+    def _check_screening(self, text, hold_released):
+        screening = self.screen(text)
+
+        if not screening.held:
+            return
+
+        fixed = any(
+            match.kind == MATCH_ALWAYS_PRIVATE for match in screening.matches
+        )
+
+        if fixed or not hold_released:
+            raise DispatchRefused(
+                "The brief contains something marked always private."
+                if fixed
+                else "The brief matches something in your personal store.",
+                screening=screening,
+            )
+
+    def _expire(self):
+        """Give back the usage of authorizations nobody used in time."""
+        now = self._clock()
+
+        with self._lock:
+            stale = [
+                authorization
+                for authorization in self._open.values()
+                if now - authorization.issued > AUTHORIZATION_SECONDS
+            ]
+            for authorization in stale:
+                del self._open[authorization.serial]
+
+        for authorization in stale:
+            self._release(authorization)
+
+    def _release(self, authorization):
+        try:
+            self._ledger.release(authorization.event_id)
+        except KeyError:
+            pass
 
     def authorize(
         self,
@@ -165,6 +218,8 @@ class Dispatcher:
         route_id: str,
         task_id: str,
         *,
+        value: str = VALUE_NORMAL,
+        urgent: bool = False,
         owner_released_hold: bool = False,
         owner_agreed_to_exceed: bool = False,
         now=None,
@@ -172,10 +227,16 @@ class Dispatcher:
         """
         Check one composed brief for one route and reserve its usage.
 
+        Nothing the brief says about itself is trusted: its parts are
+        sorted again under the present settings, and its text must be
+        exactly what those cleared parts assemble to.
+
+        `value` and `urgent` are the owner's, passed by the caller.
         `owner_released_hold` is the owner answering "send it once
-        anyway" to a held brief. It does not release a match on
-        something marked always private.
+        anyway" to a held brief; it does not release anything marked
+        always private.
         """
+        self._expire()
         route = self._routes.get(route_id)
 
         if route is None:
@@ -184,35 +245,37 @@ class Dispatcher:
             raise DispatchRefused("The brief was composed for another provider.")
         if not self._settings.provider_enabled(route.provider):
             raise DispatchRefused(f"{route.provider} is turned off.")
-        if not brief.ready or not brief.review.ready:
-            raise DispatchRefused(
-                "Some of the material still needs your permission.",
-                review=brief.review,
-            )
 
         revision = self._settings.revision
-        screening = self.screen(brief.text)
+        review = review_brief(
+            brief.parts, route.provider, self._settings, brief.approved_kinds,
+        )
 
-        if screening.held:
-            fixed = any(
-                match.kind == MATCH_ALWAYS_PRIVATE
-                for match in screening.matches
+        if not review.ready or not review.send:
+            raise DispatchRefused(
+                "Some of the material still needs your permission.",
+                review=review,
             )
-            if fixed or not owner_released_hold:
-                raise DispatchRefused(
-                    "The brief contains something marked always private."
-                    if fixed
-                    else "The brief matches something in your personal store.",
-                    screening=screening,
-                )
+        if brief.revision != revision or brief.text is None:
+            raise DispatchRefused(
+                "Your cloud settings changed; the brief must be composed again.",
+                review=review,
+            )
+        if brief.text != assemble_brief(brief.instructions, review.send):
+            raise DispatchRefused(
+                "The brief is not what its cleared material makes.",
+                review=review,
+            )
+
+        self._check_screening(brief.text, owner_released_hold)
 
         assessment = self._ledger.reserve(
             route.route_id,
             route.unit,
             route.estimate(brief.text),
             task_id,
-            value=brief.plan.value,
-            urgent=brief.plan.urgent,
+            value=value,
+            urgent=urgent,
             owner_agreed_to_exceed=owner_agreed_to_exceed,
             now=now,
         )
@@ -230,6 +293,7 @@ class Dispatcher:
                 event_id=assessment.event_id,
                 issued=self._clock(),
                 serial=self._serial,
+                hold_released=owner_released_hold,
             )
             self._open[authorization.serial] = authorization
 
@@ -240,42 +304,78 @@ class Dispatcher:
         Send the brief an authorization was made for, and nothing else.
         """
         with self._lock:
-            known = self._open.pop(getattr(authorization, "serial", None), None)
+            known = self._open.get(getattr(authorization, "serial", None))
 
-        if known is None or known != authorization:
-            raise DispatchRefused("That authorization is not valid.")
+            # Compare before removing, so that a wrong copy cannot
+            # cancel the real authorization.
+            if known is None or known != authorization:
+                raise DispatchRefused("That authorization is not valid.")
+
+            del self._open[authorization.serial]
 
         route = self._routes[authorization.route_id]
+        digest = brief_hash(text)
 
-        def refuse(reason):
-            self._ledger.release(authorization.event_id)
-            return DispatchRefused(reason)
+        def refuse(reason, **details):
+            self._release(authorization)
+            return DispatchRefused(reason, **details)
 
-        if brief_hash(text) != authorization.brief_hash:
+        if digest != authorization.brief_hash:
             raise refuse("The text is not the brief that was authorized.")
         if self._clock() - authorization.issued > AUTHORIZATION_SECONDS:
             raise refuse("The authorization is too old.")
-        if self._settings.revision != authorization.settings_revision:
-            raise refuse("Your cloud settings changed; the brief must be checked again.")
-        if not self._settings.provider_enabled(route.provider):
-            raise refuse(f"{route.provider} is turned off.")
+
+        try:
+            # Screened again: a memory or an always-private mark may
+            # have been added since the brief was authorized.
+            self._check_screening(text, authorization.hold_released)
+        except DispatchRefused as held:
+            raise refuse(held.reason, screening=held.screening)
+
+        with self._lock:
+            # The last look at the owner's settings and the mark that
+            # this text is going are made together.
+            if self._settings.revision != authorization.settings_revision:
+                changed = "Your cloud settings changed; the brief must be checked again."
+            elif not self._settings.provider_enabled(route.provider):
+                changed = f"{route.provider} is turned off."
+            else:
+                changed = None
+                self._in_flight[digest] = self._in_flight.get(digest, 0) + 1
+
+        if changed:
+            raise refuse(changed)
 
         try:
             reply = route.ask(text)
         except Exception as exc:
             if getattr(exc, "sent", True):
                 # It may have left, and what it used is not known.
-                self._ledger.mark_unknown(authorization.event_id)
                 self._sent.record(
                     route.provider, route.route_id, text, "outcome unknown",
                 )
+                self._ledger.mark_unknown(authorization.event_id)
             else:
-                self._ledger.release(authorization.event_id)
+                self._release(authorization)
             raise
+        finally:
+            with self._lock:
+                remaining = self._in_flight.get(digest, 1) - 1
+                if remaining > 0:
+                    self._in_flight[digest] = remaining
+                else:
+                    self._in_flight.pop(digest, None)
 
-        self._ledger.settle(
-            authorization.event_id, max(0, int(getattr(reply, "tokens", 0))),
-        )
+        # The owner's record comes first: it must exist even if the
+        # accounting below goes wrong.
         self._sent.record(route.provider, route.route_id, text, "answered")
+
+        used = getattr(reply, "tokens", None)
+
+        if isinstance(used, int) and not isinstance(used, bool) and used > 0:
+            self._ledger.settle(authorization.event_id, used)
+        else:
+            # No usable figure came back, so the estimate stands.
+            self._ledger.mark_unknown(authorization.event_id)
 
         return reply
