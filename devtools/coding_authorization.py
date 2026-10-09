@@ -27,7 +27,7 @@ def policy_checkpoint(policy, actor: str, *,
     def check() -> None:
         if cancelled is not None:
             try:
-                if cancelled() is True:
+                if cancelled():
                     raise CodingAuthorizationRevoked("Coding task cancelled")
             except CodingAuthorizationRevoked:
                 raise
