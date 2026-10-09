@@ -56,8 +56,14 @@ def propose(repo: Path, task: str, paths: list[str], model: str,
         return {"task_id": journal.task_id, "state": "verified",
                 "patch": str(output), "sha256": digest}
     except Exception as exc:
+        # Never leave an apparently usable patch behind after revocation,
+        # failed verification, or cancellation. Only this task owns output.
+        output.unlink(missing_ok=True)
         # Avoid persisting model output or sensitive source text in the journal.
-        journal.transition("failed", f"{type(exc).__name__}: proposal failed")
+        try:
+            journal.transition("failed", f"{type(exc).__name__}: proposal failed")
+        except Exception:
+            pass  # Preserve the original error; recovery can inspect the journal.
         raise
 
 
