@@ -1,4 +1,5 @@
-from dataclasses import dataclass
+import threading
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import List
 
@@ -92,6 +93,47 @@ class ControlPlane:
     audit_startup: AuditStartup
     model_runtime: ModelRuntime
     model_tools: ModelToolHost
+    # ComfyUI is started from more than one place (as Freya comes
+    # online, and when a picture is asked for). Only one may start it
+    # at a time, or two servers would be launched.
+    image_start_lock: threading.Lock = field(
+        default_factory=threading.Lock, repr=False, compare=False,
+    )
+
+    def start_image_backend_early(self, announce=print) -> bool:
+        """
+        Start ComfyUI as Freya comes online, so the first picture
+        does not wait for it. Returns whether it is now running.
+
+        Only a server Freya can start without a window is started
+        this way, and no image model is loaded: ComfyUI loads one
+        when a picture is first asked for. A failure is announced
+        once, with the reason, and is not an error: the next request
+        for a picture tries again.
+        """
+        provider = self.providers.get(COMFYUI_PROVIDER)
+
+        if not (provider.metadata["can_start"] and provider.metadata["headless"]):
+            return False
+
+        with self.image_start_lock:
+            self.providers.check_health(COMFYUI_PROVIDER)
+
+            if self.providers.get(COMFYUI_PROVIDER).health == ProviderHealth.HEALTHY:
+                self.providers.set_state(COMFYUI_PROVIDER, ProviderState.RUNNING)
+                return True
+
+            result = self.providers.start(COMFYUI_PROVIDER)
+
+            if not result.success:
+                announce(
+                    "Freya: I could not start ComfyUI, so I cannot make "
+                    f"pictures yet. {result.error}"
+                )
+                return False
+
+            self.providers.check_health(COMFYUI_PROVIDER)
+            return True
 
     def warm_models(self) -> None:
         """
@@ -284,6 +326,10 @@ class ControlPlane:
         Make sure ComfyUI is running, starting it if needed. Raises
         RuntimeError when it is not running and cannot be started.
         """
+        with self.image_start_lock:
+            self._ensure_image_backend(announce)
+
+    def _ensure_image_backend(self, announce) -> None:
         self.providers.check_health(COMFYUI_PROVIDER)
         provider = self.providers.get(COMFYUI_PROVIDER)
 

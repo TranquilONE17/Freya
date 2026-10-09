@@ -21,6 +21,7 @@ from freya.control_plane import build_local_control_plane
 from freya.delegation.service import build_cloud_delegation
 from freya.storage.backup import back_up_on_close
 from freya.config import OPEN_WINDOW, MODEL
+from freya.config import COMFYUI_AT_START
 from freya.hands_free import LISTENING_COMMANDS
 from freya.hands_free import describe_listening
 from freya.hands_free import handle_listening_command
@@ -1033,6 +1034,21 @@ def main(window_only=False):
         daemon=True,
 
     ).start()
+
+    # ComfyUI is started now, beside the model warm-up, so the first
+    # picture does not wait a minute for it. It loads no image model
+    # until a picture is asked for.
+    if COMFYUI_AT_START:
+
+        threading.Thread(
+
+            target=control_plane.start_image_backend_early,
+
+            name="FreyaImageBackendStart",
+
+            daemon=True,
+
+        ).start()
 
 
 
