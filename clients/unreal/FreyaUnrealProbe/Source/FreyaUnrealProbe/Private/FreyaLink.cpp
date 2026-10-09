@@ -288,7 +288,11 @@ void FFreyaLink::HandleEvent(const TSharedPtr<FJsonObject>& Event)
     {
         double Number = 0.0;
         Event->TryGetNumberField(TEXT("utterance"), Number);
-        if (bUtteranceOpen && static_cast<uint32>(Number) == Utterance) bUtteranceEnded = true;
+        if (bUtteranceOpen && static_cast<uint32>(Number) == Utterance)
+        {
+            bUtteranceEnded = true;
+            if (Probe) Probe->EndSpeech();
+        }
     }
     else if (Type == TEXT("speech.cancel"))
     {
