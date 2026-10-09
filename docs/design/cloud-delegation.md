@@ -157,7 +157,7 @@ opinion of itself.
 | reasoning | Multi-step problems with one right answer |
 | code-review | Finding a defect or saying what code does, by reading it |
 | planning | Ordering or allocating things under stated rules |
-| analysis | Studying figures, records or statements to find a pattern, a cause, an odd one out, or whether a claim holds (added at the owner's request) |
+| analysis | Analysing anything, in general: figures, records, statements, long documents, a body of code, images, and forms of it not yet thought of (owner decision) |
 
 | Task value | Pass rate a model needs for that kind |
 |---|---|
@@ -165,11 +165,20 @@ opinion of itself.
 | normal | 85% |
 | high | 95% |
 
+The kinds are an open list, and analysis most of all. Adding a kind, or a new area
+inside one, means adding tasks for it; until a model has been measured on that area
+it is unmeasured there and the unmeasured rule above applies, so new sorts of work
+are never silently treated as something a model is known to be good at. Analysis is
+measured today on small figures and statements, one long record, and a three-file
+project. Not yet covered: long documents of real length, larger bodies of code, and
+images, which also need a route that can send a picture and a model that can read
+one.
+
 A model counts as measured for a kind once it has at least 15 graded attempts on the
 exact version in use. Writing code is not a kind yet: grading it means running what a
 model wrote, which must wait for the isolation the baseline requires (ARCH-017).
 
-The tasks are built: `freya.evaluation.delegation_tasks` holds 42 synthetic tasks,
+The tasks are built: `freya.evaluation.delegation_tasks` holds 46 synthetic tasks,
 at least five per kind, each with a deterministic check, a reply that must pass and
 one that must fail. `python -m freya.evaluation.delegation` runs them against an
 installed Ollama model, or against Claude on the plan with `--claude-plan`, which is
@@ -379,7 +388,7 @@ and unused; this becomes an option only if the plan changes.
 5. **Codex's ledger work** (`feat/synthetic-self-design`) holds reservation and
    accounting ideas that may be reusable for the usage ledger. It has not been reviewed.
 6. **The kinds of task and the bar for each value level** are a draft awaiting the
-   owner. Forty-two tasks are few: they can rank models but cannot show that a model
+   owner. Forty-six tasks are few: they can rank models but cannot show that a model
    is reliable at a 95% bar, and they will need to grow and be kept unseen.
 7. A second opinion from Codex on this design, as the project rules ask before an
    architecture decision, once its allowance resets.
