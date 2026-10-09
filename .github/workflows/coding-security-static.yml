@@ -28,6 +28,10 @@ jobs:
       - name: Security findings report (advisory baseline)
         run: |
           bandit -r devtools src/freya/core -f json -o bandit-report.json || true
+      - name: Summarize security findings
+        if: always()
+        run: |
+          python -c "import json, pathlib, os; p=pathlib.Path('bandit-report.json'); d=json.loads(p.read_text()) if p.exists() else {}; findings=d.get('results', []); counts={k:sum(x.get('issue_severity') == k for x in findings) for k in ('HIGH','MEDIUM','LOW')}; summary='## Bandit findings\\n\\n'+''.join(f'- {k}: {v}\\n' for k,v in counts.items()); pathlib.Path(os.environ['GITHUB_STEP_SUMMARY']).open('a').write(summary); print(summary)"
       - name: Publish security findings
         if: always()
         uses: actions/upload-artifact@v4
