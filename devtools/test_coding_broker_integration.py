@@ -36,6 +36,26 @@ class CodingBrokerIntegrationTests(unittest.TestCase):
         )
         self.broker = CapabilityBroker(self.capabilities, self.policy, self.audit)
 
+    def test_direct_provider_execution_is_denied(self):
+        with patch("coding_broker_adapter.propose") as generate:
+            result = self.capabilities.execute(
+                CODING_PROPOSE, "change answer", ["example.py"]
+            )
+        self.assertFalse(result.success)
+        self.assertIn("broker dispatch", result.error)
+        generate.assert_not_called()
+
+    def test_broker_supplies_trusted_policy_checkpoint(self):
+        self.policy.decide.return_value = PolicyDecision(True, "grant")
+        with patch("coding_broker_adapter.propose", return_value={"state": "verified"}) as generate:
+            result = self.broker.invoke(CODING_PROPOSE, "change answer", ["example.py"])
+        self.assertEqual(result.outcome, "succeeded")
+        checkpoint = generate.call_args.kwargs["checkpoint"]
+        self.policy.decide.return_value = PolicyDecision(False, "revoked")
+        with self.assertRaises(PermissionError):
+            checkpoint()
+        self.assertEqual(self.policy.decide.call_args.args, ("local-owner", CODING_PROPOSE))
+
     def test_no_grant_denies_without_generating(self):
         self.policy.decide.return_value = PolicyDecision(False, "No grant")
         with patch("coding_broker_adapter.propose") as generate:
