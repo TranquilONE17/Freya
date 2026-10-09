@@ -224,11 +224,57 @@ Nothing existing is moved without the owner's say, and the memory database is ba
 up before any move. A backup belongs on a different drive from the data it protects.
 The same sensitivity rules apply wherever the data lives.
 
+## Vendor terms
+
+Read on 2026-10-09 from the vendors' own pages. This is a reading of published
+terms, not legal advice, and both vendors change these pages often: read them again
+before each plan route is switched on.
+
+**Anthropic.** The Claude Code legal page says subscription sign-in "is designed to
+support ordinary use of Claude Code and other native Anthropic applications", and
+that nothing prevents "an end user from signing in to the unmodified Claude Code
+binary with their own Claude subscription". Anthropic's support page (update of 7
+October 2026) says the Agent SDK and `claude -p` may still be used with subscription
+limits and draw from them. What is not permitted: offering Claude sign-in inside
+another application, routing requests through plan credentials on behalf of other
+users, and collecting or storing Claude credentials or session tokens. Advertised
+limits "assume ordinary, individual usage".
+
+**OpenAI.** The Codex documentation presents `codex exec` for scripts and scheduled
+jobs, says it "reuses saved CLI authentication by default", and runs it in a
+read-only sandbox by default. It recommends API keys for automation and describes
+running under a ChatGPT sign-in as an advanced path for "users who need ChatGPT/Codex
+rate limits instead of API key usage", on trusted machines. The Terms of Use forbid
+extracting output "automatically or programmatically"; no OpenAI page was found that
+says how this applies to `codex exec` under a plan, and the Terms page itself could
+not be opened during this check. A request for third-party "Sign in with ChatGPT"
+was closed as not planned.
+
+What this means for Freya's plan routes:
+
+- She runs the vendor's own unmodified program (`claude -p`, `codex exec`) on this
+  PC, as the owner, for the owner's own work. That is the case both vendors describe.
+- She never reads, copies, stores or forwards either program's sign-in. The owner
+  signs in through the vendor's own flow.
+- Plan routes serve the owner only. When Freya has more than one user, each needs
+  their own sign-in or an API key; one person's plan never serves another.
+- Anthropic's position is stated plainly. OpenAI's is documented practice and not an
+  explicit grant, so `openai-plan` carries more risk of a later change or a refusal.
+
+**Included API credits.** Anthropic's Max and Team plans now include monthly API
+credits ($100 on Max 5x, $200 on Max 20x; Pro has none), claimed by linking a
+Console organization in the plan's billing settings. They cover the Claude API and
+the Agent SDK. Usage is never charged to the plan, and with no purchased credits and
+auto-reload off, requests stop when the credits run out. So an `anthropic-api` route
+can run at no cost beyond the plan: the ledger would hold the credit as a hard
+monthly allowance that resets on the billing date, with the money cap still zero.
+Claiming the credits and creating the key are owner actions.
+
 ## Open before building
 
-1. **Vendor terms for plan routes.** Whether each vendor allows its program to be
-   driven by another application on a subscription has not been checked. Plan routes
-   are not built until it has, per vendor.
+1. **Vendor terms for plan routes.** Checked on 2026-10-09; see "Vendor terms" below.
+   The remaining question is for the owner: whether to claim the API credits a Max
+   plan includes.
 2. **Figures.** Money caps are zero until the owner sets them. The warning level and
    the per-rule plan limits are the owner's to set.
 3. **When parallel use "makes sense".** The test for splitting an urgent task across
