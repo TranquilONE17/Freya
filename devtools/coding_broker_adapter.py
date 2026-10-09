@@ -11,6 +11,7 @@ from typing import Callable
 from freya.core.capabilities import CapabilityDefinition
 from freya.core.providers import ProviderDefinition
 
+from coding_authorization import policy_checkpoint
 from coding_capability_contract import CODING_PROPOSE
 from coding_task_runner import propose
 
@@ -19,7 +20,8 @@ PROVIDER_ID = "development-coding-local-alpha"
 
 def register_coding_proposal(control_plane, *, repo: Path, journal_dir: Path,
                              output_dir: Path, model: str,
-                             checkpoint: Callable[[], None] | None = None) -> None:
+                             checkpoint: Callable[[], None] | None = None,
+                             policy=None, actor: str | None = None) -> None:
     """Register an opt-in provider, without granting anyone permission."""
     repo = repo.resolve(strict=True)
     journal_dir = journal_dir.resolve()
@@ -28,6 +30,13 @@ def register_coding_proposal(control_plane, *, repo: Path, journal_dir: Path,
         raise ValueError("Task artifacts must be outside the source repository")
     if not model.strip():
         raise ValueError("A local model name is required")
+
+    if (policy is None) != (actor is None):
+        raise ValueError("Policy and trusted actor must be supplied together")
+    if policy is not None:
+        if checkpoint is not None:
+            raise ValueError("Cannot override policy-backed authorization checkpoint")
+        checkpoint = policy_checkpoint(policy, actor)
 
     def handler(task: str, files: list[str]):
         return propose(repo, task, files, model, journal_dir, output_dir,
