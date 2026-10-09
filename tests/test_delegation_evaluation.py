@@ -6,6 +6,9 @@ import pytest
 
 from freya.evaluation import delegation
 from freya.evaluation.delegation_tasks import (
+    LOG_SITES,
+    inspection_entries,
+    inspection_log,
     JOB_HOURS,
     KINDS,
     PACK,
@@ -187,6 +190,50 @@ def test_the_analysis_answers():
     assert min(fit, key=lambda name: fit[name][0]) == "birch"
 
     assert 6000 / 120 > 13500 / 300
+
+
+def test_the_long_log_has_one_clear_answer_to_each_question():
+    entries = inspection_entries()
+    harbour = [e for e in entries if e[1] == "Harbour"]
+    totals = {
+        site: sum(e[2] for e in entries if e[1] == site)
+        for site in LOG_SITES
+    }
+    ranked = sorted(totals.values(), reverse=True)
+
+    assert len(entries) == 30
+    assert 1 <= sum(e[3] == "failed" for e in harbour) < len(harbour)
+    # No tie for the worst site.
+    assert ranked[0] > ranked[1]
+    assert task("long-log-worst-site").grade(
+        f"ANSWER: {max(totals, key=totals.get)}"
+    ) is None
+    assert task("long-log-count").grade(
+        f"ANSWER: {sum(e[3] == 'failed' for e in harbour)}"
+    ) is None
+    # It is long enough to need reading, and every entry is in it.
+    assert len(inspection_log().split()) > 900
+    assert inspection_log().count("Entry ") == 30
+
+
+def test_a_partial_answer_is_not_accepted_for_a_longer_one():
+    output = task("project-output")
+
+    assert output.grade("ANSWER: 12 / 14") is None
+    assert output.grade("ANSWER: 12/14") is None
+    assert output.grade("ANSWER: 12") is not None
+    assert task("machines").grade("ANSWER: 12 / 14") is not None
+    assert task("machines").grade("ANSWER: 12 minutes") is None
+
+
+def test_the_small_project_prints_what_the_check_expects():
+    def area(w, h):
+        return w * h
+
+    def perimeter(w, h):
+        return 2 * (w + h)
+
+    assert f"{area(3, 4)} / {perimeter(3, 4)}" == "12 / 14"
 
 
 def test_kilometre_rounding():

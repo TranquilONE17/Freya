@@ -177,6 +177,12 @@ def answer_is(*accepted):
         # "20 minutes", "$240" and "B. A caller can..." are answers too.
         first = answer.split()[0] if answer.split() else ""
         first = first.strip(".,:;)(*$")
+        if first in wanted and len(answer.split()) > 1:
+            # A longer answer may only add a unit or the option's text,
+            # not more values: "12" is not "12 / 14".
+            rest = answer.split()[1]
+            if rest[0].isdigit() or rest in ("/", "and", "or", ","):
+                return "The answer is wrong."
         return None if first in wanted else "The answer is wrong."
 
     return check
@@ -335,6 +341,72 @@ def _check_third_person(reply):
         if not re.search(word, text, re.IGNORECASE):
             return f"{word} is missing."
     return None
+
+
+# A long made-up record, for analysis that means reading a lot.
+
+LOG_SITES = ("Harbour", "Mill", "Quarry", "Station")
+_LOG_WEATHER = ("dry", "wet", "windy", "foggy", "clear")
+_LOG_GATES = ("north", "east", "service")
+
+
+def inspection_entries():
+    """Thirty made-up inspections: (number, site, issues, status)."""
+    entries = []
+    for number in range(1, 31):
+        issues = (number * 7 + number // 4) % 6
+        entries.append((
+            number,
+            LOG_SITES[(number * 3 + number // 5) % 4],
+            issues,
+            "failed" if issues >= 4 else "passed",
+        ))
+    return entries
+
+
+def inspection_log():
+    return "\n".join(
+        f"Entry {number}. Site: {site}. Weather was "
+        f"{_LOG_WEATHER[number % 5]} and the inspector came in by the "
+        f"{_LOG_GATES[number % 3]} gate. Issues found: {issues}. The "
+        f"inspection {status}. Notes were filed the same evening and a "
+        f"copy was left with the site office."
+        for number, site, issues, status in inspection_entries()
+    )
+
+
+def _log_failures(site):
+    return sum(
+        1 for _, where, _, status in inspection_entries()
+        if where == site and status == "failed"
+    )
+
+
+def _log_worst_site():
+    totals = {site: 0 for site in LOG_SITES}
+    for _, site, issues, _ in inspection_entries():
+        totals[site] += issues
+    return max(totals, key=totals.get)
+
+
+PROJECT_FILES = (
+    "# shapes.py\n"
+    "def area(w, h):\n"
+    "    return w * h\n\n"
+    "def perimeter(w, h):\n"
+    "    return 2 * (w + h)\n\n"
+    "def diagonal(w, h):\n"
+    "    return (w * w + h * h) ** 0.5\n\n"
+    "# report.py\n"
+    "from shapes import area, perimeter\n\n"
+    "def describe(w, h):\n"
+    "    return f\"{area(w, h)} / {perimeter(w, h)}\"\n\n"
+    "def legacy(w, h):\n"
+    "    return area(w, h) * 2\n\n"
+    "# main.py\n"
+    "from report import describe\n\n"
+    "print(describe(3, 4))\n"
+)
 
 
 TASKS = (
@@ -926,6 +998,41 @@ TASKS = (
         "App users average 50 each and the others 45, so the statement is "
         "not supported.\nANSWER: No",
         "ANSWER: Yes",
+    ),
+    DelegationTask(
+        "long-log-count", ANALYSIS,
+        "Read the inspection log below. How many inspections at the Harbour "
+        "site failed?\n\n" + inspection_log() + "\n\n" + ANSWER_LINE,
+        answer_is(_log_failures("Harbour")),
+        f"ANSWER: {_log_failures('Harbour')}",
+        f"ANSWER: {_log_failures('Harbour') + 1}",
+    ),
+    DelegationTask(
+        "long-log-worst-site", ANALYSIS,
+        "Read the inspection log below. Which site had the most issues "
+        "found in total, across all its inspections?\n\n"
+        + inspection_log() + "\n\n" + ANSWER_LINE,
+        answer_is(_log_worst_site().lower()),
+        f"ANSWER: {_log_worst_site()}",
+        "ANSWER: none of them",
+    ),
+    DelegationTask(
+        "project-unused", ANALYSIS,
+        "Here are the three files of a small Python project. When main.py "
+        "is run, which of the project's functions are never called? Give a "
+        "JSON array of their names in alphabetical order.\n\n"
+        + PROJECT_FILES + "\n" + JSON_ONLY,
+        json_list(["diagonal", "legacy"]),
+        '["diagonal", "legacy"]',
+        '["diagonal"]',
+    ),
+    DelegationTask(
+        "project-output", ANALYSIS,
+        "Here are the three files of a small Python project. What does "
+        "running main.py print?\n\n" + PROJECT_FILES + "\n" + ANSWER_LINE,
+        answer_is("12 / 14", "12/14"),
+        "area is 12 and perimeter is 14.\nANSWER: 12 / 14",
+        "ANSWER: 12",
     ),
 )
 
