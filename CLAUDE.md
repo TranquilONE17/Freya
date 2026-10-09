@@ -61,6 +61,10 @@ Rules for the spec:
   seed in `control_plane.py`. Its description is what the model chooses by, so say
   what it returns and when to prefer a neighbouring tool.
 - `src/freya/gpu/resource_manager.py` — Ollama/ComfyUI VRAM handoff.
+- `src/freya/host_checks.py` — read-only checks of this PC whose result is told to the
+  owner at startup. Today: Windows Smart App Control, which when on blocks unsigned
+  libraries (ComfyUI's, PyTorch's, the voice engines') with no exception possible.
+  It only reads the registry; never add code that changes a Windows security setting.
 - `src/freya/storage/placement.py` — lists every store under `data/` with what it
   needs from a drive and reports where each would best live (SSD or hard disk, by
   type, not letter). It reads sizes only and moves nothing; see

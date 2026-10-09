@@ -3,6 +3,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import List
 
+from freya import host_checks
 from freya.config import AUDIT_CHECKPOINT_PATH
 from freya.config import BACKGROUND_MODEL
 from freya.config import COMFYUI_COMMAND
@@ -403,6 +404,11 @@ class ControlPlane:
                 f"Audit: {self.audit_startup.reconciled} interrupted "
                 "operation(s) were recorded as unknown-outcome."
             )
+
+        # Things about this PC that can quietly stop her tools working.
+        messages.extend(
+            host_checks.startup_warnings(host_checks._read_smart_app_control)
+        )
 
         return messages
 
