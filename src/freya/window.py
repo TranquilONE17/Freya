@@ -82,7 +82,7 @@ class WindowActions:
     avatar_file: Callable[[str, str], Optional[tuple]] = lambda kind, model: None
 
 
-def build_status(listener, settings, control_plane) -> dict:
+def build_status(listener, settings, control_plane, voice=None) -> dict:
     """
     The few facts the window's status strip shows.
     """
@@ -109,6 +109,7 @@ def build_status(listener, settings, control_plane) -> dict:
         "model": providers.get(OLLAMA_PROVIDER).health.value,
         "images": images,
         "volume": getattr(settings, "voice_volume", 100),
+        **({"voice": "ready" if voice.enabled else "unavailable"} if voice is not None else {}),
     }
 
 
