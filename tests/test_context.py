@@ -14,7 +14,7 @@ def assistant(tmp_path, fake_ollama, monkeypatch):
     monkeypatch.setattr(memory_manager, "DATA_DIR", tmp_path)
     monkeypatch.setattr(memory_manager, "DATABASE_PATH", tmp_path / "memory.db")
     plane = build_local_control_plane(tmp_path / "control.db", None)
-    result = FreyaAssistant(tool_host=plane.model_tools)
+    result = FreyaAssistant(tool_host=plane.model_tools, broker=plane.broker)
     plane.register_conversation_recall(result.recall)
     yield result
     result.memory.connection.close()
@@ -111,12 +111,13 @@ def test_ranking_failure_does_not_discard_available_context(assistant, monkeypat
     assert "candidate order" in " ".join(assistant.context.last_report["retrieval_notes"])
 
 
-def test_deleted_cached_summary_is_excluded(assistant):
-    number = assistant.conversations.add_exchange("Private old text", "Old reply", "typed")
-    # add_exchange returns a turn identifier; use the canonical current conversation.
+def test_deleted_summary_is_excluded(assistant):
+    assistant.conversations.add_exchange("Private old text", "Old reply", "typed")
     number = assistant.conversations.current
     assistant.conversations.set_summary(number, "Deleted summary secret", 2)
-    assistant.messages.append({"role": "system", "content": "Deleted summary secret", "context_record_ids": [number]})
+    # It is an earlier conversation from here on.
+    assistant.conversations.current = None
+    assert "Deleted summary secret" in json.dumps(assistant._prepare_context("Hello"))
     assistant.conversations.delete_conversation(number)
     messages = assistant._prepare_context("Hello")
     assert "Deleted summary secret" not in json.dumps(messages)

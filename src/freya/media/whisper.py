@@ -9,6 +9,8 @@ import sys
 import threading
 import time
 
+from freya.child_environment import child_environment
+
 MAX_LINE = 3 * 1024 * 1024
 
 
@@ -32,6 +34,7 @@ class WhisperTranscriber:
         process = subprocess.Popen(
             [sys.executable, str(Path(__file__).with_name("decode_worker.py")), str(path), str(info.st_size), str(info.st_mtime_ns)],
             stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
+            env=child_environment(),
             creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
         )
         messages = queue.Queue(maxsize=2)

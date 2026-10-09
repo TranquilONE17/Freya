@@ -2,7 +2,12 @@ import json
 
 from freya.config import SYSTEM_PROMPT, CONTEXT_WINDOW_TOKENS, CONTEXT_OUTPUT_TOKENS
 from freya.kernel.context import ContextAuthority, ContextBudget, ContextItem
-from freya.core.conversation_memory import ConversationMemory
+from freya.core.conversation_memory import (
+    NOT_CONSULTED,
+    NOTHING_FOUND,
+    SEARCHED,
+    ConversationMemory,
+)
 from freya.core.llm import (
     chat,
     chat_stream,
@@ -12,18 +17,26 @@ from freya.core.llm import (
     rerank_memory_candidates,
 )
 from freya.memory.memory_manager import MemoryManager
+from freya.memory.deletion_ledger import StorageQuarantined
 
 
 MAX_TOOL_ROUNDS = 3
+MAX_TOOL_CALLS = 12
 
 
 class FreyaAssistant(ConversationMemory):
-    def __init__(self, tool_host=None):
-        self.memory = MemoryManager()
+    def __init__(self, tool_host=None, broker=None, memory_ledger_path=None):
+        # With a ledger path, the memory database is opened in
+        # protected mode (see MemoryManager). Off unless asked for.
+        self.memory = MemoryManager(memory_ledger_path)
 
         # Optional: offers tools to the model and runs the ones it
         # asks for. Without it Freya answers from the model alone.
         self.tool_host = tool_host
+        # What she reads from her saved memories and conversations for
+        # a reply is asked for through the broker. Without one, nothing
+        # stored is given to the model.
+        self.broker = broker
         self.context = ContextAuthority(ContextBudget(CONTEXT_WINDOW_TOKENS, CONTEXT_OUTPUT_TOKENS))
 
         self.messages = [
@@ -89,17 +102,19 @@ class FreyaAssistant(ConversationMemory):
         messages_for_model = self._prepare_context(user_input, tools)
 
         reply_parts = []
+        tool_attempts = 0
 
         for round_number in range(MAX_TOOL_ROUNDS + 1):
-            messages_for_model = self.context.fit_tools(messages_for_model, tools if round_number < MAX_TOOL_ROUNDS else None)
             # After the last allowed round the model must answer
             # with what it has.
             offered = (
                 tools
                 if round_number < MAX_TOOL_ROUNDS
+                and tool_attempts < MAX_TOOL_CALLS
                 else None
             )
 
+            messages_for_model = self.context.fit_tools(messages_for_model, offered)
             tool_calls = []
 
             for chunk in chat_stream(
@@ -118,8 +133,6 @@ class FreyaAssistant(ConversationMemory):
 
             if not tool_calls:
                 break
-
-            tool_calls = tool_calls[:4]
 
             # The tool exchange is only needed for this turn; it
             # is not kept in the conversation history.
@@ -140,16 +153,30 @@ class FreyaAssistant(ConversationMemory):
             )
 
             for call in tool_calls:
+                # Removing definitions is not enforcement: a model
+                # may still request a tool on the final round.
+                if not offered or tool_attempts >= MAX_TOOL_CALLS:
+                    result = json.dumps({"error": (
+                        "The tool budget is exhausted. This request was not run."
+                    )})
+                else:
+                    tool_attempts += 1
+                    result = self.tool_host.run(call["name"], call["arguments"])
                 messages_for_model.append(
                     {
                         "role": "tool",
                         "tool_name": call["name"],
-                        "content": self.tool_host.run(
-                            call["name"],
-                            call["arguments"],
-                        ),
+                        "content": result,
                     }
                 )
+
+            if round_number == MAX_TOOL_ROUNDS:
+                notice = (
+                    "\n\nI reached the tool limit. "
+                    "Some requested checks were not completed."
+                )
+                reply_parts.append(notice)
+                yield notice
 
         reply = "".join(
             reply_parts
@@ -183,73 +210,24 @@ class FreyaAssistant(ConversationMemory):
 
     def _prepare_context(self, user_input, tools=None):
         """One context path for typed, streamed, and tool-assisted replies."""
+        if self.memory.ledger is not None and self.memory.ledger.quarantined:
+            raise StorageQuarantined("Reconcile quarantined memory storage before answering.")
         items, retrieval_notes = [], []
-        for message in self.messages:
-            for identifier in message.get("context_record_ids", []):
-                record = self.conversations.get(identifier) if identifier is not None else None
-                if record is None:
-                    retrieval_notes.append("A removed conversation summary was excluded.")
-                    continue
-                if record["summary"]:
-                    current = identifier == self.conversations.current
-                    items.append(ContextItem(
-                        "conversation-summary", f"conversation:{identifier}",
-                        f"{record['started_at'][:10]}: {record['summary']}",
-                        "model-inference", 80 if current else 50,
-                    ))
-        try:
-            candidates = self.memory.search_memory_candidates(user_input, limit=5)
-        except Exception:
-            retrieval_notes.append("Semantic memory retrieval was unavailable; lexical fallback was attempted.")
-            try:
-                candidates = self._find_memories(user_input)[:5]
-            except Exception:
-                candidates = []
-                retrieval_notes.append("Saved memory retrieval was unavailable.")
-        selected = []
-        # Authorization precedes relevance ranking: an LLM reranker must
-        # never see a candidate outside the active context scope.
-        candidates = [record for record in candidates if self.context.permits(ContextItem(
-            "saved-memory", f"memory:{record['id']}", "", "legacy-unverified",
-            owner=record.get("owner") or "local-owner", domain=record.get("domain") or "local",
-            permitted_uses=tuple(record.get("permitted_uses", ("answer",))),
-        ))]
-        if candidates:
-            try:
-                ranking = rerank_memory_candidates(query=user_input, candidates=candidates, max_results=3)
-                selected_ids = set(ranking.get("relevant_ids", []))
-                selected = [item for item in candidates if item["id"] in selected_ids][:3]
-            except Exception:
-                selected = candidates[:3]
-                retrieval_notes.append("Memory relevance ranking was unavailable; candidate order was used.")
-        for record in selected:
+        if self._live_summary:
+            # Her summary of the older part of this conversation stands
+            # in for live dialogue; it is not a read of what is stored.
             items.append(ContextItem(
-                "saved-memory", f"memory:{record['id']}",
-                f"Type: {record['type']}; key: {record.get('key') or 'unkeyed'}; {record['content']}",
-                record.get("source_trust") or "legacy-unverified", 90,
-                owner=record.get("owner") or "local-owner",
-                domain=record.get("domain") or "local",
-                permitted_uses=tuple(record.get("permitted_uses", ("answer",))),
+                "conversation-summary", f"conversation:{self.conversations.current}",
+                self._live_summary, "model-inference", 80,
             ))
-        note = self.past_search_note(user_input, include_media=False)
-        if note is not None:
-            items.append(ContextItem("past-recall", "past-recall", note, "mixed-source-records", 100))
-        elif self.tool_host is not None:
-            # This read-only retrieval follows the same offered-tool and
-            # broker authorization path as model-requested conversation recall.
-            offered = {item["function"]["name"] for item in self.tool_host.definitions()}
-            if "conversation_recall" in offered:
-                try:
-                    found = json.loads(self.tool_host.run("conversation_recall", {"query": user_input[:200]}))
-                    if "error" in found:
-                        retrieval_notes.append("Conversation recall was unavailable.")
-                    for passage in found.get("passages", [])[:3]:
-                        items.append(ContextItem(
-                            "conversation-passage", f"conversation:{passage['conversation']}:turns:{','.join(map(str, passage.get('turn_ids', [])))}",
-                            json.dumps(passage, ensure_ascii=False), "quoted-conversation", 70,
-                        ))
-                except Exception:
-                    retrieval_notes.append("Conversation recall was unavailable.")
+        # One authorized, audited read of what is stored. Nothing it
+        # returns is kept beyond this reply.
+        stored = self._recall_for_reply(user_input)
+        if stored is None:
+            retrieval_notes.append(NOT_CONSULTED)
+        else:
+            retrieval_notes += stored["notes"]
+            items += self._stored_items(user_input, stored, retrieval_notes)
         callback = getattr(self, "media_recall", None)
         if callback is not None:
             try:
@@ -273,6 +251,62 @@ class FreyaAssistant(ConversationMemory):
                                     tools=tools, tool_hint=self.tool_host.hint if tools and self.tool_host else "")
         self.context.last_report["retrieval_notes"] = retrieval_notes
         return result
+
+    @staticmethod
+    def _memory_item(record):
+        return ContextItem(
+            "saved-memory", f"memory:{record['id']}",
+            f"Type: {record['type']}; key: {record.get('key') or 'unkeyed'}; {record['content']}",
+            record.get("source_trust") or "legacy-unverified", 90,
+            owner=record.get("owner") or "local-owner",
+            domain=record.get("domain") or "local",
+            permitted_uses=tuple(record.get("permitted_uses", ("answer",))),
+        )
+
+    def _stored_items(self, user_input, stored, retrieval_notes):
+        """What was read from memory, as labelled records for this reply."""
+        items = [
+            ContextItem(
+                "conversation-summary", f"conversation:{summary['conversation']}",
+                f"{summary['date']}: {summary['summary']}", "model-inference", 50,
+            )
+            for summary in stored["summaries"]
+        ]
+        # Authorization precedes relevance ranking: an LLM reranker must
+        # never see a candidate outside the active context scope.
+        memories = [
+            record for record in stored["memories"]
+            if self.context.permits(self._memory_item(record))
+        ]
+        if memories and not stored["asked_about_past"]:
+            try:
+                ranking = rerank_memory_candidates(query=user_input, candidates=memories, max_results=3)
+                selected_ids = set(ranking.get("relevant_ids", []))
+                memories = [record for record in memories if record["id"] in selected_ids][:3]
+            except Exception:
+                memories = memories[:3]
+                retrieval_notes.append("Memory relevance ranking was unavailable; candidate order was used.")
+        items += [self._memory_item(record) for record in memories]
+        for passage in stored["passages"]:
+            items.append(ContextItem(
+                "conversation-passage",
+                f"conversation:{passage['conversation']}:turns:{','.join(map(str, passage['turn_ids']))}",
+                "\n".join(
+                    [f"Conversation of {passage['date']}:"]
+                    + [f"{entry['who']}: {entry['said']}" for entry in passage["exchange"]]
+                ),
+                "quoted-conversation", 70,
+            ))
+        found = memories or stored["passages"]
+        # A search that partly failed is not told to her as "nothing
+        # was found"; the retrieval notes say what could not be searched.
+        if stored["asked_about_past"] and (found or not stored["notes"]):
+            note = SEARCHED if found else NOTHING_FOUND
+            items.append(ContextItem(
+                "past-recall", "past-recall",
+                note.format(words=", ".join(stored["searched"])), "system-observation", 100,
+            ))
+        return items
 
     def _process_automatic_memory(
         self,
@@ -1642,8 +1676,7 @@ class FreyaAssistant(ConversationMemory):
 
             deleted = (
                 self.memory.delete_memory(
-                    memory_id,
-                    action="manual_delete",
+                    memory_id
                 )
             )
 

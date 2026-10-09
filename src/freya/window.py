@@ -5,6 +5,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable, Optional
 
+from freya.child_environment import child_environment
 from freya.core.providers import ProviderHealth
 from freya.gateway.server import DEFAULT_PORT, Gateway
 from freya.providers.image.comfyui import COMFYUI_PROVIDER
@@ -154,6 +155,7 @@ def open_app_window(url, profile_dir=WINDOW_PROFILE_DIR) -> str:
                 stdin=subprocess.DEVNULL,
                 stdout=subprocess.DEVNULL,
                 stderr=subprocess.DEVNULL,
+                env=child_environment(),
                 creationflags=flags,
                 close_fds=True,
             )
