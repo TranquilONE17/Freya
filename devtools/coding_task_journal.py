@@ -74,8 +74,9 @@ class TaskJournal:
             raise ValueError("Details too long")
         event = TaskEvent(self.task_id, len(events), state, time.time(), details)
         updated = [asdict(item) for item in [*events, event]]
-        temporary = self.path.with_suffix(".tmp")
-        # Single-writer alpha assumption; do not use across multiple processes.
+        # Unique names isolate crash leftovers and other writers' temporary files.
+        # Simultaneous transitions on one journal still require serialization.
+        temporary = self.directory / f"{self.task_id}.{uuid.uuid4().hex}.tmp"
         try:
             with temporary.open("x", encoding="utf-8") as file:
                 json.dump(updated, file, indent=2)
