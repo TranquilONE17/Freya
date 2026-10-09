@@ -57,12 +57,29 @@ This can happen inside an ordinary conversation turn; it does not need the owner
 declare a task. The existing `background` role (memory decisions, ranking, summaries)
 stays local always, because it reads the personal store.
 
-One consequence needs care. The main model sees stored memories and past
-conversations while she talks, and those are set never to leave. If she wrote a cloud
-brief from that same context she could restate a memory in her own words, and no
-label check would catch it. So a brief bound for a cloud route is written in a
-separate model call whose context holds only the kinds of material allowed for that
-route. What she cannot see there, she cannot pass on.
+The main model always has her full context, including stored memories and past
+conversations: she is the intelligence that decides Freya's behaviour, and she uses
+what she knows to decide what to hand over and how to brief it (owner decision). What
+she must not do is let private information leave the machine. Because she writes
+briefs with that context in view, a label check alone cannot stop a memory being
+restated in her own words, so every cloud-bound brief passes these guards in order:
+
+1. **Instruction.** She is told to write briefs that stand alone and contain nothing
+   about the owner, other people, or this machine beyond what the job needs.
+2. **Local screening.** Before a brief is sent, Freya's code compares it with the
+   personal store on this machine: names, keys and phrases from saved memories, and
+   closeness in meaning using the existing embeddings. This runs locally and sends
+   nothing.
+3. **Hold on a match.** A brief that matches is not sent. The owner is shown the
+   passage and what it matched, and can remove it, send it once anyway, or cancel. A
+   standing rule never covers a matched brief.
+4. **A local record.** The text of every brief that leaves is kept on this machine for
+   the owner to read, with the route and the time. It is personal data and is stored
+   and protected like the conversation store, not in the audit log.
+
+This is a strong filter, not a proof. Screening catches copied and closely restated
+material; a loose paraphrase or an inference can pass. The owner's prompts, the local
+record and the per-provider switches are what bound the remainder.
 
 Plan routes drive a program that can read files and run commands by itself. Freya
 starts it with no tools, no file access beyond what she passes in, and a filtered
