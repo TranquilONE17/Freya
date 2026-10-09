@@ -40,7 +40,7 @@ class OllamaCancellationTests(unittest.TestCase):
     def test_malformed_event_is_rejected_and_connection_closed(self):
         class MalformedResponse(FakeResponse):
             def __init__(self):
-                self.data = iter(b'[]\\n')
+                self.data = iter(b'[]\n')
 
         with (patch("local_coding_agent.http.client.HTTPConnection", FakeConnection),
               patch.object(FakeConnection, "getresponse", return_value=MalformedResponse()),
