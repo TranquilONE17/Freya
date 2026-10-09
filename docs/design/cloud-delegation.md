@@ -101,6 +101,8 @@ context system already carries. Each kind has a setting: allowed, ask first, or 
 | Freya's own code | Ask first |
 
 A part marked never is left out before the request is built, not filtered afterwards.
+This sorting and the description are built (`freya.delegation`, `CloudSettings`,
+`review_brief`) and tested; the window controls and the sending are not.
 Before sending, Freya shows a description (which kinds, how much, which route, the
 estimated cost) with the full text one click away. Settings are changed by the owner
 in the window, never by voice or by a model, and every change is audited. Only the

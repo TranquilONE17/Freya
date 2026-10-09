@@ -130,6 +130,15 @@ in its own database, `data/freya_usage.db`, through `ControlStore(path,
 USAGE_MIGRATIONS)`. Nothing calls it yet; the design it serves is
 `docs/design/cloud-delegation.md`, a proposal that is not adopted.
 
+Cloud material settings: `freya.delegation` holds the owner's choices about cloud
+models in `data/cloud_settings.json` (`CloudSettings`): which providers are switched
+on (all off to start) and, for each kind of material, allowed, ask first, or never.
+`review_brief` sorts a brief's labelled parts by those settings and describes what a
+provider would receive without showing the text. Keep these properties: a damaged
+file means the strict defaults; a part of unknown kind never leaves; an approval
+cannot release a kind set to never; nothing is sendable to a provider that is off.
+Nothing sends a brief yet.
+
 Model tool calling: `FreyaAssistant.respond_stream` offers the model the capabilities
 whose metadata has `model_tool: True` (never destructive ones) using the model's native
 tool calling. Requested tools run through the broker, their JSON results go back to
