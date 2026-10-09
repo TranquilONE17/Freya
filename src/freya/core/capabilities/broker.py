@@ -5,6 +5,7 @@ import uuid
 from dataclasses import dataclass
 from typing import Any, Optional
 
+from freya.core.capabilities.execution_context import (enter_broker_context, exit_broker_context)
 from freya.core.capabilities.capability import (
     CapabilityStatus,
 )
@@ -188,11 +189,15 @@ class CapabilityBroker:
                 ),
             )
 
-        execution = self._registry.execute(
-            capability_name,
-            *args,
-            **kwargs,
-        )
+        token = enter_broker_context(self._principal, self._policy)
+        try:
+            execution = self._registry.execute(
+                capability_name,
+                *args,
+                **kwargs,
+            )
+        finally:
+            exit_broker_context(token)
 
         # A destructive action that raised may still have had an effect.
         failure = (
