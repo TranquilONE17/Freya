@@ -39,9 +39,6 @@ namespace
     constexpr int32 MaxFixtureSeconds = 30;
     // How long after the last audio the solver is given to finish, before the final report.
     constexpr double TailSeconds = 1.0;
-    // How long after the sound ends the jaw is still watched before lips and voice
-    // are compared: the longest lag looked for, and a little more.
-    constexpr double SyncTailSeconds = 1.1;
 }
 
 // Audio waiting to be fed to the solver, a little at a time at the pace it would
@@ -324,7 +321,6 @@ bool UFreyaAudioProbeComponent::StartFixture(const FString& Path)
 
     if (!BeginSpeech(FixtureSampleRate, bPlayAudibly ? Volume : 0.0f)) return false;
     PushSpeech(Pcm.GetData(), Pcm.Num());
-    EndSpeech();
 
     PeakCurve = 0.0f;
     CurvesAtPeak = 0;
@@ -345,9 +341,6 @@ bool UFreyaAudioProbeComponent::BeginSpeech(int32 SampleRate, float Loudness)
 {
     // The solver is fed at one rate. Anything else is refused, not resampled.
     if (SampleRate != FixtureSampleRate || !GetOwner() || !InitializeProbe()) return false;
-    // The next sentence has come before the last one's jaw was watched to the end:
-    // measure that one with what there is, rather than not at all.
-    if (bSpeechInputEnded) MeasureSync();
     StopAudiblePlayback();
     Source->Cancel();
     ConfigureFace();
@@ -400,13 +393,6 @@ void UFreyaAudioProbeComponent::PushSpeech(const int16* Samples, int32 Count)
     }
 }
 
-// The whole utterance has been given. A pause in arriving audio is not its end;
-// only this is.
-void UFreyaAudioProbeComponent::EndSpeech()
-{
-    if (bSpeechOpen) bSpeechInputEnded = true;
-}
-
 // True from the first sound queued until it has all been heard.
 bool UFreyaAudioProbeComponent::IsSpeechAudible() const
 {
@@ -441,7 +427,6 @@ void UFreyaAudioProbeComponent::StopAudiblePlayback()
     if (Voice) Voice->Stop();
     if (Wave) Wave->ResetAudio();
     bSpeechOpen = false;
-    bSpeechInputEnded = false;
     bVoiceStarted = false;
     SpeechSamples = 0;
 }
@@ -634,8 +619,7 @@ void UFreyaAudioProbeComponent::Report(bool bFinal)
         GetWorld()->GetTimerManager().SetTimer(Unused, FTimerDelegate::CreateWeakLambda(this, [this]()
         {
             UKismetSystemLibrary::QuitGame(this, nullptr, EQuitPreference::Quit, false);
-        // Long enough for the lip timing to be measured first.
-        }), 3.0f, false);
+        }), 1.5f, false);
     }
 }
 
