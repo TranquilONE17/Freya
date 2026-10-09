@@ -117,9 +117,11 @@ estimated and reported usage, each limit, how much of it is used, and when it re
   asking, or from the matching standing rule, or is normal. Freya and models never
   raise it.
 - **Urgent.** A separate flag the owner sets: the task does not wait for a reset.
-  An urgent task may also use more than one cloud route at the same time, either by
-  giving independent parts to different providers or by asking two for the same
-  answer and comparing. Each route used must be covered by its own approval, each
+  An urgent task may also use more than one cloud route at the same time. The usual
+  way is splitting: independent parts go to different providers. Comparing, where two
+  providers answer the same question and Freya shows where they agree and differ, is
+  kept for major or complex work: a high-value task, or when the owner asks for it.
+  Each route used must be covered by its own approval, each
   draws on its own allowance, and the prompt says that the material goes to more than
   one vendor. Urgent does not widen what may be sent.
 - **Order of routes.** Local first when a local model is good enough for that kind of
