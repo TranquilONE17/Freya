@@ -120,7 +120,11 @@ estimated and reported usage, each limit, how much of it is used, and when it re
   An urgent task may also use more than one cloud route at the same time. The usual
   way is splitting: independent parts go to different providers. Comparing, where two
   providers answer the same question and Freya shows where they agree and differ, is
-  kept for major or complex work: a high-value task, or when the owner asks for it.
+  kept for major or complex work. Freya is expected to recognise such a task herself
+  (from its size, the number of steps, how much depends on the result, and how local
+  attempts went, as ESC-001 asks) and to propose a comparison, saying why. She never
+  runs one without the owner's permission. Her recognition is a suggestion only: it
+  does not raise the task's value, approve a route, or change what may be sent.
   Each route used must be covered by its own approval, each
   draws on its own allowance, and the prompt says that the material goes to more than
   one vendor. Urgent does not widen what may be sent.
