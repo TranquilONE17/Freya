@@ -42,6 +42,8 @@ class DelegationTask:
     check: Callable[[str], Optional[str]]
     reference: str
     wrong: str
+    # A harder task, there to tell strong models apart.
+    hard: bool = False
 
     def grade(self, reply) -> Optional[str]:
         """
@@ -1041,6 +1043,411 @@ TASKS = (
         "ANSWER: 12",
     ),
 )
+
+
+# Harder tasks
+
+def _sentences(text):
+    return [part for part in re.split(r"[.!?]+(?:\s|$)", text.strip()) if part.strip()]
+
+
+def _check_vote_summary(reply):
+    text = plain_spaces(reply).strip()
+    if len(_sentences(text)) != 2:
+        return "Expected exactly two sentences."
+    if word_count(text) > 35:
+        return "Longer than 35 words."
+    if not re.search(r"14 May|May 14", text, re.IGNORECASE):
+        return "The date is missing."
+    if not re.search(r"3,?200", text):
+        return "The amount is missing."
+    if re.search(r"okonkwo|reyes|mina|luis", text, re.IGNORECASE):
+        return "A person is named."
+    return None
+
+
+def _check_one_sentence(reply):
+    text = plain_spaces(reply).strip()
+    if len(_sentences(text)) != 1:
+        return "Expected one sentence."
+    if word_count(text) > 25:
+        return "Longer than 25 words."
+    if re.search(r"\band\b", text, re.IGNORECASE):
+        return "The word 'and' is used."
+    for pattern in ("tuesday", r"\b42\b", r"\btwo\b|\b2\b"):
+        if not re.search(pattern, text, re.IGNORECASE):
+            return f"Something required is missing ({pattern})."
+    return None
+
+
+def _check_staff_table(reply):
+    rows = [row for row in plain_spaces(reply).splitlines() if row.strip()]
+    if len(rows) != 5:
+        return "Expected a header, a rule and three rows."
+    if not all(word in rows[0].lower() for word in ("name", "role", "start")):
+        return "The header is wrong."
+    if "---" not in rows[1]:
+        return "The rule under the header is missing."
+    wanted = (
+        ("kofi", "lead engineer", "2018"),
+        ("ines", "designer", "2021"),
+        ("sun", "analyst", "2023"),
+    )
+    for row, cells in zip(rows[2:], wanted):
+        if not all(cell in row.lower() for cell in cells):
+            return "A row is wrong or out of order."
+    return None
+
+
+TALK_MINUTES = {"a": 30, "b": 45, "c": 60}
+
+
+def _minutes(clock):
+    hours, minutes = str(clock).strip().split(":")
+    return int(hours) * 60 + int(minutes)
+
+
+def _check_talks(reply):
+    value = read_json(reply)
+    if not isinstance(value, dict):
+        return "Expected a JSON object."
+    plan = {}
+    for name, minutes in TALK_MINUTES.items():
+        entry = value.get(name.upper(), value.get(name))
+        if not isinstance(entry, dict):
+            return f"Talk {name.upper()} is missing."
+        start = _minutes(entry["start"])
+        room = int(entry["room"])
+        if room not in (1, 2):
+            return "There are only rooms 1 and 2."
+        if start < 9 * 60 or start + minutes > 10 * 60 + 30:
+            return f"Talk {name.upper()} is outside 09:00 to 10:30."
+        plan[name] = (room, start, start + minutes)
+
+    def overlap(one, two):
+        return plan[one][1] < plan[two][2] and plan[two][1] < plan[one][2]
+
+    if plan["b"][0] != 1:
+        return "Talk B needs room 1."
+    if overlap("a", "c"):
+        return "A and C share a speaker and overlap."
+    for one, two in (("a", "b"), ("a", "c"), ("b", "c")):
+        if plan[one][0] == plan[two][0] and overlap(one, two):
+            return f"{one.upper()} and {two.upper()} overlap in one room."
+    return None
+
+
+def _check_hours(reply):
+    value = read_json(reply)
+    if not isinstance(value, dict):
+        return "Expected a JSON object."
+    hours = {}
+    for name in ("alpha", "beta", "gamma", "delta"):
+        amount = value.get(name)
+        if isinstance(amount, bool) or not isinstance(amount, int):
+            return "Each project needs a whole number of hours."
+        hours[name] = amount
+    if sum(hours.values()) != 100:
+        return "The hours do not total 100."
+    if min(hours.values()) < 10:
+        return "A project has fewer than 10 hours."
+    if hours["beta"] < 15:
+        return "Beta has fewer than 15 hours."
+    if hours["alpha"] != 2 * hours["beta"]:
+        return "Alpha is not twice Beta."
+    if hours["gamma"] != hours["delta"] + 10:
+        return "Gamma is not 10 more than Delta."
+    return None
+
+
+def _log_failed_gate():
+    counts = {gate: 0 for gate in _LOG_GATES}
+    for number, _, _, status in inspection_entries():
+        if status == "failed":
+            counts[_LOG_GATES[number % 3]] += 1
+    return max(counts, key=counts.get)
+
+
+HARD_TASKS = (
+    DelegationTask(
+        "order-arithmetic", EXTRACTION,
+        "From the order below, give a JSON object with subtotal, discount, "
+        "tax and total, each a number with two decimal places.\n\n"
+        "Order 7781 for Halden School: 14 desks at 85.00 each, 14 chairs at "
+        "32.00 each, and 2 whiteboards at 120.00 each. Orders over 1,500.00 "
+        "before tax get 5 percent off the subtotal. Tax of 10 percent is "
+        "then added to the discounted amount.\n\n" + JSON_ONLY,
+        json_fields({
+            "subtotal": 1878.00, "discount": 93.90,
+            "tax": 178.41, "total": 1962.51,
+        }),
+        '{"subtotal": 1878.00, "discount": 93.90, "tax": 178.41, '
+        '"total": 1962.51}',
+        '{"subtotal": 1878.00, "discount": 93.90, "tax": 187.80, '
+        '"total": 1971.90}',
+        hard=True,
+    ),
+    DelegationTask(
+        "double-booked", EXTRACTION,
+        "From the roster below, give a JSON array of the people who are "
+        "booked for two shifts that overlap in time, in alphabetical order. "
+        "A shift that starts exactly when another ends does not overlap "
+        "it.\n\n"
+        "Mon 09:00-13:00 Asha\nMon 12:00-16:00 Bo\nMon 12:30-15:00 Asha\n"
+        "Tue 08:00-12:00 Cy\nTue 12:00-16:00 Cy\nWed 10:00-14:00 Bo\n"
+        "Wed 13:00-17:00 Dee\nWed 13:30-15:00 Bo\n\n" + JSON_ONLY,
+        json_list(["Asha", "Bo"]),
+        '["Asha", "Bo"]',
+        '["Asha", "Bo", "Cy"]',
+        hard=True,
+    ),
+    DelegationTask(
+        "vote-summary", SUMMARISING,
+        "Summarise the text below in exactly two sentences and at most 35 "
+        "words. Include the date of the meeting and the amount of money. Do "
+        "not name any person. Reply with the summary only.\n\n"
+        "At its meeting on 14 May the Riverside tenants' association voted "
+        "23 to 9 to spend 3,200 from the repair fund on replacing the lobby "
+        "doors. Treasurer Mina Okonkwo warned that this leaves the fund "
+        "below the level agreed last year. Chair Luis Reyes said the doors "
+        "had failed two safety checks. Work is expected to start in June, "
+        "and the fund will be reviewed in September.",
+        _check_vote_summary,
+        "On 14 May the Riverside tenants' association voted to spend 3,200 "
+        "on new lobby doors after failed safety checks. Work starts in June, "
+        "and the depleted fund is reviewed in September.",
+        "On 14 May the association voted to spend 3,200 on lobby doors. "
+        "Treasurer Mina Okonkwo warned about the fund.",
+        hard=True,
+    ),
+    DelegationTask(
+        "what-changed", SUMMARISING,
+        "Below are the old and new versions of a rule. In at most 40 words, "
+        "say only what changed, giving the new figures. Do not mention "
+        "anything that stayed the same. Reply with the summary only.\n\n"
+        "Old: Tenants must give 14 days' notice before leaving. A cleaning "
+        "fee of 25 is charged. Pets are allowed with written consent. Keys "
+        "are returned to the office.\n\n"
+        "New: Tenants must give 30 days' notice before leaving. A cleaning "
+        "fee of 40 is charged. Pets are allowed with written consent. Keys "
+        "are returned to the office.",
+        text_rules(40, need=(r"\b30\b", r"\b40\b", "notice", "fee"),
+                   forbid=("pet", "key")),
+        "The notice period rises from 14 to 30 days, and the cleaning fee "
+        "rises from 25 to 40.",
+        "Notice is now 30 days and the fee is 40; pets still need consent "
+        "and keys go to the office.",
+        hard=True,
+    ),
+    DelegationTask(
+        "expense-precedence", CLASSIFICATION,
+        "Label each expense travel, client-entertainment, meals or supplies. "
+        "Two rules decide ties: anything that happened on a trip, marked "
+        "[trip], is travel whatever else it is; otherwise anything bought "
+        "for a client is client-entertainment even if it is a meal. Give a "
+        "JSON object mapping each number to its label.\n\n"
+        "1. Lunch with client Ortega\n"
+        "2. Team lunch\n"
+        "3. [trip] Dinner with client Bauer\n"
+        "4. [trip] Taxi to the airport\n"
+        "5. Printer paper\n"
+        "6. Sandwiches for the team meeting\n"
+        "7. Theatre tickets for client Ito\n"
+        "8. [trip] Notebook bought at the airport\n\n" + JSON_ONLY,
+        labels({
+            1: "client-entertainment", 2: "meals", 3: "travel", 4: "travel",
+            5: "supplies", 6: "meals", 7: "client-entertainment", 8: "travel",
+        }),
+        '{"1": "client-entertainment", "2": "meals", "3": "travel", '
+        '"4": "travel", "5": "supplies", "6": "meals", '
+        '"7": "client-entertainment", "8": "travel"}',
+        '{"1": "meals", "2": "meals", "3": "client-entertainment", '
+        '"4": "travel", "5": "supplies", "6": "meals", '
+        '"7": "client-entertainment", "8": "supplies"}',
+        hard=True,
+    ),
+    DelegationTask(
+        "requirement-strength", CLASSIFICATION,
+        "Each statement below uses a requirement word in the sense that "
+        "technical standards give it. Label each must, should or may, by "
+        "how binding it is. Give a JSON object mapping each number to its "
+        "label.\n\n"
+        "1. The service MUST NOT log passwords.\n"
+        "2. Clients SHOULD retry after a timeout.\n"
+        "3. A server MAY cache the response.\n"
+        "4. It is RECOMMENDED that keys be rotated yearly.\n"
+        "5. Implementations are REQUIRED to validate the checksum.\n"
+        "6. The comment field is OPTIONAL.\n\n" + JSON_ONLY,
+        labels({
+            1: "must", 2: "should", 3: "may",
+            4: "should", 5: "must", 6: "may",
+        }),
+        '{"1": "must", "2": "should", "3": "may", "4": "should", '
+        '"5": "must", "6": "may"}',
+        '{"1": "must", "2": "should", "3": "may", "4": "must", '
+        '"5": "must", "6": "should"}',
+        hard=True,
+    ),
+    DelegationTask(
+        "one-sentence-no-and", REWRITING,
+        "Rewrite the passage below as a single sentence of at most 25 "
+        "words that does not use the word 'and'. Keep every fact. Reply "
+        "with the sentence only.\n\n"
+        "The shipment left on Tuesday. It had 42 crates. Two of them were "
+        "damaged and were sent back.",
+        _check_one_sentence,
+        "The shipment of 42 crates left on Tuesday, with two damaged crates "
+        "sent back.",
+        "The shipment left on Tuesday with 42 crates, and two were damaged "
+        "and sent back.",
+        hard=True,
+    ),
+    DelegationTask(
+        "prose-to-table", REWRITING,
+        "Turn the text below into a Markdown table with the columns Name, "
+        "Role and Start, one person per row, earliest start year first. "
+        "Reply with the table only.\n\n"
+        "Ines joined as designer in 2021. Kofi has been lead engineer since "
+        "2018. Sun started in 2023 as analyst.",
+        _check_staff_table,
+        "| Name | Role | Start |\n| --- | --- | --- |\n"
+        "| Kofi | Lead engineer | 2018 |\n| Ines | Designer | 2021 |\n"
+        "| Sun | Analyst | 2023 |",
+        "| Name | Role | Start |\n| --- | --- | --- |\n"
+        "| Ines | Designer | 2021 |\n| Kofi | Lead engineer | 2018 |\n"
+        "| Sun | Analyst | 2023 |",
+        hard=True,
+    ),
+    DelegationTask(
+        "slow-clock", REASONING,
+        "A clock loses 4 minutes every hour. It is set to the right time at "
+        "08:00. What time does it show when the real time is 20:00 the same "
+        "day? Answer as HH:MM.\n\n" + ANSWER_LINE,
+        answer_is("19:12"),
+        "It loses 48 minutes over 12 hours.\nANSWER: 19:12",
+        "ANSWER: 19:48",
+        hard=True,
+    ),
+    DelegationTask(
+        "shortest-finish", REASONING,
+        "Five jobs take these days: A 3, B 2, C 4, D 1, E 2. B and C can "
+        "start only when A is done. D can start only when B is done. E can "
+        "start only when both C and D are done. With enough people to work "
+        "on any number of jobs at once, what is the fewest days needed to "
+        "finish all five?\n\n" + ANSWER_LINE,
+        answer_is("9"),
+        "A ends on day 3, C on day 7, D on day 6, so E runs from 7 to 9.\n"
+        "ANSWER: 9",
+        "ANSWER: 12",
+        hard=True,
+    ),
+    DelegationTask(
+        "code-count", REASONING,
+        "How many different three-letter codes can be made from the letters "
+        "A, B, C and D if no letter is used twice in a code and a code must "
+        "not start with A?\n\n" + ANSWER_LINE,
+        answer_is("18"),
+        "Three choices for the first letter, then three, then two.\n"
+        "ANSWER: 18",
+        "ANSWER: 24",
+        hard=True,
+    ),
+    DelegationTask(
+        "trace-recursion", CODE_REVIEW,
+        "What does this Python program print?\n\n"
+        "def f(n, seen=None):\n"
+        "    seen = seen or set()\n"
+        "    if n in seen or n <= 1:\n"
+        "        return 0\n"
+        "    seen.add(n)\n"
+        "    return 1 + f(n // 2 if n % 2 == 0 else 3 * n + 1, seen)\n\n"
+        "print(f(6))\n\n" + ANSWER_LINE,
+        answer_is("8"),
+        "The chain is 6, 3, 10, 5, 16, 8, 4, 2, then 1.\nANSWER: 8",
+        "ANSWER: 9",
+        hard=True,
+    ),
+    DelegationTask(
+        "search-never-ends", CODE_REVIEW,
+        "This Python function searches a sorted list. For some inputs it "
+        "never returns. Which numbered line holds the bug?\n\n"
+        "1  def find(xs, t):\n"
+        "2      lo, hi = 0, len(xs)\n"
+        "3      while lo < hi:\n"
+        "4          mid = (lo + hi) // 2\n"
+        "5          if xs[mid] < t:\n"
+        "6              lo = mid\n"
+        "7          else:\n"
+        "8              hi = mid\n"
+        "9      return lo if lo < len(xs) and xs[lo] == t else -1\n\n"
+        + ANSWER_LINE,
+        answer_is("6", "line 6"),
+        "lo must move past mid, or the range stops shrinking.\nANSWER: 6",
+        "ANSWER: 8",
+        hard=True,
+    ),
+    DelegationTask(
+        "talk-rooms", PLANNING,
+        "Schedule three talks between 09:00 and 10:30 in two rooms, 1 and "
+        "2. Talk A lasts 30 minutes, B 45 minutes and C 60 minutes. A and C "
+        "have the same speaker, so they cannot overlap. B needs the "
+        "projector, which is only in room 1. Two talks cannot be in one "
+        "room at the same time. Give a JSON object with A, B and C, each an "
+        "object with room (1 or 2) and start (HH:MM).\n\n" + JSON_ONLY,
+        _check_talks,
+        '{"A": {"room": 2, "start": "10:00"}, "B": {"room": 1, "start": '
+        '"09:00"}, "C": {"room": 2, "start": "09:00"}}',
+        '{"A": {"room": 1, "start": "09:45"}, "B": {"room": 1, "start": '
+        '"09:00"}, "C": {"room": 2, "start": "09:00"}}',
+        hard=True,
+    ),
+    DelegationTask(
+        "hour-split", PLANNING,
+        "Share exactly 100 hours between four projects, in whole hours. "
+        "Every project gets at least 10. Beta gets at least 15. Alpha gets "
+        "exactly twice what Beta gets. Gamma gets exactly 10 more than "
+        "Delta. Give a JSON object with alpha, beta, gamma and delta.\n\n"
+        + JSON_ONLY,
+        _check_hours,
+        '{"alpha": 32, "beta": 16, "gamma": 31, "delta": 21}',
+        '{"alpha": 30, "beta": 15, "gamma": 33, "delta": 22}',
+        hard=True,
+    ),
+    DelegationTask(
+        "mix-shift", ANALYSIS,
+        "A shop's visits and purchases, by where the visitor came from:\n\n"
+        "Month 1: Search 200 visits, 40 purchases. Social 800 visits, 40 "
+        "purchases.\n"
+        "Month 2: Search 100 visits, 22 purchases. Social 1,900 visits, 114 "
+        "purchases.\n\n"
+        "Which statement is true of the share of visits that ended in a "
+        "purchase?\n"
+        "A. It fell for Search and for Social.\n"
+        "B. It rose for Search and for Social, yet fell overall.\n"
+        "C. It rose for Search, for Social, and overall.\n"
+        "D. It fell for Social only, which pulled the overall share down.\n\n"
+        + ANSWER_LINE,
+        answer_is("b"),
+        "Search went from 20 to 22 percent and Social from 5 to 6, but the "
+        "overall share fell from 8 to 6.8 percent because more visits came "
+        "from Social.\nANSWER: B",
+        "ANSWER: C",
+        hard=True,
+    ),
+    DelegationTask(
+        "long-log-gate", ANALYSIS,
+        "Read the inspection log below. Considering only the inspections "
+        "that failed, which gate did the inspector come in by most often? "
+        "Answer north, east or service.\n\n"
+        + inspection_log() + "\n\n" + ANSWER_LINE,
+        answer_is(_log_failed_gate()),
+        f"ANSWER: {_log_failed_gate()}",
+        "ANSWER: west",
+        hard=True,
+    ),
+)
+
+TASKS = TASKS + HARD_TASKS
 
 
 def tasks_of(kinds=None):

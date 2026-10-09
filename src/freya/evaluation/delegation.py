@@ -25,7 +25,7 @@ WORKER_INSTRUCTIONS = (
 CLOUD_APPROVAL_FLAG = "--owner-approved-cloud-run"
 
 
-def local_route(model, request_timeout, context_tokens, output_tokens):
+def local_route(model, request_timeout, context_tokens, output_tokens, think=None):
     """
     A route that asks an installed Ollama model. It contacts only the
     Ollama server on this machine and downloads nothing.
@@ -46,6 +46,7 @@ def local_route(model, request_timeout, context_tokens, output_tokens):
                 {"role": "user", "content": brief},
             ],
             options={"num_ctx": context_tokens, "num_predict": output_tokens},
+            **({} if think is None else {"think": think}),
         )
         return {
             "text": response["message"]["content"] or "",
@@ -98,6 +99,7 @@ def run_task(task, ask):
         return {
             "task": task.name,
             "kind": task.kind,
+            "hard": task.hard,
             "status": "error",
             "problem": str(exc)[:500],
             "elapsed_seconds": time.monotonic() - started,
@@ -108,6 +110,7 @@ def run_task(task, ask):
     return {
         "task": task.name,
         "kind": task.kind,
+        "hard": task.hard,
         "status": "failed" if problem else "passed",
         "problem": problem,
         "reply": (answer.get("text") or "")[:4000],
@@ -173,6 +176,8 @@ def main(argv=None):
                         help="Ask Claude through the owner's subscription instead of a local model.")
     parser.add_argument(CLOUD_APPROVAL_FLAG, dest="cloud_approved", action="store_true",
                         help="The owner's go-ahead to send the synthetic tasks to a cloud model and use plan allowance.")
+    parser.add_argument("--think", choices=["off", "on", "low", "medium", "high", "xhigh"],
+                        help="A local model's thinking setting. Unset leaves the model's own default.")
     parser.add_argument("--request-timeout", type=float, default=180)
     parser.add_argument("--context-tokens", type=positive_int, default=8192)
     parser.add_argument("--output-tokens", type=positive_int, default=4096)
@@ -204,6 +209,12 @@ def main(argv=None):
         "created_at": datetime.now(timezone.utc).isoformat(),
         "route": route,
         "model": args.model,
+        # A result belongs to a model together with these settings.
+        "settings": {
+            "think": args.think or "default",
+            "context_tokens": args.context_tokens,
+            "output_tokens": args.output_tokens,
+        },
         "trials": args.trials,
         "tasks": len(selected),
         "grading": "Deterministic checks on synthetic tasks; no reply is executed.",
@@ -219,6 +230,7 @@ def main(argv=None):
                 else local_route(
                     args.model, args.request_timeout,
                     args.context_tokens, args.output_tokens,
+                    {None: None, "off": False, "on": True}.get(args.think, args.think),
                 )
             )
         except Exception as exc:
