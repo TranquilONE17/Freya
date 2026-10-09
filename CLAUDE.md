@@ -121,6 +121,15 @@ models are checked for health and warmed. There is no cloud route yet: sending a
 to an outside model is escalation under ESC-001 to ESC-006 and needs its own provider,
 a deny-by-default capability, and an owner decision first.
 
+Usage ledger: `freya.core.usage.UsageLedger` records what each route (one way of
+reaching one model) has used and decides whether more fits: go, ask the owner, wait
+for a reset, or refuse. Limits are per call, per task, or per period; a period longer
+than a day is paced across the days left, counted back from the provider's reset. A
+route with no limit recorded is refused, and a zero cap cannot be overridden. It lives
+in its own database, `data/freya_usage.db`, through `ControlStore(path,
+USAGE_MIGRATIONS)`. Nothing calls it yet; the design it serves is
+`docs/design/cloud-delegation.md`, a proposal that is not adopted.
+
 Model tool calling: `FreyaAssistant.respond_stream` offers the model the capabilities
 whose metadata has `model_tool: True` (never destructive ones) using the model's native
 tool calling. Requested tools run through the broker, their JSON results go back to
