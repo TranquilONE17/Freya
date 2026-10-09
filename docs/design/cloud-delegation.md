@@ -146,7 +146,7 @@ opinion of itself.
   owner's approval like any other cloud work, is kept small, and is repeated only when
   the model version changes.
 
-**Starting kinds of task and bars (a draft for the owner to adjust).**
+**Starting kinds of task and bars.**
 
 | Kind | What it covers |
 |---|---|
@@ -164,6 +164,11 @@ opinion of itself.
 | low | 70% |
 | normal | 85% |
 | high | 95% |
+
+The owner accepted these three bars as a start (2026-10-09) on condition that
+they can be adjusted. They are therefore the owner's settings, not constants: kept
+with the other cloud settings, changed only by the owner in the window, each change
+audited, and able to differ by kind of task if the owner wants that later.
 
 The kinds are an open list, and analysis most of all. Adding a kind, or a new area
 inside one, means adding tasks for it; until a model has been measured on that area
