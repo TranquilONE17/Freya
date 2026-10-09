@@ -475,9 +475,13 @@ Accepted, not yet done:
   authorization it issued, for that exact text, once, within two minutes, and only
   if the owner's settings have not changed since. It settles the ledger and writes
   the owner's local record of sent briefs (`data/sent_briefs.jsonl`). A match on
-  something marked always private cannot be released with one click. Still to do:
-  wire the Claude route in as a `Route`, make the route's capability refuse any call
-  that does not come through the dispatcher, and build the window's prompts.
+  something marked always private cannot be released with one click.
+  `freya.delegation.service.build_cloud_delegation` assembles all of this on a control
+  plane and registers the Claude route so that a brief goes dispatcher, broker, route.
+  Assembling it allows nothing: the provider's switch, a policy rule for the route's
+  capability, and a usage limit for the route are three separate locks, each of which
+  stops a brief by itself, and each of which only the owner opens. Freya's startup
+  does not call it yet. Still to do: the window's prompts, and the turn that uses it.
 - **The program's flags are requests, not containment.** Safe mode leaves sign-in,
   model choice and administrator-managed settings in force, and a temporary folder
   does not confine a program. The route's wording now says so. What the worker can

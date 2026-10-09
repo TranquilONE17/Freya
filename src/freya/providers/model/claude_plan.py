@@ -376,7 +376,9 @@ def create_claude_plan_provider(program=None) -> ProviderDefinition:
     )
 
 
-def register_claude_plan_capability(registry, in_flight, program=None, model=None):
+def register_claude_plan_capability(
+    registry, in_flight, program=None, model=None, on_failure=None,
+):
     """
     Register the one capability this route offers. It is not offered
     to the model as a tool and is in no default policy seed: only a
@@ -403,7 +405,16 @@ def register_claude_plan_capability(registry, in_flight, program=None, model=Non
                 sent=False,
             )
 
-        return ask_claude_plan(brief, resolved, model=model, timeout=timeout)
+        try:
+            return ask_claude_plan(
+                brief, resolved, model=model, timeout=timeout,
+            )
+        except PlanRouteError as error:
+            # The broker turns a failure into text, so the caller is
+            # told here whether the brief may have left.
+            if on_failure is not None:
+                on_failure(error)
+            raise
 
     registry.register(
         CapabilityDefinition(
