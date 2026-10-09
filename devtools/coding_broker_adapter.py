@@ -6,6 +6,7 @@ Do not expose the development CLI directly as a model tool.
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Callable
 
 from freya.core.capabilities import CapabilityDefinition
 from freya.core.providers import ProviderDefinition
@@ -17,7 +18,8 @@ PROVIDER_ID = "development-coding-local-alpha"
 
 
 def register_coding_proposal(control_plane, *, repo: Path, journal_dir: Path,
-                             output_dir: Path, model: str) -> None:
+                             output_dir: Path, model: str,
+                             checkpoint: Callable[[], None] | None = None) -> None:
     """Register an opt-in provider, without granting anyone permission."""
     repo = repo.resolve(strict=True)
     journal_dir = journal_dir.resolve()
@@ -28,7 +30,9 @@ def register_coding_proposal(control_plane, *, repo: Path, journal_dir: Path,
         raise ValueError("A local model name is required")
 
     def handler(task: str, files: list[str]):
-        return propose(repo, task, files, model, journal_dir, output_dir)
+        return propose(repo, task, files, model, journal_dir, output_dir,
+                       checkpoint=checkpoint) if checkpoint is not None else propose(
+                           repo, task, files, model, journal_dir, output_dir)
 
     control_plane.providers.register(
         ProviderDefinition(
