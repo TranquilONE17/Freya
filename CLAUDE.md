@@ -63,7 +63,9 @@ Rules for the spec:
   needs from a drive and reports where each would best live (SSD or hard disk, by
   type, not letter). It reads sizes only and moves nothing; see
   `docs/design/storage-placement.md`. A store added under `data/` must be added to
-  `DATA_KINDS`; a test checks.
+  `DATA_KINDS`; a test checks. `src/freya/storage/backup.py` copies the databases
+  (with SQLite's backup) and settings to a dated folder on another drive and refuses
+  the same drive; it never moves or deletes. Nothing runs it automatically yet.
 - `src/freya/media/` — the media library, Jellyfin playback and transcripts
   (`docs/design/media-tools.md`). `src/freya/kernel/context/authority.py` — the
   context budget and labelled sources every reply is built from
