@@ -1,0 +1,26 @@
+name: Local coding alpha tests
+on:
+  push:
+    branches: [work/security-local-coding-alpha]
+  pull_request:
+    paths:
+      - 'devtools/**'
+      - 'src/freya/core/**'
+      - '.github/workflows/local-coding-alpha-tests.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  offline-tests:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Offline coding security tests
+        env:
+          PYTHONPATH: src:devtools
+        run: |
+          python -m unittest discover -s devtools -p 'test_*.py' -v
