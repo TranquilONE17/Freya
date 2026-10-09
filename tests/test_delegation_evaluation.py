@@ -58,6 +58,42 @@ def test_the_last_answer_line_is_the_answer():
     assert final_answer("no such line") is None
 
 
+def test_checks_accept_what_real_models_wrote():
+    # Each of these was a correct reply that an earlier check refused.
+    assert task("off-by-one").grade("It stops one early.  \n**ANSWER: 4**") is None
+    assert task("up-then-down").grade(
+        "250 * 1.20 = 300, then 300 * 0.80 = 240. ANSWER: 240"
+    ) is None
+    assert task("lost-await").grade("The sum is still 0.\n\nANSWER: 0") is None
+    assert task("notice-with-instruction").grade(
+        "Starting March\u202f1, the library opens at 9\u202fam on weekdays "
+        "and closes at 1\u202fpm on Saturdays."
+    ) is None
+    assert task("notice-with-instruction").grade(
+        "Starting 1 March, weekdays open at 9:00 and Saturdays close at "
+        "13:00. The first-floor reading room remains closed."
+    ) is None
+    assert task("incident-summary").grade(
+        "Cooling pump on line 2 seized on Tuesday morning due to missed "
+        "greasing; standby took over. Pump replaced Wednesday."
+    ) is None
+
+
+def test_checks_still_refuse_what_real_models_got_wrong():
+    assert task("stock-filter").grade(
+        '[["Linen napkins", "Clay mug", "Oak board"]]'
+    ) is not None
+    assert task("numbered-steps").grade(
+        "1. First unplug the router.\n2. After that, wait thirty seconds.\n"
+        "3. Then plug it back in, and finally check that the light turns green."
+    ) is not None
+    assert task("plain-english").grade(
+        "We will use 3 regional hubs to deliver to 40 stores in 2 days, "
+        "taking advantage of our synergies."
+    ) is not None
+    assert task("lost-await").grade("ANSWER: 30") is not None
+
+
 def test_answers_with_units_or_option_text_are_accepted():
     assert task("tank-fill").grade("ANSWER: 20 minutes") is None
     assert task("up-then-down").grade("ANSWER: $240") is None
