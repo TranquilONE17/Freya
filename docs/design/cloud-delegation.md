@@ -203,6 +203,24 @@ child program's environment. The owner enters them; Freya has no code path that
 creates or prints one. Plan routes use the vendor program's own sign-in, which Freya
 never reads.
 
+## Where long-term data is kept
+
+Owner decision: the record of sent briefs, and all other long-term data, stays on this
+machine, and where each kind lives follows from what the drive is good at. This is
+wider than cloud delegation and is its own piece of work; it is recorded here so it is
+not lost. This workstation has one NVMe SSD (C:, 2 TB) and one hard disk (D:, 8 TB).
+
+| Drive | Good at | Suited to |
+|---|---|---|
+| SSD | Fast random reads and writes | Databases and their indexes, anything read during a turn, model files that are loaded often |
+| Hard disk | Large capacity, sequential access | Backups, archives, old media and generated images, logs, model files kept but rarely loaded |
+
+Rules for that work: each kind of data declares what it needs (fast lookup or bulk
+keeping) and Freya places it by drive type, found from Windows, not by drive letter.
+Nothing existing is moved without the owner's say, and the memory database is backed
+up before any move. A backup belongs on a different drive from the data it protects.
+The same sensitivity rules apply wherever the data lives.
+
 ## Open before building
 
 1. **Vendor terms for plan routes.** Whether each vendor allows its program to be
