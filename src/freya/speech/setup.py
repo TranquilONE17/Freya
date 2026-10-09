@@ -1,6 +1,7 @@
 import os
 import subprocess
 
+from freya.child_environment import child_environment
 from freya.speech.chatterbox_engine import ChatterboxEngine
 from freya.speech.engines import planned_engines
 from freya.speech.kokoro_engine import KokoroEngine
@@ -23,6 +24,7 @@ def free_gpu_megabytes():
             capture_output=True,
             text=True,
             timeout=10,
+            env=child_environment(),
             creationflags=(
                 subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0
             ),

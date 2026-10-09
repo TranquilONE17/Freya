@@ -17,6 +17,7 @@ from freya.core.capabilities import (
     CapabilityDefinition,
     CapabilityRegistry,
 )
+from freya.core.conversation_memory import CONVERSATION_RECALL
 from freya.core.persistence import (
     CONTROL_DATABASE_PATH,
     ControlStore,
@@ -60,10 +61,9 @@ from freya.tools.model_tools import (
 
 IMAGE_SERVICE_PROVIDER = "image-service-local"
 
-# Freya's own record of past conversations, and the one thing the
-# model may do with it: look passages up.
+# Freya's own record of past conversations and saved memories. Reading
+# it for the model is the one capability, CONVERSATION_RECALL.
 CONVERSATION_PROVIDER = "conversation-memory-local"
-CONVERSATION_RECALL = "conversation.recall"
 from freya.tools.system_tools import (
     SYSTEM_TOOL_CAPABILITIES,
     SYSTEM_TOOLS_PROVIDER,
@@ -180,6 +180,10 @@ class ControlPlane:
         """
         Offer the model a way to look up what was said in earlier
         conversations. It only reads Freya's own record of them.
+
+        Freya's own read of her memories and conversations for a
+        reply goes through the same capability, so removing its
+        policy rule stops both.
         """
         self.providers.register(
             ProviderDefinition(

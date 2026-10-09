@@ -585,9 +585,11 @@ def rerank_memory_candidates(
                     f"ID: {memory['id']}",
                     f"Type: {memory['type']}",
                     f"Key: {memory['key']}",
-                    (
-                        "Similarity: "
-                        f"{memory['similarity']:.4f}"
+                    # A candidate matched by its words has no score.
+                    *(
+                        [f"Similarity: {memory['similarity']:.4f}"]
+                        if "similarity" in memory
+                        else []
                     ),
                     f"Content: {memory['content']}",
                 ]

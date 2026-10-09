@@ -5,6 +5,8 @@ from typing import Optional
 
 import psutil
 
+from freya.child_environment import child_environment
+
 
 # The packaged Unreal GUI, if the owner has built one. FREYA_UNREAL_CLIENT
 # names its program; unset means Freya does not start it.
@@ -62,11 +64,12 @@ class UnrealClient:
             self._process = self._start(
                 [str(self.program), "-windowed"],
                 cwd=str(self.program.parent),
-                env={
-                    **os.environ,
-                    PORT_VARIABLE: str(port),
-                    KEY_VARIABLE: pairing_key,
-                },
+                env=child_environment(
+                    {
+                        PORT_VARIABLE: str(port),
+                        KEY_VARIABLE: pairing_key,
+                    }
+                ),
                 stdin=subprocess.DEVNULL,
                 stdout=subprocess.DEVNULL,
                 stderr=subprocess.DEVNULL,

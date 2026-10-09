@@ -1037,6 +1037,8 @@ def main(window_only=False):
 
         tool_host=control_plane.model_tools,
 
+        broker=control_plane.broker,
+
     )
 
     voice = FreyaVoice()

@@ -10,6 +10,7 @@ from typing import Callable, List, Optional
 
 import psutil
 
+from freya.child_environment import child_environment
 from freya.spatial_avatar.sources import (
     AVATAR_FILES,
     CHARACTER_FILES,
@@ -104,6 +105,7 @@ def run_blender(blender: Path, script: str, request: dict, timeout: float, log: 
                 stdin=subprocess.DEVNULL,
                 stdout=output,
                 stderr=subprocess.STDOUT,
+                env=child_environment(),
                 creationflags=subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0,
             )
 
@@ -166,6 +168,7 @@ def unpack(archive: Path, destination: Path) -> List[Path]:
                 [str(tar), "-xf", str(archive), "-C", str(destination)],
                 capture_output=True,
                 timeout=EXTRACT_TIMEOUT_SECONDS,
+                env=child_environment(),
                 creationflags=subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0,
             )
         except (OSError, subprocess.SubprocessError) as exc:
