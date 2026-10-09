@@ -69,8 +69,8 @@ def build_cloud_delegation(
 
     Every brief then goes dispatcher, broker, route: the dispatcher
     checks and reserves, the broker checks policy and writes the
-    audit record, and the route's capability refuses any text the
-    dispatcher is not sending at that moment.
+    audit record, and the route's capability sends only when it can
+    take the one permit that an authorized send holds.
 
     `memories` supplies the (id, text) pairs briefs are screened
     against. The caller decides how they are read.
@@ -125,7 +125,7 @@ def build_cloud_delegation(
     control_plane.providers.check_health(ANTHROPIC_PLAN_PROVIDER)
     register_claude_plan_capability(
         control_plane.capabilities,
-        dispatcher.in_flight,
+        dispatcher.take_permit,
         claude_program,
         on_failure=note_failure,
     )

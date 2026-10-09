@@ -372,7 +372,14 @@ def brokered(tmp_path, fake):
     providers.check_health(ANTHROPIC_PLAN_PROVIDER)
     registry = CapabilityRegistry(providers)
     going = set()
-    register_claude_plan_capability(registry, going.__contains__, fake.program)
+
+    def take(text):
+        if text in going:
+            going.discard(text)
+            return True
+        return False
+
+    register_claude_plan_capability(registry, take, fake.program)
     policy = SqlitePolicyEngine(store)
     audit = SqliteAuditLog(store)
     audit.start()
@@ -399,6 +406,7 @@ def test_the_route_is_denied_until_the_owner_allows_it(brokered, fake):
     assert allowed.success
     assert allowed.result.text == "A worker's answer."
 
+    going.add("A brief.")
     fake.behave(
         output=json.dumps({"is_error": True, "result": "echo: A brief."}),
         exit=1,

@@ -377,21 +377,22 @@ def create_claude_plan_provider(program=None) -> ProviderDefinition:
 
 
 def register_claude_plan_capability(
-    registry, in_flight, program=None, model=None, on_failure=None,
+    registry, take_permit, program=None, model=None, on_failure=None,
 ):
     """
     Register the one capability this route offers. It is not offered
     to the model as a tool and is in no default policy seed: only a
     rule the owner adds allows it.
 
-    Policy is one gate; the dispatcher is the other. `in_flight` is
-    the dispatcher's own check that it is sending this exact text
-    right now, so a call that did not come through the dispatcher is
-    refused even when policy allows the capability.
+    Policy is one gate; the dispatcher is the other. `take_permit`
+    is the dispatcher's: it yields the single permit that one
+    authorized send of this exact text holds. A call that did not
+    come through the dispatcher finds no permit and is refused even
+    when policy allows the capability.
     """
 
     def ask(brief, timeout=DEFAULT_TIMEOUT_SECONDS):
-        if not in_flight(brief):
+        if not take_permit(brief):
             raise PlanRouteError(
                 "This brief did not come through the sending checks.",
                 sent=False,
