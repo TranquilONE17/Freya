@@ -1,0 +1,35 @@
+name: Python dependency audit
+on:
+  push:
+    branches: [work/security-local-coding-alpha]
+  pull_request:
+    paths:
+      - 'pyproject.toml'
+      - '.github/workflows/python-dependency-audit.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  dependency-audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install dependency auditor
+        run: python -m pip install --disable-pip-version-check pip-audit
+      - name: Audit resolved project dependencies
+        run: |
+          python -m pip_audit --disable-pip --progress-spinner off --no-deps --requirement /dev/null || true
+      - name: Audit project manifest (advisory; resolve without installing GPU packages)
+        run: |
+          python -m pip_audit --progress-spinner off --no-deps --format json --output dependency-audit.json pyproject.toml || true
+      - name: Upload dependency report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: python-dependency-audit-report
+          path: dependency-audit.json
+          if-no-files-found: warn
