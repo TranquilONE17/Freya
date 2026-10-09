@@ -31,10 +31,10 @@ class CodingP0BoundaryTests(unittest.TestCase):
             journal.path.with_suffix(".tmp").write_text("incomplete")
             self.assertEqual([e.state for e in journal.read()],
                              ["requested", "generating"])
-            with self.assertRaises(FileExistsError):
-                journal.transition("failed")
+            journal.transition("failed")
             self.assertEqual([e.state for e in journal.read()],
-                             ["requested", "generating"])
+                             ["requested", "generating", "failed"])
+            self.assertEqual(journal.path.with_suffix(".tmp").read_text(), "incomplete")
 
     def test_nested_secret_and_key_files_rejected(self):
         with tempfile.TemporaryDirectory() as directory:
