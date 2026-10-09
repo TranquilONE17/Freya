@@ -2,12 +2,19 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable, Iterable, Optional, Tuple
 
+from freya.core.capabilities import LOCAL_OWNER, CapabilityDefinition
 from freya.core.persistence import ControlStore
+from freya.core.policy import seed_alpha_policy
+from freya.core.providers import ProviderDefinition
 from freya.core.usage import USAGE_MIGRATIONS, UsageLedger
 from freya.delegation.dispatch import Dispatcher, Route, SentBriefs
 from freya.delegation.material import CloudSettings
 from freya.delegation.record import ModelRecord
 from freya.delegation.screening import Corrections
+from freya.delegation.window_requests import (
+    apply_cloud_change,
+    cloud_window_request,
+)
 from freya.providers.model.claude_plan import (
     ANTHROPIC_PLAN_PROVIDER,
     ANTHROPIC_PLAN_VENDOR,
@@ -19,6 +26,10 @@ from freya.providers.model.claude_plan import (
 
 
 DATA_DIR = Path(__file__).resolve().parents[3] / "data"
+
+CLOUD_SETTINGS_PROVIDER = "cloud-settings-local"
+CLOUD_SETTINGS_CHANGE = "cloud.settings.change"
+CLOUD_SETTINGS_SEED = "alpha-cloud-settings"
 
 
 class RouteUnavailable(RuntimeError):
@@ -45,6 +56,26 @@ class CloudDelegation:
     record: ModelRecord
     dispatcher: Dispatcher
     usage_store: ControlStore
+    broker: object = None
+    available_providers: Tuple[str, ...] = ()
+
+    def window_request(self, message: dict) -> dict:
+        """
+        Answer the Cloud tab. A change goes through the broker, so
+        policy must allow it and the audit log records that it was
+        made (never what it was).
+        """
+
+        def change(request):
+            result = self.broker.invoke(CLOUD_SETTINGS_CHANGE, request)
+            if not result.success:
+                raise ValueError(
+                    result.error or "That change could not be made."
+                )
+
+        return cloud_window_request(
+            self, message, change, self.available_providers,
+        )
 
     def close(self) -> None:
         self.usage_store.close()
@@ -130,7 +161,7 @@ def build_cloud_delegation(
         on_failure=note_failure,
     )
 
-    return CloudDelegation(
+    cloud = CloudDelegation(
         settings=settings,
         ledger=ledger,
         corrections=corrections,
@@ -138,4 +169,43 @@ def build_cloud_delegation(
         record=record,
         dispatcher=dispatcher,
         usage_store=usage_store,
+        broker=broker,
+        available_providers=(ANTHROPIC_PLAN_VENDOR,),
     )
+
+    # The owner's own changes to these settings, made in the window.
+    # This is the one thing here that a default policy seed allows:
+    # it lets the owner change their own choices and have each change
+    # recorded. It sends nothing and is not offered to the model.
+    control_plane.providers.register(
+        ProviderDefinition(
+            provider_id=CLOUD_SETTINGS_PROVIDER,
+            name="The owner's cloud settings",
+            capabilities=[CLOUD_SETTINGS_CHANGE],
+            start_handler=lambda: None,
+            health_handler=lambda: True,
+        )
+    )
+    control_plane.providers.start(CLOUD_SETTINGS_PROVIDER)
+    control_plane.providers.check_health(CLOUD_SETTINGS_PROVIDER)
+    control_plane.capabilities.register(
+        CapabilityDefinition(
+            name=CLOUD_SETTINGS_CHANGE,
+            description=(
+                "Changes one of the owner's cloud settings: a provider's "
+                "switch, what a kind of material may do, a pass-rate "
+                "bar, or an entry in the screening lists."
+            ),
+            provider=CLOUD_SETTINGS_PROVIDER,
+            handler=lambda request: apply_cloud_change(cloud, request),
+            category="cloud",
+        )
+    )
+    seed_alpha_policy(
+        control_plane.policy,
+        CLOUD_SETTINGS_SEED,
+        LOCAL_OWNER.actor,
+        [CLOUD_SETTINGS_CHANGE],
+    )
+
+    return cloud

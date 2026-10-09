@@ -18,6 +18,7 @@ from freya.gpu.resource_manager import GPUResourceManager
 from freya.image.image_generator import FreyaImageGenerator
 
 from freya.control_plane import build_local_control_plane
+from freya.delegation.service import build_cloud_delegation
 from freya.config import OPEN_WINDOW, MODEL
 from freya.hands_free import LISTENING_COMMANDS
 from freya.hands_free import describe_listening
@@ -1042,6 +1043,33 @@ def main(window_only=False):
 
     )
 
+    # The owner's cloud settings and the one gate a brief could leave
+    # by. Assembling it sends nothing and allows nothing: no provider
+    # is switched on, no policy rule allows a cloud route, and no
+    # route has a usage limit until the owner sets them. Nothing in a
+    # turn uses it yet; this is here so the Cloud tab works.
+    try:
+
+        cloud = build_cloud_delegation(
+
+            control_plane,
+
+            lambda: [
+
+                (row[0], row[3])
+
+                for row in freya.memory.get_all_memories()
+
+            ],
+
+        )
+
+    except Exception as exc:
+
+        cloud = None
+
+        print(f"Cloud settings are unavailable: {exc}")
+
     voice = FreyaVoice()
 
     # The Voice tab: engines, saved voices, and the voice the owner
@@ -1568,6 +1596,11 @@ def main(window_only=False):
             set_muted=mute_from_window,
 
             memory_request=memory_from_window,
+
+            **(
+                {"cloud_request": cloud.window_request}
+                if cloud is not None else {}
+            ),
 
             client_closed=client_closed,
 
@@ -2245,6 +2278,10 @@ def main(window_only=False):
         console_output.uninstall()
 
         voice.shutdown()
+
+        if cloud is not None:
+
+            cloud.close()
 
         control_plane.close()
 

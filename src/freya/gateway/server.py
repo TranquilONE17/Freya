@@ -60,6 +60,7 @@ STATIC_FILES = {
     # The 3D preview of avatar models, and the libraries it uses.
     # Each file is listed: nothing else under static/ is served.
     "/media.js": ("media.js", JAVASCRIPT),
+    "/cloud.js": ("cloud.js", JAVASCRIPT),
     "/avatar-view.js": ("avatar-view.js", JAVASCRIPT),
     "/vendor/three/three.module.js": ("vendor/three/three.module.js", JAVASCRIPT),
     "/vendor/three/three.core.js": ("vendor/three/three.core.js", JAVASCRIPT),
@@ -757,6 +758,14 @@ class Gateway:
                 return reject("Freya is shutting down.")
 
             self._work.put((kind, (message, outbox)))
+        elif kind == "cloud":
+            # The owner's cloud settings and the briefs that were
+            # sent. Like the Memory tab's answers, these go back to
+            # this window only.
+            if self._stopping.is_set() or outbox is None:
+                return reject("Freya is shutting down.")
+
+            self._work.put((kind, (message, outbox)))
         elif kind == "media":
             if self._stopping.is_set() or outbox is None:
                 return reject("Freya is shutting down.")
@@ -858,6 +867,18 @@ class Gateway:
                         "type": "memory",
                         "request": message.get("request"),
                         **self._actions.memory_request(message),
+                    }
+
+                    try:
+                        outbox.put_nowait(answer)
+                    except queue.Full:
+                        pass
+                elif kind == "cloud":
+                    message, outbox = text
+                    answer = {
+                        "type": "cloud",
+                        "request": message.get("request"),
+                        **self._actions.cloud_request(message),
                     }
 
                     try:
