@@ -11,6 +11,7 @@ from pathlib import Path
 from typing import Dict, List, Optional
 
 from freya.child_environment import child_environment
+from freya.storage.locations import store_path
 
 
 DATA_DIR = Path(__file__).resolve().parents[3] / "data"
@@ -40,6 +41,7 @@ DATA_KINDS = (
     DataKind("freya_control.db", FAST, "Policy rules and the audit log"),
     DataKind("freya_usage.db", FAST, "What each model route has used"),
     DataKind("freya_settings.json", FAST, "Names Freya answers to and her volume", True),
+    DataKind("storage_locations.json", FAST, "Where bulk data is kept"),
     DataKind("cloud_settings.json", FAST, "The owner's cloud choices"),
     DataKind("screening_corrections.json", FAST, "The not-private and always-private lists", True),
     DataKind("sent_briefs.jsonl", FAST, "The record of what was sent to cloud models", True),
@@ -55,7 +57,7 @@ DATA_KINDS = (
     DataKind("avatar_work", BULK, "Leftovers from converting avatars"),
     DataKind("avatar_build", BULK, "Leftovers from converting avatars"),
     DataKind("images", BULK, "Generated images", True),
-    DataKind("media", BULK, "Imported media and its transcripts", True),
+    DataKind("media", FAST, "The media library: a database and its files", True),
     DataKind("voice_clips", BULK, "Generated speech clips", True),
     DataKind("voice_references", BULK, "Recordings voices were made from", True),
     DataKind("voice_benchmarks", BULK, "Voice engine comparisons"),
@@ -166,11 +168,12 @@ def plan_placement(data_dir=DATA_DIR, drives=None) -> List[Placement]:
     """
     data_dir = Path(data_dir)
     drives = drive_kinds() if drives is None else drives
-    home = drive_of(data_dir)
     plan = []
 
     for kind in DATA_KINDS:
-        path = data_dir / kind.name
+        # A bulk store may already be kept somewhere else.
+        path = store_path(kind.name, data_dir)
+        home = drive_of(path)
         present = path.exists()
         best, reason = None, "It is where it should be."
 

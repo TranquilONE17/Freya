@@ -65,7 +65,14 @@ Rules for the spec:
   `docs/design/storage-placement.md`. A store added under `data/` must be added to
   `DATA_KINDS`; a test checks. `src/freya/storage/backup.py` copies the databases
   (with SQLite's backup) and settings to a dated folder on another drive and refuses
-  the same drive; it never moves or deletes. Nothing runs it automatically yet.
+  the same drive; it never moves or deletes. Freya runs it as she closes, beside the rest of
+  closing and for at most 20 seconds, unless one was made in the last hour
+  (`FREYA_BACKUP=0` turns it off). `src/freya/storage/locations.py` says where a
+  store lives: the six in `BULK_STORES` follow the owner's setting in
+  `data/storage_locations.json`, everything else stays in `data/`. Define a bulk
+  store's folder with `store_path(name)`, never `DATA_DIR / name`. It imports
+  nothing from Freya. `src/freya/storage/move.py` copies the bulk stores to another
+  drive, checks every file, then switches over; it deletes nothing.
 - `src/freya/media/` — the media library, Jellyfin playback and transcripts
   (`docs/design/media-tools.md`). `src/freya/kernel/context/authority.py` — the
   context budget and labelled sources every reply is built from
