@@ -1,7 +1,10 @@
 import os
 
 
-MODEL = "gpt-oss:20b"
+# Freya's main model. Chosen on 2026-10-09 from the measurements in
+# docs/design/model-benchmarks-2026-10-09.md. FREYA_MODEL names another
+# installed Ollama model, for example gpt-oss:20b, the model before it.
+MODEL = os.environ.get("FREYA_MODEL") or "qwen3.8:27b"
 EMBEDDING_MODEL = "nomic-embed-text"
 
 # The model for the unseen work around a turn: deciding what to

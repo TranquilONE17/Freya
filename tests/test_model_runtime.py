@@ -2,6 +2,7 @@ import json
 
 import pytest
 
+from freya.config import MODEL
 from freya.control_plane import build_local_control_plane
 from freya.core import llm
 from freya.core.capabilities import CapabilityStatus
@@ -33,11 +34,11 @@ def audit_rows(plane):
 
 
 def test_health_reflects_server_and_installed_models(fake_ollama):
-    models = ["gpt-oss:20b", "nomic-embed-text"]
+    models = [MODEL, "nomic-embed-text"]
 
     assert check_ollama_health(models) == ProviderHealth.HEALTHY
 
-    fake_ollama.installed = ["gpt-oss:20b"]
+    fake_ollama.installed = [MODEL]
     assert check_ollama_health(models) == ProviderHealth.UNHEALTHY
 
     fake_ollama.reachable = False
@@ -103,7 +104,7 @@ def test_chat_goes_through_the_broker_and_is_audited(plane, fake_ollama):
 
     assert reply == "Hello from the fake model."
     assert fake_ollama.calls == [
-        ("chat", "gpt-oss:20b", messages, False, {"options": {"num_ctx": 16384}}),
+        ("chat", MODEL, messages, False, {"options": {"num_ctx": 16384}}),
     ]
     assert [(r["kind"], r["capability"]) for r in rows] == [
         ("dispatch", "llm.chat"),
@@ -188,7 +189,7 @@ def test_offline_ollama_is_reported_and_recovers(tmp_path, fake_ollama):
 
 
 def test_missing_model_is_reported(tmp_path, fake_ollama):
-    fake_ollama.installed = ["gpt-oss:20b"]
+    fake_ollama.installed = [MODEL]
     plane = build_local_control_plane(tmp_path / "control.db", None)
 
     assert any("model is not installed" in m for m in plane.startup_messages())
@@ -247,7 +248,7 @@ def test_warm_models_loads_both_models(plane, fake_ollama):
     plane.warm_models()
 
     assert [call[:2] for call in fake_ollama.calls] == [
-        ("generate", "gpt-oss:20b"),
+        ("generate", MODEL),
         ("embed", "nomic-embed-text"),
     ]
     # Warm-up is provider housekeeping, not a capability invocation.
@@ -272,7 +273,7 @@ def split_plane(tmp_path, fake_ollama, monkeypatch):
 def test_background_work_uses_the_reply_model_by_default(plane, fake_ollama):
     llm.evaluate_memory("What is the capital of France?")
 
-    assert fake_ollama.calls[0][1] == "gpt-oss:20b"
+    assert fake_ollama.calls[0][1] == MODEL
     assert plane.capabilities.get("llm.background.chat") is None
     assert audit_rows(plane)[0]["capability"] == "llm.chat"
 
@@ -284,8 +285,8 @@ def test_background_work_goes_to_its_own_model(split_plane, fake_ollama):
 
     assert [call[1] for call in fake_ollama.calls] == [
         "small-model",
-        "gpt-oss:20b",
-        "gpt-oss:20b",
+        MODEL,
+        MODEL,
     ]
     assert [
         row["capability"]
@@ -327,7 +328,7 @@ def test_both_models_are_warmed(split_plane, fake_ollama):
 
     assert [
         call[1] for call in fake_ollama.calls if call[0] == "generate"
-    ] == ["gpt-oss:20b", "small-model"]
+    ] == [MODEL, "small-model"]
 
 
 def test_every_request_asks_for_the_same_context_size(plane, fake_ollama):
@@ -355,7 +356,7 @@ def test_models_are_warmed_at_the_size_they_will_be_used_at(plane, fake_ollama):
 
     warmed = [call for call in fake_ollama.calls if call[0] == "generate"]
 
-    assert warmed == [("generate", "gpt-oss:20b", {"options": {"num_ctx": 16384}})]
+    assert warmed == [("generate", MODEL, {"options": {"num_ctx": 16384}})]
 
 
 def test_an_unknown_role_is_refused(plane):
