@@ -4,7 +4,7 @@ from __future__ import annotations
 import argparse
 import json
 import http.client
-import socket
+import select
 import time
 from typing import Callable
 import urllib.error
@@ -99,14 +99,15 @@ def ask_ollama_cancellable(endpoint: str, model: str, prompt: str,
         response = connection.getresponse()
         if response.status != 200:
             raise RuntimeError(f"Local Ollama HTTP status {response.status}")
+        connection.sock.settimeout(timeout)
         while True:
             checkpoint()
             if time.monotonic() >= deadline:
                 raise TimeoutError("Local Ollama generation timed out")
-            try:
-                byte = response.read(1)
-            except (socket.timeout, TimeoutError):
+            ready, _, _ = select.select([connection.sock], [], [], 0.25)
+            if not ready:
                 continue
+            byte = response.read(1)
             if not byte:
                 raise RuntimeError("Ollama stream ended without completion")
             pending += byte
