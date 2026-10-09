@@ -547,8 +547,11 @@ Left as they are, and why:
   made in the instant between them is not excluded.
 - The program's output files can grow until the time limit. Periods are still counted
   back from the reset. Neither is fixed yet.
-- A real run of the Claude program under the allowlisted environment has not been
-  made since the allowlist was introduced.
+- A second real trial was made under the allowlisted environment (2026-10-09, one
+  made-up brief). With none of the calling session's variables passed on, the
+  program reported a Claude subscription served by Anthropic, answered correctly,
+  and, asked which tools it could call, answered none. That is the worker's own
+  account, which is evidence and not proof of containment.
 
 ## Suggested build order
 
