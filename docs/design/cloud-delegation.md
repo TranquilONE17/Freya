@@ -358,8 +358,8 @@ never reads.
 
 Owner decision: the record of sent briefs, and all other long-term data, stays on this
 machine, and where each kind lives follows from what the drive is good at. This is
-wider than cloud delegation and is its own piece of work; it is recorded here so it is
-not lost. This workstation has one NVMe SSD (C:, 2 TB) and one hard disk (D:, 8 TB).
+wider than cloud delegation and is its own piece of work; its first step, a plan that
+moves nothing, is in `docs/design/storage-placement.md`. This workstation has one NVMe SSD (C:, 2 TB) and one hard disk (D:, 8 TB).
 
 | Drive | Good at | Suited to |
 |---|---|---|

@@ -59,6 +59,17 @@ Rules for the spec:
   seed in `control_plane.py`. Its description is what the model chooses by, so say
   what it returns and when to prefer a neighbouring tool.
 - `src/freya/gpu/resource_manager.py` — Ollama/ComfyUI VRAM handoff.
+- `src/freya/storage/placement.py` — lists every store under `data/` with what it
+  needs from a drive and reports where each would best live (SSD or hard disk, by
+  type, not letter). It reads sizes only and moves nothing; see
+  `docs/design/storage-placement.md`. A store added under `data/` must be added to
+  `DATA_KINDS`; a test checks.
+- `src/freya/media/` — the media library, Jellyfin playback and transcripts
+  (`docs/design/media-tools.md`). `src/freya/kernel/context/authority.py` — the
+  context budget and labelled sources every reply is built from
+  (`docs/design/context-system.md`). `src/freya/child_environment.py` — the
+  environment given to programs Freya starts, with credential-named variables removed.
+  `src/freya/unreal_client.py` — pairing and speech relay for the paused Unreal window.
 - `src/freya/voice/` — faster-whisper STT, Kokoro TTS, `wake.py` (deciding whether a
   heard sentence is addressed to Freya), `listener.py` (utterance segmenting, the
   attention window, and the background listener thread).
