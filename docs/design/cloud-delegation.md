@@ -58,14 +58,32 @@ declare a task. The existing `background` role (memory decisions, ranking, summa
 stays local always, because it reads the personal store.
 
 The main model always has her full context, including stored memories and past
-conversations: she is the intelligence that decides Freya's behaviour, and she uses
-what she knows to decide what to hand over and how to brief it (owner decision). What
-she must not do is let private information leave the machine. Because she writes
-briefs with that context in view, a label check alone cannot stop a memory being
-restated in her own words, so every cloud-bound brief passes these guards in order:
+conversations: she is the intelligence that decides Freya's behaviour (owner decision).
+She uses all of it to decide whether to hand work over, what kind of task it is, how
+much it is worth, and which material from the present turn goes with it.
 
-1. **Instruction.** She is told to write briefs that stand alone and contain nothing
-   about the owner, other people, or this machine beyond what the job needs.
+She does not write the brief (owner decision of 2026-10-09, after Codex's review; the
+"middle path"). Her decision is a plan in a fixed form: a kind of task and a value
+chosen from fixed lists, an urgent flag, and the ids of inputs that Freya's code
+offered her. The plan has no field for prose, and anything else in it is refused, so
+nothing she knows can ride along in her own words.
+
+The brief is then written by a separate model call, the brief writer, whose whole
+context is fixed instructions plus the parts of the chosen material that the owner's
+settings and approvals have cleared to leave. Material set to never is not shown to
+it. What the writer cannot see, it cannot pass on. Freya's code, not a model,
+assembles the final text from the writer's instructions and the cleared parts, each
+still carrying where it came from.
+
+The cost of this: a cloud brief cannot draw on what Freya knows about the owner unless
+the owner changes the setting for that kind of material or attaches it.
+
+Screening stays as a second safeguard, because the owner's own request and the cleared
+material can themselves contain something private. Every cloud-bound brief passes
+these guards in order:
+
+1. **Instruction.** The brief writer is told to use only the material it is shown
+   and to add no facts, names or background of its own.
 2. **Local screening.** Before a brief is sent, Freya's code compares it with the
    personal store on this machine: names, keys and phrases from saved memories, and
    closeness in meaning using the existing embeddings. This runs locally and sends
@@ -450,12 +468,16 @@ Fixed:
 
 Accepted, not yet done:
 
-- **One sending boundary.** The function that sends a brief sends whatever it is
-  given. Before the route is registered in the running control plane, sending must
-  require proof, bound to the exact brief, recipient, settings and reservation, that
-  the owner's switches, the material sorting, screening, approval and the ledger all
-  passed, checked again at the moment of sending. This is the next thing to build and
-  nothing else should call the route first.
+- **One sending boundary.** Built after the review (`freya.delegation.dispatch`).
+  `Dispatcher.authorize` checks a composed brief against the provider's switch, the
+  material sorting, screening and the usage ledger, reserves its usage, and returns
+  an authorization naming the brief by its hash. `Dispatcher.send` accepts only an
+  authorization it issued, for that exact text, once, within two minutes, and only
+  if the owner's settings have not changed since. It settles the ledger and writes
+  the owner's local record of sent briefs (`data/sent_briefs.jsonl`). A match on
+  something marked always private cannot be released with one click. Still to do:
+  wire the Claude route in as a `Route`, make the route's capability refuse any call
+  that does not come through the dispatcher, and build the window's prompts.
 - **The program's flags are requests, not containment.** Safe mode leaves sign-in,
   model choice and administrator-managed settings in force, and a temporary folder
   does not confine a program. The route's wording now says so. What the worker can
@@ -470,16 +492,17 @@ Accepted, not yet done:
   the text can pass, and two reject valid replies. To be tightened once the running
   benchmark batch has finished, then every stored reply graded again.
 
-For the owner to decide:
+Decided by the owner after the review:
 
 - **Private context and briefs.** Codex's most serious design point is the one raised
   earlier: because the main model writes cloud briefs with memories in view, a fact it
   restates as its own words is labelled as part of the request and passes the material
   sorting, and screening can miss it. Codex recommends building briefs only from
   inputs that were explicitly authorised, keeping track of where each part came from,
-  with screening as a second safeguard. The owner chose full context for the main
-  model on 2026-10-09 with screening and the local record as the guards; this is
-  recorded as an open disagreement between that choice and the reviewer's advice.
+  with screening as a second safeguard. The owner chose the middle path: the main
+  model keeps full context for deciding, and the brief is written from cleared
+  inputs only. It is built (`freya.delegation.compose`) and described under "How a
+  turn flows".
 
 ## Suggested build order
 

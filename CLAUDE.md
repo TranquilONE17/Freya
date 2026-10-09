@@ -142,6 +142,21 @@ file means the strict defaults; a part of unknown kind never leaves; an approval
 cannot release a kind set to never; nothing is sendable to a provider that is off.
 Nothing sends a brief yet.
 
+Composing and sending briefs: the main model, which sees memories, never writes a
+cloud brief. It returns a plan in a fixed form (`compose.parse_plan`: a kind and value
+from fixed lists, an urgent flag, ids of inputs Freya's code offered); a plan with any
+other field is refused, so there is no room for prose. `compose_brief` sorts the
+chosen inputs by the owner's settings and shows only the cleared parts to the brief
+writer, a fresh model call; code assembles the final text. `dispatch.Dispatcher` is
+the only place a brief may leave from: `authorize` checks the provider switch, the
+material sorting, screening and the ledger and reserves usage; `send` takes only an
+authorization it issued, for that exact text (by hash), once, within two minutes,
+with unchanged settings, then settles the ledger and appends to the owner's record
+`data/sent_briefs.jsonl` (personal data, never the audit log). Do not add a prose
+field to the plan, do not show the writer anything not cleared to leave, and do not
+call a route's `ask` from anywhere but the dispatcher. Nothing in the running Freya
+uses these yet.
+
 Brief screening: `freya.delegation.screening.screen_brief` compares a brief bound for
 a cloud model with (id, text) pairs from the personal store and returns what matched;
 any match holds the brief. `Corrections` (`data/screening_corrections.json`) holds the

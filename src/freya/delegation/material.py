@@ -81,6 +81,9 @@ class CloudSettings:
         self._material = dict(DEFAULT_MATERIAL)
         self._providers: Dict[str, bool] = {}
         self._bars = dict(DEFAULT_BARS)
+        # Goes up with every change, so that a check made under one
+        # set of choices cannot be used after they have changed.
+        self._revision = 0
         self._load()
 
     def _load(self):
@@ -104,6 +107,10 @@ class CloudSettings:
         except ValueError:
             pass
 
+        revision = data.get("revision")
+        if isinstance(revision, int) and not isinstance(revision, bool):
+            self._revision = max(0, revision)
+
         providers = data.get("providers")
 
         if isinstance(providers, dict):
@@ -114,6 +121,7 @@ class CloudSettings:
             }
 
     def _save(self):
+        self._revision += 1
         self.path.parent.mkdir(parents=True, exist_ok=True)
 
         temporary = self.path.with_suffix(".tmp")
@@ -121,6 +129,7 @@ class CloudSettings:
             json.dumps(
                 {
                     "bars": self._bars,
+                    "revision": self._revision,
                     "material": self._material,
                     "providers": self._providers,
                 },
@@ -150,6 +159,11 @@ class CloudSettings:
             if self._material[kind] != setting:
                 self._material[kind] = setting
                 self._save()
+
+    @property
+    def revision(self) -> int:
+        with self._lock:
+            return self._revision
 
     @property
     def bars(self) -> Dict[str, float]:
