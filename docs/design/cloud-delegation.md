@@ -268,13 +268,13 @@ the Agent SDK. Usage is never charged to the plan, and with no purchased credits
 auto-reload off, requests stop when the credits run out. So an `anthropic-api` route
 can run at no cost beyond the plan: the ledger would hold the credit as a hard
 monthly allowance that resets on the billing date, with the money cap still zero.
-Claiming the credits and creating the key are owner actions.
+Claiming the credits and creating the key are owner actions. The owner is on Pro
+(2026-10-09), which has no included credits, so `anthropic-api` stays at a zero cap
+and unused; this becomes an option only if the plan changes.
 
 ## Open before building
 
 1. **Vendor terms for plan routes.** Checked on 2026-10-09; see "Vendor terms" below.
-   The remaining question is for the owner: whether to claim the API credits a Max
-   plan includes.
 2. **Figures.** Money caps are zero until the owner sets them. The warning level and
    the per-rule plan limits are the owner's to set.
 3. **When parallel use "makes sense".** The test for splitting an urgent task across
