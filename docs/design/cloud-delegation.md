@@ -475,15 +475,28 @@ the setting for each kind of material, the three bars, and the two screening lis
 and shows the owner's record of sent briefs. Its answers go only to the window that
 asked. A change goes through the broker as `cloud.settings.change`, so the audit log
 records that a change was made, never what it was. That capability is allowed by a
-new default seed, `alpha-cloud-settings`: it lets the owner change their own choices
-and nothing else, sends nothing, and is not offered to the model. The seed is a policy
-change and needs the owner's agreement at review. The check boxes are only how the
-page shows an on/off value kept by Freya, so they can become a menu later.
+new default seed, `alpha-cloud-settings` (approved by the owner on 2026-10-09): it lets
+the owner change their own choices, sends nothing, and is not offered to the model.
+The check boxes are only how the page shows an on/off value kept by Freya, so they can
+become a menu later.
 
-The tab cannot send a brief, add a policy rule for a cloud route, or set a usage
-limit. Those two locks have no window control yet: today the owner would add them by
-hand. Not built: the approval prompt with its four answers, the hold prompt, and a
-control for usage limits.
+**Switching a provider on unlocks it** (owner decision, 2026-10-09: using cloud should
+unlock any cloud system presented, each chosen individually). A provider's switch now
+opens all three locks for that provider and no other: the switch itself, the policy
+rule for its route, and, if the route has none, a weekly allowance of 500,000 tokens
+(the owner's agreed starting figure, Freya's own estimate). Switching it off removes
+the rule the switch added and leaves the allowance and its usage for next time. A
+rule the owner added by hand is left alone. The tab also has a control for each
+provider's weekly allowance.
+
+What this gives up: the policy rule used to be a second, separate act that the Cloud
+tab could not perform. Now whatever can make a settings change through the broker can
+also allow a cloud route. Only the window does that today, it is not offered to the
+model, and each change is audited; it should be looked at again when sessions are
+authenticated.
+
+The tab cannot send a brief or write any other policy rule. Not built: the approval
+prompt with its four answers, and the hold prompt.
 
 ## Codex's second opinion (2026-10-09)
 

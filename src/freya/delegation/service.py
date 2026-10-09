@@ -1,4 +1,5 @@
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Callable, Iterable, Optional, Tuple
 
@@ -6,7 +7,7 @@ from freya.core.capabilities import LOCAL_OWNER, CapabilityDefinition
 from freya.core.persistence import ControlStore
 from freya.core.policy import seed_alpha_policy
 from freya.core.providers import ProviderDefinition
-from freya.core.usage import USAGE_MIGRATIONS, UsageLedger
+from freya.core.usage import SCOPE_PERIOD, USAGE_MIGRATIONS, UsageLedger
 from freya.delegation.dispatch import Dispatcher, Route, SentBriefs
 from freya.delegation.material import CloudSettings
 from freya.delegation.record import ModelRecord
@@ -30,6 +31,25 @@ DATA_DIR = Path(__file__).resolve().parents[3] / "data"
 CLOUD_SETTINGS_PROVIDER = "cloud-settings-local"
 CLOUD_SETTINGS_CHANGE = "cloud.settings.change"
 CLOUD_SETTINGS_SEED = "alpha-cloud-settings"
+
+# The reason written on a policy rule that a provider's switch added,
+# so that switching it off removes that rule and no other.
+SWITCH_REASON = "Switched on by the owner in the Cloud tab."
+
+# The owner's starting figure for a plan's weekly allowance (2026-10-09).
+# Vendors publish no exact meter, so this is Freya's own estimate.
+DEFAULT_WEEKLY_TOKENS = 500_000
+WEEKLY_LIMIT = "week"
+WEEK_SECONDS = 7 * 86400
+MAX_WEEKLY_TOKENS = 1_000_000_000
+
+
+@dataclass(frozen=True)
+class ProviderRoute:
+    """The route a provider's switch opens, and the capability behind it."""
+
+    route_id: str
+    capability: str
 
 
 class RouteUnavailable(RuntimeError):
@@ -57,7 +77,99 @@ class CloudDelegation:
     dispatcher: Dispatcher
     usage_store: ControlStore
     broker: object = None
-    available_providers: Tuple[str, ...] = ()
+    policy: object = None
+    routes: dict = field(default_factory=dict)
+
+    @property
+    def available_providers(self) -> Tuple[str, ...]:
+        return tuple(sorted(self.routes))
+
+    def _switch_rules(self, capability):
+        return [
+            rule for rule in self.policy.list_rules()
+            if rule["capability"] == capability
+            and rule["effect"] == "allow"
+            and rule["reason"] == SWITCH_REASON
+        ]
+
+    def unlock(self, provider: str, now=None) -> None:
+        """
+        Make a provider usable, as the owner's switch asks (owner
+        decision, 2026-10-09: switching a provider on unlocks it). It
+        adds the policy rule for the provider's route and, if the
+        route has no usage limit yet, the starting weekly allowance.
+        A provider Freya has no route to is left as it is.
+        """
+        route = self.routes.get(provider)
+
+        if route is None:
+            return
+
+        if not self._switch_rules(route.capability):
+            self.policy.add_rule(
+                LOCAL_OWNER.actor, route.capability, "allow", SWITCH_REASON,
+            )
+
+        if self.weekly_limit(provider, now) is None:
+            self.set_weekly_limit(provider, DEFAULT_WEEKLY_TOKENS, now)
+
+    def lock(self, provider: str) -> None:
+        """
+        Take away what the switch gave. A rule the owner added by hand
+        is not the switch's to remove; the switch being off still
+        stops every brief.
+        """
+        route = self.routes.get(provider)
+
+        if route is None:
+            return
+
+        for rule in self._switch_rules(route.capability):
+            self.policy.remove_rule(rule["rule_id"])
+
+    def weekly_limit(self, provider: str, now=None):
+        route = self.routes.get(provider)
+
+        if route is None:
+            return None
+
+        for status in self.ledger.status(route.route_id, now=now):
+            if status.name == WEEKLY_LIMIT:
+                return status
+
+        return None
+
+    def set_weekly_limit(self, provider: str, tokens, now=None) -> None:
+        route = self.routes.get(provider)
+
+        if route is None:
+            raise ValueError("Freya has no route to that provider yet.")
+        if (
+            isinstance(tokens, bool)
+            or not isinstance(tokens, int)
+            or not 0 <= tokens <= MAX_WEEKLY_TOKENS
+        ):
+            raise ValueError("A weekly allowance is a whole number of tokens.")
+
+        moment = now or datetime.now(timezone.utc)
+        present = self.weekly_limit(provider, moment)
+        # The week keeps its dates when only the figure changes.
+        resets_at = present.resets_at if present else moment + timedelta(
+            seconds=WEEK_SECONDS
+        )
+
+        self.ledger.set_limit(
+            route.route_id,
+            WEEKLY_LIMIT,
+            SCOPE_PERIOD,
+            "tokens",
+            tokens,
+            period_seconds=WEEK_SECONDS,
+            resets_at=resets_at,
+            hard=True,
+            source="estimate",
+            now=moment,
+        )
 
     def window_request(self, message: dict) -> dict:
         """
@@ -73,9 +185,7 @@ class CloudDelegation:
                     result.error or "That change could not be made."
                 )
 
-        return cloud_window_request(
-            self, message, change, self.available_providers,
-        )
+        return cloud_window_request(self, message, change)
 
     def close(self) -> None:
         self.usage_store.close()
@@ -92,11 +202,13 @@ def build_cloud_delegation(
     Assemble cloud delegation on a control plane and register the
     Claude plan route on it.
 
-    Assembling it sends nothing and allows nothing. Three things the
-    owner controls stay shut until the owner opens them: the
-    provider's switch in the cloud settings, a policy rule allowing
-    the route's capability (no default seed has one), and a usage
-    limit for the route in the ledger (a route with none is refused).
+    Assembling it sends nothing and allows nothing. Three things
+    stay shut: the provider's switch in the cloud settings, a policy
+    rule allowing the route's capability (no default seed has one),
+    and a usage limit for the route in the ledger (a route with none
+    is refused). Each stops a brief by itself. The owner opens all
+    three at once by switching the provider on in the Cloud tab, and
+    closes them by switching it off.
 
     Every brief then goes dispatcher, broker, route: the dispatcher
     checks and reserves, the broker checks policy and writes the
@@ -170,7 +282,12 @@ def build_cloud_delegation(
         dispatcher=dispatcher,
         usage_store=usage_store,
         broker=broker,
-        available_providers=(ANTHROPIC_PLAN_VENDOR,),
+        policy=control_plane.policy,
+        routes={
+            ANTHROPIC_PLAN_VENDOR: ProviderRoute(
+                ANTHROPIC_PLAN_PROVIDER, CLOUD_ANTHROPIC_PLAN_ASK,
+            ),
+        },
     )
 
     # The owner's own changes to these settings, made in the window.

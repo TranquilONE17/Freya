@@ -176,9 +176,11 @@ seed), and a usage limit for the route. Freya's startup assembles it so the
 Cloud tab works; no turn uses it. The tab (`gateway/static/cloud.js`, message type
 `cloud`, `delegation/window_requests.py`) changes the owner's cloud settings through
 the `cloud.settings.change` capability (seed `alpha-cloud-settings`), so each change
-is audited without its content; its answers go only to the asking window. It must
-never be able to send a brief, allow a cloud route, or set a usage limit by a side
-door.
+is audited without its content; its answers go only to the asking window. Switching a
+provider on in the tab unlocks it (owner decision): the switch, the policy rule for
+its route (reason `SWITCH_REASON`, removed again when switched off) and a starting
+weekly allowance. The tab must never be able to send a brief or write any other
+policy rule.
 
 Brief screening: `freya.delegation.screening.screen_brief` compares a brief bound for
 a cloud model with (id, text) pairs from the personal store and returns what matched;
