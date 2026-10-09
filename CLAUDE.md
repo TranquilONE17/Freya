@@ -157,8 +157,11 @@ parts again and requires the text to equal what they assemble to. The plan's val
 and urgent flag are suggestions; the caller passes the owner's. Do not add a prose
 field to the plan, do not show the writer anything not cleared to leave, and do not
 call a route's `ask` from anywhere but the dispatcher (the Claude capability checks
-`Dispatcher.in_flight`). Nothing in the running Freya
-uses these yet.
+`Dispatcher.in_flight`). `service.build_cloud_delegation` assembles
+them on a control plane and registers `anthropic-plan`; a brief then goes dispatcher,
+broker, route. Three locks only the owner opens each stop a brief alone: the
+provider's switch, a policy rule for `cloud.anthropic_plan.ask` (never put it in a
+seed), and a usage limit for the route. Freya's startup does not call it yet.
 
 Brief screening: `freya.delegation.screening.screen_brief` compares a brief bound for
 a cloud model with (id, text) pairs from the personal store and returns what matched;
