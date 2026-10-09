@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Callable
 
 from freya.core.capabilities import CapabilityDefinition
+from freya.core.capabilities.execution_context import current_broker_context
 from freya.core.providers import ProviderDefinition
 
 from coding_authorization import policy_checkpoint
@@ -39,9 +40,21 @@ def register_coding_proposal(control_plane, *, repo: Path, journal_dir: Path,
         checkpoint = policy_checkpoint(policy, actor)
 
     def handler(task: str, files: list[str]):
+        context = current_broker_context()
+        if context is None:
+            raise PermissionError("Coding proposals require authenticated broker dispatch")
+        principal, broker_policy = context
+        if policy is not None and (policy is not broker_policy or actor != principal.actor):
+            raise PermissionError("Registration identity differs from broker identity")
+        trusted_check = policy_checkpoint(broker_policy, principal.actor)
+
+        def authorize():
+            trusted_check()
+            if checkpoint is not None:
+                checkpoint()
+
         return propose(repo, task, files, model, journal_dir, output_dir,
-                       checkpoint=checkpoint) if checkpoint is not None else propose(
-                           repo, task, files, model, journal_dir, output_dir)
+                       checkpoint=authorize)
 
     control_plane.providers.register(
         ProviderDefinition(
