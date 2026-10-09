@@ -28,15 +28,14 @@ def _journal_lock(path: Path):
 def _process_lock(path: Path):
     """Cross-process exclusive lock using standard-library OS file locking."""
     lock_path = path.with_suffix(".lock")
+    # Initialize once without inspecting a byte that another process may lock.
+    # The lock file itself is persistent; never delete it on unlock.
     with lock_path.open("a+b") as handle:
         if os.name == "nt":
             import msvcrt
             handle.seek(0)
-            if handle.read(1) == b"":
-                handle.seek(0)
-                handle.write(b"0")
-                handle.flush()
-            handle.seek(0)
+            # Windows byte-range locks cover even an empty file. Avoid reads
+            # before acquiring the lock: another process may hold that byte.
             msvcrt.locking(handle.fileno(), msvcrt.LK_LOCK, 1)
             try:
                 yield
