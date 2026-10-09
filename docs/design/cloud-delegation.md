@@ -486,9 +486,11 @@ Accepted, not yet done:
   model choice and administrator-managed settings in force, and a temporary folder
   does not confine a program. The route's wording now says so. What the worker can
   really reach needs testing against the installed version.
-- **Periods.** A period is still a fixed number of seconds counted back from the next
-  reset, which cannot follow calendar billing months and lets a changed reset time
-  move the start of the period. Periods need their own recorded start and end.
+- **Periods.** Fixed after the review: a limit now records when its present period
+  began as well as when it resets, so a billing month need not be a fixed number of
+  days and a changed reset time no longer moves what was already counted. Later
+  periods are assumed to follow at the stated length until the provider's dates are
+  given (`set_period`).
 - **Exact identity of what was measured.** Reports name the model asked for, not the
   digest of a local model or the model a cloud route actually served, and a cloud
   report records thinking and size settings the route never applied.
@@ -549,8 +551,7 @@ Left as they are, and why:
   material in view, and what it writes is screened.
 - The last settings check and the send are made together inside Freya, but a change
   made in the instant between them is not excluded.
-- The program's output files can grow until the time limit. Periods are still counted
-  back from the reset. Neither is fixed yet.
+- The program's output files can grow until the time limit.
 - A second real trial was made under the allowlisted environment (2026-10-09, one
   made-up brief). With none of the calling session's variables passed on, the
   program reported a Claude subscription served by Anthropic, answered correctly,

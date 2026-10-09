@@ -262,6 +262,57 @@ def test_a_providers_notice_overrides_freyas_own_count(weekly):
     assert weekly.assess(PLAN, "units", 1, "t", now=day(4, 1)).verdict == GO
 
 
+def test_moving_the_reset_does_not_move_what_was_already_used(weekly):
+    spend(weekly, 100, day(1))
+    spend(weekly, 50, day(3))
+    later = RESET + timedelta(days=3)
+
+    # The provider says this period runs three days longer than thought.
+    weekly.set_period(PLAN, "week", WEEK_START, later, now=day(4))
+
+    status = weekly.status(PLAN, now=day(4))[0]
+    assert status.used == 150
+    assert status.resets_at == later
+
+    weekly.note_limit_reached(PLAN, "week", later, now=day(5))
+    after = weekly.status(PLAN, now=later + timedelta(hours=1))[0]
+    assert after.used == 0
+    assert after.resets_at == later + timedelta(days=7)
+
+
+def test_a_billing_month_need_not_be_a_fixed_number_of_days(ledger):
+    october = datetime(2026, 10, 1, tzinfo=timezone.utc)
+    november = datetime(2026, 11, 1, tzinfo=timezone.utc)
+    ledger.set_limit(
+        PAID, "month", SCOPE_PERIOD, "usd-micros", 1000,
+        period_seconds=30 * 86400, period_start=october, resets_at=november,
+        now=october,
+    )
+    spend(ledger, 400, october + timedelta(hours=2), route=PAID, unit="usd-micros", value=VALUE_HIGH)
+
+    # Thirty days back from 1 November is 2 October, which would have
+    # dropped the first day's spending.
+    late = ledger.status(PAID, now=datetime(2026, 10, 31, 12, tzinfo=timezone.utc))[0]
+
+    assert late.used == 400
+
+    december = datetime(2026, 12, 1, tzinfo=timezone.utc)
+    ledger.set_period(PAID, "month", november, december, now=november)
+    assert ledger.status(PAID, now=november + timedelta(hours=1))[0].used == 0
+
+
+def test_a_period_must_start_before_it_resets(ledger, weekly):
+    with pytest.raises(ValueError):
+        ledger.set_limit(
+            PLAN, "week", SCOPE_PERIOD, "units", 700,
+            period_seconds=WEEK, period_start=RESET, resets_at=RESET,
+        )
+    with pytest.raises(ValueError):
+        weekly.set_period(PLAN, "week", RESET, WEEK_START, now=day(1))
+    with pytest.raises(KeyError):
+        weekly.set_period(PLAN, "month", WEEK_START, RESET, now=day(1))
+
+
 def test_a_notice_for_an_unknown_limit_is_an_error(ledger):
     with pytest.raises(KeyError):
         ledger.note_limit_reached(PLAN, "week", RESET, now=day(1))
