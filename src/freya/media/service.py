@@ -368,6 +368,7 @@ class MediaService:
                     "source": f"{result['provider']}: {result['title']}",
                     "source_url": result["source_url"],
                     "media_id": result["media_id"],
+                    "artifact_id": f"{result['evidence']}:{result['ref']}",
                     "at_seconds": result["start"],
                     "evidence": result["evidence"],
                     "trust": result["trust"],

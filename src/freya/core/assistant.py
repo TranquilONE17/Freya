@@ -1,4 +1,7 @@
-from freya.config import SYSTEM_PROMPT
+import json
+
+from freya.config import SYSTEM_PROMPT, CONTEXT_WINDOW_TOKENS, CONTEXT_OUTPUT_TOKENS
+from freya.kernel.context import ContextAuthority, ContextBudget, ContextItem
 from freya.core.conversation_memory import ConversationMemory
 from freya.core.llm import (
     chat,
@@ -21,6 +24,7 @@ class FreyaAssistant(ConversationMemory):
         # Optional: offers tools to the model and runs the ones it
         # asks for. Without it Freya answers from the model alone.
         self.tool_host = tool_host
+        self.context = ContextAuthority(ContextBudget(CONTEXT_WINDOW_TOKENS, CONTEXT_OUTPUT_TOKENS))
 
         self.messages = [
             {
@@ -41,82 +45,9 @@ class FreyaAssistant(ConversationMemory):
         if command_response is not None:
             return command_response
 
-        memory_candidates = (
-            self.memory.search_memory_candidates(
-                user_input,
-                limit=5,
-            )
-        )
+        messages_for_model = self._prepare_context(user_input)
 
-        relevant_memories = []
-
-        if memory_candidates:
-            rerank_result = (
-                rerank_memory_candidates(
-                    query=user_input,
-                    candidates=memory_candidates,
-                    max_results=3,
-                )
-            )
-
-            relevant_ids = set(
-                rerank_result.get(
-                    "relevant_ids",
-                    [],
-                )
-            )
-
-            relevant_memories = [
-                memory
-                for memory in memory_candidates
-                if memory["id"] in relevant_ids
-            ][:3]
-
-        messages_for_model = (
-            self.messages.copy()
-        )
-
-        if relevant_memories:
-            memory_text = "\n".join(
-                (
-                    f"- [{memory['type']}] "
-                    f"{memory['content']}"
-                )
-                for memory in relevant_memories
-            )
-
-            messages_for_model.append(
-                {
-                    "role": "system",
-                    "content": (
-                        "Relevant long-term memories:\n"
-                        f"{memory_text}"
-                    ),
-                }
-            )
-
-        past_note = self.past_search_note(
-            user_input
-        )
-
-        if past_note is not None:
-            messages_for_model.append(
-                {
-                    "role": "system",
-                    "content": past_note,
-                }
-            )
-
-        messages_for_model.append(
-            {
-                "role": "user",
-                "content": user_input,
-            }
-        )
-
-        reply = chat(
-            messages_for_model
-        )
+        reply = chat(messages_for_model, options=self.context.options())
 
         self.messages.append(
             {
@@ -154,97 +85,13 @@ class FreyaAssistant(ConversationMemory):
             yield command_response
             return
 
-        memory_candidates = (
-            self.memory.search_memory_candidates(
-                user_input,
-                limit=5,
-            )
-        )
-
-        relevant_memories = []
-
-        if memory_candidates:
-            rerank_result = (
-                rerank_memory_candidates(
-                    query=user_input,
-                    candidates=memory_candidates,
-                    max_results=3,
-                )
-            )
-
-            relevant_ids = set(
-                rerank_result.get(
-                    "relevant_ids",
-                    [],
-                )
-            )
-
-            relevant_memories = [
-                memory
-                for memory in memory_candidates
-                if memory["id"] in relevant_ids
-            ][:3]
-
-        messages_for_model = (
-            self.messages.copy()
-        )
-
-        if relevant_memories:
-            memory_text = "\n".join(
-                (
-                    f"- [{memory['type']}] "
-                    f"{memory['content']}"
-                )
-                for memory in relevant_memories
-            )
-
-            messages_for_model.append(
-                {
-                    "role": "system",
-                    "content": (
-                        "Relevant long-term memories:\n"
-                        f"{memory_text}"
-                    ),
-                }
-            )
-
-        past_note = self.past_search_note(
-            user_input
-        )
-
-        if past_note is not None:
-            messages_for_model.append(
-                {
-                    "role": "system",
-                    "content": past_note,
-                }
-            )
-
-        messages_for_model.append(
-            {
-                "role": "user",
-                "content": user_input,
-            }
-        )
-
-        tools = (
-            self.tool_host.definitions()
-            if self.tool_host is not None
-            else []
-        )
-
-        if tools:
-            messages_for_model.insert(
-                len(messages_for_model) - 1,
-                {
-                    "role": "system",
-                    "content": self.tool_host.hint,
-                },
-            )
+        tools = self.tool_host.definitions() if self.tool_host is not None else []
+        messages_for_model = self._prepare_context(user_input, tools)
 
         reply_parts = []
 
         for round_number in range(MAX_TOOL_ROUNDS + 1):
+            messages_for_model = self.context.fit_tools(messages_for_model, tools if round_number < MAX_TOOL_ROUNDS else None)
             # After the last allowed round the model must answer
             # with what it has.
             offered = (
@@ -258,6 +105,7 @@ class FreyaAssistant(ConversationMemory):
             for chunk in chat_stream(
                 messages_for_model,
                 tools=offered,
+                model_options=self.context.options(),
             ):
                 if isinstance(chunk, dict):
                     tool_calls.extend(
@@ -270,6 +118,8 @@ class FreyaAssistant(ConversationMemory):
 
             if not tool_calls:
                 break
+
+            tool_calls = tool_calls[:4]
 
             # The tool exchange is only needed for this turn; it
             # is not kept in the conversation history.
@@ -330,6 +180,99 @@ class FreyaAssistant(ConversationMemory):
         self._process_automatic_memory(
             user_input
         )
+
+    def _prepare_context(self, user_input, tools=None):
+        """One context path for typed, streamed, and tool-assisted replies."""
+        items, retrieval_notes = [], []
+        for message in self.messages:
+            for identifier in message.get("context_record_ids", []):
+                record = self.conversations.get(identifier) if identifier is not None else None
+                if record is None:
+                    retrieval_notes.append("A removed conversation summary was excluded.")
+                    continue
+                if record["summary"]:
+                    current = identifier == self.conversations.current
+                    items.append(ContextItem(
+                        "conversation-summary", f"conversation:{identifier}",
+                        f"{record['started_at'][:10]}: {record['summary']}",
+                        "model-inference", 80 if current else 50,
+                    ))
+        try:
+            candidates = self.memory.search_memory_candidates(user_input, limit=5)
+        except Exception:
+            retrieval_notes.append("Semantic memory retrieval was unavailable; lexical fallback was attempted.")
+            try:
+                candidates = self._find_memories(user_input)[:5]
+            except Exception:
+                candidates = []
+                retrieval_notes.append("Saved memory retrieval was unavailable.")
+        selected = []
+        # Authorization precedes relevance ranking: an LLM reranker must
+        # never see a candidate outside the active context scope.
+        candidates = [record for record in candidates if self.context.permits(ContextItem(
+            "saved-memory", f"memory:{record['id']}", "", "legacy-unverified",
+            owner=record.get("owner") or "local-owner", domain=record.get("domain") or "local",
+            permitted_uses=tuple(record.get("permitted_uses", ("answer",))),
+        ))]
+        if candidates:
+            try:
+                ranking = rerank_memory_candidates(query=user_input, candidates=candidates, max_results=3)
+                selected_ids = set(ranking.get("relevant_ids", []))
+                selected = [item for item in candidates if item["id"] in selected_ids][:3]
+            except Exception:
+                selected = candidates[:3]
+                retrieval_notes.append("Memory relevance ranking was unavailable; candidate order was used.")
+        for record in selected:
+            items.append(ContextItem(
+                "saved-memory", f"memory:{record['id']}",
+                f"Type: {record['type']}; key: {record.get('key') or 'unkeyed'}; {record['content']}",
+                record.get("source_trust") or "legacy-unverified", 90,
+                owner=record.get("owner") or "local-owner",
+                domain=record.get("domain") or "local",
+                permitted_uses=tuple(record.get("permitted_uses", ("answer",))),
+            ))
+        note = self.past_search_note(user_input, include_media=False)
+        if note is not None:
+            items.append(ContextItem("past-recall", "past-recall", note, "mixed-source-records", 100))
+        elif self.tool_host is not None:
+            # This read-only retrieval follows the same offered-tool and
+            # broker authorization path as model-requested conversation recall.
+            offered = {item["function"]["name"] for item in self.tool_host.definitions()}
+            if "conversation_recall" in offered:
+                try:
+                    found = json.loads(self.tool_host.run("conversation_recall", {"query": user_input[:200]}))
+                    if "error" in found:
+                        retrieval_notes.append("Conversation recall was unavailable.")
+                    for passage in found.get("passages", [])[:3]:
+                        items.append(ContextItem(
+                            "conversation-passage", f"conversation:{passage['conversation']}:turns:{','.join(map(str, passage.get('turn_ids', [])))}",
+                            json.dumps(passage, ensure_ascii=False), "quoted-conversation", 70,
+                        ))
+                except Exception:
+                    retrieval_notes.append("Conversation recall was unavailable.")
+        callback = getattr(self, "media_recall", None)
+        if callback is not None:
+            try:
+                result = callback(user_input[:200])
+                if result.success:
+                    for record in result.result.get("results", [])[:3]:
+                        items.append(ContextItem(
+                            "media", f"media:{record['media_id']}:{record.get('artifact_id') or record.get('at_seconds')}",
+                            json.dumps(record, ensure_ascii=False), record.get("trust") or "untrusted-source", 70,
+                            owner=record.get("owner") or "local-owner",
+                            domain=record.get("domain") or "local",
+                            permitted_uses=tuple(record.get("permitted_uses", ("answer",))),
+                        ))
+                else:
+                    retrieval_notes.append("Media retrieval was unavailable or not authorized.")
+            except Exception:
+                retrieval_notes.append("Media retrieval was unavailable.")
+        if retrieval_notes:
+            items.append(ContextItem("retrieval-status", "retrieval-status", " ".join(retrieval_notes), "system-observation", 95))
+        result = self.context.build(SYSTEM_PROMPT, self.messages, user_input, items,
+                                    tools=tools, tool_hint=self.tool_host.hint if tools and self.tool_host else "")
+        self.context.last_report["retrieval_notes"] = retrieval_notes
+        return result
 
     def _process_automatic_memory(
         self,
@@ -1237,9 +1180,14 @@ class FreyaAssistant(ConversationMemory):
         if conversation_answer is not None:
             return conversation_answer
 
+        if lower_input == "/context":
+            report = self.context.last_report
+            return json.dumps(report, ensure_ascii=False, indent=2) if report else "No conversation context has been built yet."
+
         if lower_input == "/memory-help":
             return (
                 "Memory commands:\n"
+                "/context - Show context sources, budget and omissions (no source content)\n"
                 "/find <words> - Search memories and past conversations\n"
                 "/history - List past conversations\n"
                 "/history <number> - Read a past conversation\n"

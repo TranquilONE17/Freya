@@ -348,10 +348,11 @@ def test_assistant_runs_requested_tool_and_answers_from_its_result(
             {"function": {"name": "test_thermometer", "arguments": {}}}
         ],
     }
-    assert followup[-1] == {
-        "role": "tool",
-        "tool_name": "test_thermometer",
-        "content": '{"temperature_c": 41}',
+    assert followup[-1]["role"] == "tool"
+    assert followup[-1]["tool_name"] == "test_thermometer"
+    assert json.loads(followup[-1]["content"]) == {
+        "temperature_c": 41,
+        "_context": {"source": "tool:test_thermometer", "trust": "untrusted-tool-result", "truncated": False},
     }
     assert [r["outcome"] for r in audit_rows(plane, "test.thermometer")] == [
         None,
@@ -382,10 +383,9 @@ def test_assistant_can_use_several_tools_in_one_turn(
     followup = stream_calls(fake_ollama)[1][2]
 
     assert reply.strip() == "Both checked."
-    assert [m["content"] for m in followup if m["role"] == "tool"] == [
-        '{"a": 1}',
-        '{"b": 2}',
-    ]
+    results = [json.loads(m["content"]) for m in followup if m["role"] == "tool"]
+    assert [{key: value for key, value in result.items() if key != "_context"} for result in results] == [{"a": 1}, {"b": 2}]
+    assert all(result["_context"]["trust"] == "untrusted-tool-result" for result in results)
 
 
 def test_assistant_tells_the_model_when_a_tool_is_refused(
@@ -401,9 +401,9 @@ def test_assistant_tells_the_model_when_a_tool_is_refused(
     tool_message = stream_calls(fake_ollama)[1][2][-1]
 
     assert reply.strip() == "I can't do that."
-    assert json.loads(tool_message["content"]) == {
-        "error": "That tool is not available."
-    }
+    result = json.loads(tool_message["content"])
+    assert result["error"] == "That tool is not available."
+    assert result["_context"]["trust"] == "untrusted-tool-result"
 
 
 def test_assistant_stops_a_model_that_keeps_calling_tools(
