@@ -114,6 +114,28 @@ class OllamaCancellationTests(unittest.TestCase):
                     lambda: None, timeout=0.1)
         self.assertTrue(FakeConnection.instance.closed)
 
+    def test_denied_before_connection(self):
+        with patch("local_coding_agent.http.client.HTTPConnection") as connection:
+            with self.assertRaises(PermissionError):
+                ask_ollama_cancellable(
+                    "http://127.0.0.1:11434/api/generate", "mock", "task",
+                    lambda: (_ for _ in ()).throw(PermissionError("denied")))
+        connection.assert_not_called()
+
+    def test_invalid_fragment_type_fails_closed(self):
+        class InvalidFragmentResponse(FakeResponse):
+            def __init__(self):
+                self.data = iter(b'{"response":123,"done":true}\n')
+
+        with (patch("local_coding_agent.http.client.HTTPConnection", FakeConnection),
+              patch.object(FakeConnection, "getresponse", return_value=InvalidFragmentResponse()),
+              patch("local_coding_agent.select.select", return_value=([object()], [], []))):
+            with self.assertRaises(ValueError):
+                ask_ollama_cancellable(
+                    "http://127.0.0.1:11434/api/generate", "mock", "task",
+                    lambda: None)
+        self.assertTrue(FakeConnection.instance.closed)
+
     def test_revocation_closes_stream(self):
         checks = 0
 
