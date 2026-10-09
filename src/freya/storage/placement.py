@@ -10,6 +10,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Dict, List, Optional
 
+from freya.child_environment import child_environment
+
 
 DATA_DIR = Path(__file__).resolve().parents[3] / "data"
 
@@ -87,6 +89,7 @@ def drive_kinds() -> Dict[str, str]:
             ["powershell", "-NoProfile", "-NonInteractive", "-Command", _QUERY],
             capture_output=True,
             timeout=30,
+            env=child_environment(),
             creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
         )
         found = json.loads(completed.stdout.decode("utf-8", errors="replace"))
