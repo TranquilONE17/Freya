@@ -6,11 +6,22 @@ The caller remains responsible for identity/policy authorization.
 from __future__ import annotations
 
 import json
+import threading
 import os
 import time
 import uuid
 from dataclasses import asdict, dataclass
 from pathlib import Path
+
+_LOCKS_GUARD = threading.Lock()
+_JOURNAL_LOCKS = {}
+
+
+def _journal_lock(path: Path):
+    # Process-local serialization; cross-process locking remains a separate requirement.
+    with _LOCKS_GUARD:
+        return _JOURNAL_LOCKS.setdefault(str(path), threading.RLock())
+
 
 STATES = ("requested", "generating", "proposed", "verified", "rejected", "failed")
 ALLOWED = {
@@ -65,6 +76,10 @@ class TaskJournal:
         return events
 
     def transition(self, state: str, details: str = "") -> TaskEvent:
+        with _journal_lock(self.path):
+            return self._transition_locked(state, details)
+
+    def _transition_locked(self, state: str, details: str = "") -> TaskEvent:
         if state not in STATES:
             raise ValueError("Unknown task state")
         events = self.read()
