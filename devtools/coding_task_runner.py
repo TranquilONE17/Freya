@@ -11,7 +11,8 @@ import json
 from pathlib import Path
 
 from coding_task_journal import TaskJournal
-from local_coding_agent import ask_ollama, build_prompt, selected_source, validate_proposal
+from local_coding_agent import ask_ollama, build_prompt, selected_source
+from patch_validator import validate_unified_diff
 
 ENDPOINT = "http://127.0.0.1:11434/api/generate"
 
@@ -31,7 +32,7 @@ def propose(repo: Path, task: str, paths: list[str], model: str,
     try:
         journal.transition("generating", f"model={model}; files={len(paths)}")
         patch = generate(ENDPOINT, model, build_prompt(task, sources))
-        validate_proposal(patch, set(paths))
+        validate_unified_diff(patch, set(paths))
         output_dir.mkdir(parents=True, exist_ok=True)
         # Exclusive creation prevents accidental overwrite; patch is not executed.
         with output.open("x", encoding="utf-8") as file:
