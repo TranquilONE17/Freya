@@ -8,6 +8,7 @@ it never reads what the databases say, only copies them.
 import argparse
 import hashlib
 import json
+import os
 import shutil
 import sqlite3
 import sys
@@ -40,7 +41,16 @@ FILES = (
     "voice_profiles.json",
     "avatar_settings.json",
     "avatar_library.json",
+    "storage_locations.json",
 )
+
+# Set to 0 to stop the backup Freya makes when she closes.
+AUTOMATIC_VARIABLE = "FREYA_BACKUP"
+# Where to keep backups, instead of a folder on another drive.
+TARGET_VARIABLE = "FREYA_BACKUP_DIR"
+# A backup newer than this makes another one unnecessary.
+MINIMUM_HOURS = 1
+STAMP_FORMAT = "%Y-%m-%d_%H%M%S"
 
 
 class BackupRefused(RuntimeError):
@@ -117,7 +127,7 @@ def back_up(
             "lost with it."
         )
 
-    stamp = (now or datetime.now()).strftime("%Y-%m-%d_%H%M%S")
+    stamp = (now or datetime.now()).strftime(STAMP_FORMAT)
     folder = target_root / stamp
 
     try:
@@ -159,6 +169,57 @@ def back_up(
     )
 
     return folder
+
+
+def latest(target_root) -> Optional[datetime]:
+    """When the newest backup in a folder was made, from its name."""
+    newest = None
+
+    try:
+        entries = list(Path(target_root).iterdir())
+    except OSError:
+        return None
+
+    for entry in entries:
+        try:
+            made = datetime.strptime(entry.name, STAMP_FORMAT)
+        except ValueError:
+            continue
+        if entry.is_dir() and (newest is None or made > newest):
+            newest = made
+
+    return newest
+
+
+def back_up_on_close(data_dir=DATA_DIR, now: Optional[datetime] = None, environ=None):
+    """
+    The backup Freya makes as she closes. Returns the new folder, or
+    None when none was made, which is never an error: closing must
+    not fail or wait because a backup could not be made.
+    """
+    environ = os.environ if environ is None else environ
+
+    if environ.get(AUTOMATIC_VARIABLE) == "0":
+        return None
+
+    try:
+        named = environ.get(TARGET_VARIABLE)
+        target = Path(named) if named else default_target(data_dir)
+
+        if target is None:
+            return None
+
+        moment = now or datetime.now()
+        newest = latest(target)
+
+        if newest is not None and (moment - newest).total_seconds() < (
+            MINIMUM_HOURS * 3600
+        ):
+            return None
+
+        return back_up(data_dir, target, moment)
+    except Exception:
+        return None
 
 
 def check(folder) -> List[str]:

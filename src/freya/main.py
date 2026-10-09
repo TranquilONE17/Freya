@@ -19,6 +19,7 @@ from freya.image.image_generator import FreyaImageGenerator
 
 from freya.control_plane import build_local_control_plane
 from freya.delegation.service import build_cloud_delegation
+from freya.storage.backup import back_up_on_close
 from freya.config import OPEN_WINDOW, MODEL
 from freya.hands_free import LISTENING_COMMANDS
 from freya.hands_free import describe_listening
@@ -2278,6 +2279,15 @@ def main(window_only=False):
         console_output.uninstall()
 
         voice.shutdown()
+
+        # Copy the databases and settings to the other drive. It runs
+        # beside the rest of closing and is given a short time: a slow
+        # or missing drive must not keep Freya from closing.
+        backing_up = threading.Thread(target=back_up_on_close, daemon=True)
+
+        backing_up.start()
+
+        backing_up.join(timeout=20)
 
         if cloud is not None:
 

@@ -72,30 +72,45 @@ python -m freya.storage.backup --check D:\FreyaBackups\2026-10-09_170618
 The first backup was made on 2026-10-09 to `D:\FreyaBackups`, at the owner's request.
 It is personal data, on an unencrypted drive, like the data it copies.
 
-Not built: making a backup automatically (when Freya closes, or daily), removing old
-ones, restoring from one, and checking that a restored copy works. Until a backup is
-made automatically, it is only as recent as the last time the command was run.
+Freya now makes a backup as she closes (owner decision, 2026-10-09), unless one was
+made in the last hour. It runs beside the rest of closing and is given 20 seconds, so
+a slow or missing drive cannot keep her from closing; if it cannot be made, she closes
+without one and says nothing. `FREYA_BACKUP=0` turns it off and `FREYA_BACKUP_DIR`
+names another place.
 
-## Moving bulk data off the SSD
+Not built: removing old backups, restoring from one, checking that a restored copy
+works, and telling the owner when a backup could not be made. A Freya left running
+for days makes no backup in that time.
 
-The owner asked (2026-10-09) to keep on the SSD only what needs to be there. That is
-not done yet, and it should not be done by copying folders by hand:
+## Keeping bulk data off the SSD
 
-- Every store's location is fixed in its own module, next to the source tree. Moving
-  a folder without changing the code would make Freya start an empty one.
-- Some stores are referred to from others (the avatar library lists model files; the
-  media library records where files are). Each needs checking for how it records a
-  location before its folder moves.
-- It has to be done with Freya closed.
+The owner asked (2026-10-09) to keep on the SSD only what needs to be there.
 
-The amount involved today is under 300 MB, so nothing is lost by doing it properly:
-one setting for where bulk data lives, each bulk store reading it, and a move that
-copies, checks, switches over, and leaves the originals for the owner to remove.
+`freya.storage.locations` gives each store its place. Six stores that hold only files
+and are large or rarely read can be kept somewhere else by one setting
+(`data/storage_locations.json`): generated images, voice clips, the recordings voices
+were made from, voice benchmarks, avatar models, and avatar conversion work. Databases
+and settings always stay in `data/`. The media library stays too, because it keeps a
+database beside its files.
+
+```powershell
+python -m freya.storage.move --to D:\FreyaData
+```
+
+The move copies each store, compares every file with its original by size and
+checksum, and only then switches Freya over. It refuses while Freya is running, on the
+same drive, onto a folder that already holds something, and a second time. It deletes
+nothing: the originals stay in `data/`, each with a note saying it is a stale copy,
+for the owner to remove.
+
+If the drive holding the bulk data is missing, Freya does not quietly start a second,
+empty set of images in `data/`: she fails to find them, which is the safer mistake.
+
+Logs stay on the SSD; they are a few kilobytes. `avatar_previews` and `avatar_build`
+are leftovers that no current code writes, and are not moved.
 
 ## Not built
 
-- Moving anything. A move of the memory database needs a backup first and the owner's
-  say; so does changing where backups are written.
-- A setting for where each kind of data lives. Today every path is fixed under
-  `data/`, next to the source tree.
-- Placing new data by this plan as it is created.
+- Moving the databases, the media library, or the voice models and environments
+  (30 GB, used often; they belong on the SSD).
+- Moving the bulk data back, other than by editing the setting by hand.
