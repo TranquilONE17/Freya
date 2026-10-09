@@ -20,6 +20,7 @@ USAGE_MIGRATIONS = [
         unit TEXT NOT NULL,
         capacity INTEGER NOT NULL CHECK (capacity >= 0),
         period_seconds INTEGER,
+        period_start TEXT,
         resets_at TEXT,
         exhausted_until TEXT,
         hard INTEGER NOT NULL CHECK (hard IN (0, 1)),
@@ -173,6 +174,7 @@ class UsageLedger:
         *,
         period_seconds=None,
         resets_at=None,
+        period_start=None,
         hard=False,
         source="owner",
         now=None,
@@ -181,6 +183,12 @@ class UsageLedger:
         Create or replace the limit called `name` on a route.
 
         A period limit needs its length and the moment it next resets.
+        Its present period runs from `period_start`, which is one
+        length before the reset unless stated, to `resets_at`; the two
+        are kept separately, so a billing month need not be a fixed
+        number of days. Later periods are assumed to follow at the
+        stated length until `set_period` says otherwise.
+
         A hard limit is one that cannot be exceeded whatever the owner
         answers, such as a plan allowance the vendor enforces.
         """
@@ -189,7 +197,15 @@ class UsageLedger:
                 raise ValueError(
                     "A period limit needs period_seconds and resets_at."
                 )
-        elif period_seconds is not None or resets_at is not None:
+            if period_start is None:
+                period_start = resets_at - timedelta(seconds=period_seconds)
+            if period_start >= resets_at:
+                raise ValueError("A period must start before it resets.")
+        elif (
+            period_seconds is not None
+            or resets_at is not None
+            or period_start is not None
+        ):
             raise ValueError("Only a period limit has a length or a reset.")
 
         with self._store.transaction() as connection:
@@ -197,14 +213,16 @@ class UsageLedger:
                 """
                 INSERT INTO usage_limit (
                     route, name, scope, unit, capacity, period_seconds,
-                    resets_at, exhausted_until, hard, source, updated_at
+                    period_start, resets_at, exhausted_until, hard, source,
+                    updated_at
                 )
-                VALUES (?, ?, ?, ?, ?, ?, ?, NULL, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?, ?)
                 ON CONFLICT (route, name) DO UPDATE SET
                     scope = excluded.scope,
                     unit = excluded.unit,
                     capacity = excluded.capacity,
                     period_seconds = excluded.period_seconds,
+                    period_start = excluded.period_start,
                     resets_at = excluded.resets_at,
                     exhausted_until = NULL,
                     hard = excluded.hard,
@@ -218,6 +236,7 @@ class UsageLedger:
                     unit,
                     capacity,
                     period_seconds,
+                    _stamp(period_start) if period_start is not None else None,
                     _stamp(resets_at) if resets_at is not None else None,
                     1 if hard else 0,
                     source,
@@ -225,10 +244,40 @@ class UsageLedger:
                 ),
             )
 
+    def set_period(self, route, name, period_start, resets_at, now=None) -> None:
+        """
+        State exactly when a limit's present period began and when it
+        resets, as the provider reports it. What was used stays where
+        it was recorded; only the boundaries move.
+        """
+        if period_start >= resets_at:
+            raise ValueError("A period must start before it resets.")
+
+        with self._store.transaction() as connection:
+            changed = connection.execute(
+                """
+                UPDATE usage_limit
+                SET period_start = ?, resets_at = ?, exhausted_until = NULL,
+                    source = 'provider', updated_at = ?
+                WHERE route = ? AND name = ? AND scope = 'period'
+                """,
+                (
+                    _stamp(period_start),
+                    _stamp(resets_at),
+                    _stamp(_now(now)),
+                    route,
+                    name,
+                ),
+            ).rowcount
+
+        if not changed:
+            raise KeyError(f"No period limit {name!r} on route {route!r}.")
+
     def note_limit_reached(self, route, name, resets_at, now=None) -> None:
         """
         Record a provider's notice that a limit is used up until
-        `resets_at`, whatever Freya's own count says.
+        `resets_at`, whatever Freya's own count says. The period's
+        start is left alone, so earlier usage is not lost from it.
         """
         with self._store.transaction() as connection:
             changed = connection.execute(
@@ -532,13 +581,13 @@ class UsageLedger:
         period = timedelta(seconds=row["period_seconds"])
         resets_at = _parse(row["resets_at"])
 
+        start = _parse(row["period_start"])
+
         if now >= resets_at:
             # Until the provider says otherwise, the next period
-            # follows straight on from the last.
-            missed = (now - resets_at) // period + 1
-            resets_at = resets_at + missed * period
-
-        start = resets_at - period
+            # follows straight on from the last, at the stated length.
+            start = resets_at + ((now - resets_at) // period) * period
+            resets_at = start + period
         total = used(since=start)
 
         exhausted = row["exhausted_until"]
