@@ -10,7 +10,9 @@ sending anything to an outside model is escalation under ESC-001 to ESC-006.
 1. Delegation means all available models, local and cloud.
 2. Providers: OpenAI and Anthropic first. Any other provider must be connectable the
    same way, without changing Core.
-3. Both ways of paying are used: subscription plans and API keys.
+3. Cloud work uses the owner's subscription plans. No money is spent outside them.
+   Paid API routes are built but every money cap starts at zero, so no paid call can
+   be made until the owner raises a cap.
 4. API keys are kept in Windows Credential Manager.
 5. What may leave the machine is set per kind of material, starting strict.
 6. Approval is by standing rules: kinds of task approved in advance for a provider.
@@ -86,9 +88,11 @@ Freya keeps a ledger per route in the control database (a new migration): each c
 estimated and reported usage, each limit, how much of it is used, and when it resets.
 
 - **API routes.** Usage and remaining rate limits are read from each reply. Cost comes
-  from a price table per model; a model with no price is refused. The owner sets money
-  caps per task, per day, and per month. The month follows the provider's billing
-  period, not the calendar.
+  from a price table per model; a model with no price is refused. Money caps exist
+  per call, per task, per day, and per month, and all start at zero: a call whose
+  estimated cost is above zero is refused, and near-cap offers to go over do not apply
+  to a zero cap. Only the owner raises a cap, in the window. The month follows the
+  provider's billing period, not the calendar.
 - **Plan routes.** Vendors do not publish an exact meter. Freya counts what she sends,
   records every "limit reached, resets at" notice, and takes window lengths and reset
   times from the provider. Her figure is an estimate and is shown as one.
@@ -124,8 +128,8 @@ never reads.
 1. **Vendor terms for plan routes.** Whether each vendor allows its program to be
    driven by another application on a subscription has not been checked. Plan routes
    are not built until it has, per vendor.
-2. **Figures.** Money caps (suggested: $0.25 per call, $1 per task, $10 per day, $100
-   per month, warning at 80%) and the per-rule limits are the owner's to set.
+2. **Figures.** Money caps are zero until the owner sets them. The warning level and
+   the per-rule plan limits are the owner's to set.
 3. **The first standing rules.** Which kinds of task are approved in advance, and how a
    task's value is expressed.
 4. **Authorization of the confirmation click.** The window has no pairing or per-client
@@ -140,7 +144,8 @@ never reads.
 
 1. Usage ledger and limits, with no cloud provider (tested with a fake route).
 2. Material settings and the request description, using the existing source labels.
-3. `anthropic-api` and `openai-api` providers behind deny-by-default capabilities.
+3. Plan routes, if the terms check in the open items allows.
 4. Standing rules, the approval prompt, and the voice confirmation.
 5. Pacing and the value comparison.
-6. Plan routes, if item 1 above allows.
+6. `anthropic-api` and `openai-api` providers behind deny-by-default capabilities,
+   with zero caps.
