@@ -35,7 +35,9 @@ Rules for the spec:
 - `src/freya/control_plane.py` — assembles providers, capabilities, policy, audit, and
   the broker for the single-workstation alpha.
 - `src/freya/providers/model/ollama.py` — the `ollama-local` provider and its
-  `llm.chat`, `llm.chat_stream`, and `llm.embed` capabilities. Its client is pinned to
+  `llm.chat`, `llm.chat_stream`, and `llm.embed` capabilities. Every chat request is
+  given the configured context size unless it names its own, because Ollama reloads a
+  model (several seconds) whenever the size differs from the request before. Its client is pinned to
   `127.0.0.1` and ignores `OLLAMA_HOST` and proxies, and a model that Ollama would run
   on its own servers makes the provider unhealthy: full context goes here, so "local"
   must be true.

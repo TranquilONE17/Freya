@@ -103,16 +103,25 @@ def _has_own_model(chat_model, background_model):
     )
 
 
-def warm_ollama_models(chat_model, embedding_model, background_model=None):
+def warm_ollama_models(
+    chat_model,
+    embedding_model,
+    background_model=None,
+    context_tokens=None,
+):
     """
     Ask Ollama to load the models so the first real request does not
     wait for them. An empty generate request loads a model without
-    producing output.
+    producing output. They are loaded at the context size the real
+    requests will use; at any other size the first request would
+    make Ollama load the model again.
     """
+    sized = {"options": {"num_ctx": context_tokens}} if context_tokens else {}
+
     try:
-        ollama.generate(model=chat_model)
+        ollama.generate(model=chat_model, **sized)
         if _has_own_model(chat_model, background_model):
-            ollama.generate(model=background_model)
+            ollama.generate(model=background_model, **sized)
         ollama.embed(
             model=embedding_model,
             input="warm-up",
@@ -126,6 +135,7 @@ def create_ollama_provider(
     chat_model,
     embedding_model,
     background_model=None,
+    context_tokens=None,
 ):
     """
     Describe the local Ollama server as a model runtime provider.
@@ -148,6 +158,7 @@ def create_ollama_provider(
         start_handler=lambda: None,
         health_handler=lambda: check_ollama_health(models),
         metadata={
+            "context_tokens": context_tokens,
             "chat_model": chat_model,
             "embedding_model": embedding_model,
             "background_model": (
@@ -157,16 +168,35 @@ def create_ollama_provider(
     )
 
 
-def _chat_handlers(model):
+def _chat_handlers(model, context_tokens=None):
     """
     The complete and streamed chat handlers for one model.
+
+    Ollama loads a model for one context size and loads it again,
+    which takes several seconds, whenever a request asks for another.
+    A request that names no size gets Ollama's own default, so a turn
+    that mixes sized and unsized requests reloads the model each time
+    they alternate. Every request is therefore given `context_tokens`
+    unless it names a size of its own.
     """
+
+    def sized(options):
+        if not context_tokens:
+            return options
+
+        return {
+            **options,
+            "options": {
+                "num_ctx": context_tokens,
+                **(options.get("options") or {}),
+            },
+        }
 
     def chat(messages, **options):
         response = ollama.chat(
             model=model,
             messages=messages,
-            **options,
+            **sized(options),
         )
         return response["message"]["content"]
 
@@ -175,7 +205,7 @@ def _chat_handlers(model):
             model=model,
             messages=messages,
             stream=True,
-            **options,
+            **sized(options),
         )
 
         # Text arrives as str chunks. When the model asks for tools
@@ -209,6 +239,7 @@ def register_ollama_capabilities(
     chat_model,
     embedding_model,
     background_model=None,
+    context_tokens=None,
 ):
     """
     Register the model capabilities Ollama provides. Callers name the
@@ -218,7 +249,7 @@ def register_ollama_capabilities(
     a different model, so each model's use is separately allowed and
     separately audited.
     """
-    chat, chat_stream = _chat_handlers(chat_model)
+    chat, chat_stream = _chat_handlers(chat_model, context_tokens)
 
     def embed(text):
         response = ollama.embed(
@@ -250,7 +281,7 @@ def register_ollama_capabilities(
 
     if _has_own_model(chat_model, background_model):
         background_chat, background_chat_stream = _chat_handlers(
-            background_model
+            background_model, context_tokens,
         )
         entries.extend([
             (

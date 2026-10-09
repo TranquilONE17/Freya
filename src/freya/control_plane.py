@@ -5,6 +5,7 @@ from typing import List
 from freya.config import AUDIT_CHECKPOINT_PATH
 from freya.config import BACKGROUND_MODEL
 from freya.config import COMFYUI_COMMAND
+from freya.config import CONTEXT_WINDOW_TOKENS
 from freya.config import EMBEDDING_MODEL
 from freya.config import MODEL
 from freya.core.audit import (
@@ -102,6 +103,7 @@ class ControlPlane:
             metadata["chat_model"],
             metadata["embedding_model"],
             metadata["background_model"],
+            metadata["context_tokens"],
         )
 
     def register_image_generation(self, generate) -> None:
@@ -387,7 +389,9 @@ def build_local_control_plane(
     providers.check_health(SYSTEM_TOOLS_PROVIDER)
 
     providers.register(
-        create_ollama_provider(MODEL, EMBEDDING_MODEL, BACKGROUND_MODEL)
+        create_ollama_provider(
+            MODEL, EMBEDDING_MODEL, BACKGROUND_MODEL, CONTEXT_WINDOW_TOKENS,
+        )
     )
     providers.start(OLLAMA_PROVIDER)
     providers.check_health(OLLAMA_PROVIDER)
@@ -407,6 +411,7 @@ def build_local_control_plane(
         MODEL,
         EMBEDDING_MODEL,
         BACKGROUND_MODEL,
+        CONTEXT_WINDOW_TOKENS,
     )
     own_background = capabilities.get(LLM_BACKGROUND_CHAT) is not None
 

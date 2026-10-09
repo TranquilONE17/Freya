@@ -123,7 +123,10 @@ def run_trial(scenario, folder, model, embedding_model, request_timeout, backgro
             providers.start(SYSTEM_TOOLS_PROVIDER)
             providers.check_health(SYSTEM_TOOLS_PROVIDER)
             registry = CapabilityRegistry(providers)
-            model_provider.register_ollama_capabilities(registry, model, embedding_model, background_model)
+            from freya.config import CONTEXT_WINDOW_TOKENS
+            model_provider.register_ollama_capabilities(
+                registry, model, embedding_model, background_model, CONTEXT_WINDOW_TOKENS,
+            )
             register_system_tools(registry)
             policy = SqlitePolicyEngine(store)
             audit = SqliteAuditLog(store)

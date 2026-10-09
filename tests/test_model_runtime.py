@@ -102,7 +102,9 @@ def test_chat_goes_through_the_broker_and_is_audited(plane, fake_ollama):
     rows = audit_rows(plane)
 
     assert reply == "Hello from the fake model."
-    assert fake_ollama.calls == [("chat", "gpt-oss:20b", messages, False, {})]
+    assert fake_ollama.calls == [
+        ("chat", "gpt-oss:20b", messages, False, {"options": {"num_ctx": 16384}}),
+    ]
     assert [(r["kind"], r["capability"]) for r in rows] == [
         ("dispatch", "llm.chat"),
         ("outcome", "llm.chat"),
@@ -154,7 +156,9 @@ def test_json_helpers_use_the_runtime(plane, fake_ollama):
     result = llm.rerank_memory_candidates("a question", candidates)
 
     assert result["relevant_ids"] == [2]
-    assert fake_ollama.calls[0][4] == {"format": "json"}
+    assert fake_ollama.calls[0][4] == {
+        "format": "json", "options": {"num_ctx": 16384},
+    }
 
     fake_ollama.reply = '{"remember": false}'
     assert llm.evaluate_memory("What is the capital of France?") is None
@@ -324,6 +328,34 @@ def test_both_models_are_warmed(split_plane, fake_ollama):
     assert [
         call[1] for call in fake_ollama.calls if call[0] == "generate"
     ] == ["gpt-oss:20b", "small-model"]
+
+
+def test_every_request_asks_for_the_same_context_size(plane, fake_ollama):
+    # Ollama reloads a model, taking seconds, when the size changes
+    # between requests, so replies and background work must agree.
+    llm.chat([{"role": "user", "content": "hi"}], options={"num_predict": 50})
+    llm.evaluate_memory("What is the capital of France?")
+    list(llm.chat_stream([{"role": "user", "content": "hi"}]))
+    llm.summarize_conversation("", [{"role": "user", "content": "A talk."}])
+
+    sizes = [call[4]["options"]["num_ctx"] for call in fake_ollama.calls]
+
+    assert sizes == [16384] * 4
+    assert fake_ollama.calls[0][4]["options"]["num_predict"] == 50
+
+
+def test_a_request_that_names_its_own_size_keeps_it(plane, fake_ollama):
+    llm.chat([{"role": "user", "content": "hi"}], options={"num_ctx": 4096})
+
+    assert fake_ollama.calls[0][4]["options"] == {"num_ctx": 4096}
+
+
+def test_models_are_warmed_at_the_size_they_will_be_used_at(plane, fake_ollama):
+    plane.warm_models()
+
+    warmed = [call for call in fake_ollama.calls if call[0] == "generate"]
+
+    assert warmed == [("generate", "gpt-oss:20b", {"options": {"num_ctx": 16384}})]
 
 
 def test_an_unknown_role_is_refused(plane):
