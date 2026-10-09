@@ -2,6 +2,7 @@ import copy
 from dataclasses import dataclass
 import json
 import math
+import re
 
 
 CONTEXT_RULE = (
@@ -60,6 +61,35 @@ def conservative_tokens(value):
     return len(json.dumps(value, ensure_ascii=False, separators=(",", ":")).encode("utf-8"))
 
 
+def estimated_tokens(value):
+    """
+    An estimate that errs high without wasting most of the window. A run
+    of letters costs a token for every three; every digit and punctuation
+    mark costs one, because numbers and JSON are far denser in tokens
+    than prose; a character outside ASCII costs two. A single space
+    between words is free, as it joins the word after it; any other white
+    space costs one a character. Still not the model's own count.
+    """
+    text = json.dumps(value, ensure_ascii=False, separators=(",", ":"))
+    words = _LETTERS.findall(text)
+    letters = sum(map(len, words))
+    plain = len(text.encode("ascii", errors="ignore"))
+    # Everything in ASCII that is not a letter or a lone space.
+    marks = plain - letters - len(_LONE_SPACE.findall(text))
+    return (
+        sum(-(-len(word) // 3) for word in words)
+        + marks
+        + 2 * (len(text) - plain)
+    )
+
+
+_LETTERS = re.compile(r"[A-Za-z]+")
+_LONE_SPACE = re.compile(r"(?<![ \t\n\r\f\v]) (?![ \t\n\r\f\v])")
+
+conservative_tokens.accounting = "conservative UTF-8 byte estimate"
+estimated_tokens.accounting = "estimate: three letters, one digit or mark, or half a non-ASCII character per token"
+
+
 def _clip(text, limit):
     raw = str(text).encode("utf-8")
     return raw[:limit].decode("utf-8", errors="ignore"), len(raw) > limit
@@ -71,7 +101,8 @@ class ContextAuthority:
     Core supplies the scope and instructions; source contents cannot change
     either. Retrieval itself stays behind the caller's authorized providers.
     The default counter charges every UTF-8 byte as a token, deliberately
-    conservatively; an exact provider tokenizer can be injected later.
+    conservatively. `estimated_tokens` is closer and is what the assistant
+    uses; an exact provider tokenizer can be injected later.
     """
 
     def __init__(self, budget=None, scope=None, authorize=None, counter=conservative_tokens):
@@ -101,7 +132,7 @@ class ContextAuthority:
         if self.cost([root, user], tools) > self.budget.input_tokens:
             raise ContextLimitError("The current message and tool definitions exceed the context budget. Shorten the message or increase the configured context window.")
         report = {"window_tokens": self.budget.window_tokens, "input_budget": self.budget.input_tokens,
-                  "output_reserve": self.budget.output_tokens, "accounting": "conservative UTF-8 byte estimate",
+                  "output_reserve": self.budget.output_tokens, "accounting": getattr(self.counter, "accounting", "custom counter"),
                   "included": [], "omitted": [], "history_exchanges_omitted": 0}
         eligible = []
         seen = set()

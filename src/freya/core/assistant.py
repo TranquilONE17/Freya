@@ -1,7 +1,7 @@
 import json
 
 from freya.config import SYSTEM_PROMPT, CONTEXT_WINDOW_TOKENS, CONTEXT_OUTPUT_TOKENS
-from freya.kernel.context import ContextAuthority, ContextBudget, ContextItem
+from freya.kernel.context import ContextAuthority, ContextBudget, ContextItem, estimated_tokens
 from freya.core.conversation_memory import (
     NOT_CONSULTED,
     NOTHING_FOUND,
@@ -37,7 +37,12 @@ class FreyaAssistant(ConversationMemory):
         # a reply is asked for through the broker. Without one, nothing
         # stored is given to the model.
         self.broker = broker
-        self.context = ContextAuthority(ContextBudget(CONTEXT_WINDOW_TOKENS, CONTEXT_OUTPUT_TOKENS))
+        # Counting every byte as a token left room for only a few
+        # exchanges of the live conversation; this estimate still errs high.
+        self.context = ContextAuthority(
+            ContextBudget(CONTEXT_WINDOW_TOKENS, CONTEXT_OUTPUT_TOKENS),
+            counter=estimated_tokens,
+        )
 
         self.messages = [
             {
@@ -232,7 +237,11 @@ class FreyaAssistant(ConversationMemory):
         if callback is not None:
             try:
                 result = callback(user_input[:200])
-                if result.success:
+                if result is None:
+                    # Media recall is not enabled: nothing was asked for,
+                    # so there is nothing to tell the model.
+                    pass
+                elif result.success:
                     for record in result.result.get("results", [])[:3]:
                         items.append(ContextItem(
                             "media", f"media:{record['media_id']}:{record.get('artifact_id') or record.get('at_seconds')}",

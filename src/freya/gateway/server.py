@@ -37,6 +37,8 @@ MAX_UPLOAD_BYTES = 3 * 1024 * 1024
 # may wait to be sent to one window before it is given up on.
 STOP_TIMEOUT_SECONDS = 30.0
 MAX_WAITING_EVENTS = 5000
+# How long a piece of speech waits for room in a client's queue.
+PLAYBACK_SEND_SECONDS = 2.0
 
 # The version of the conversation between Freya and a GUI client. A
 # client says which it speaks; one Freya does not speak is refused.
@@ -609,6 +611,37 @@ class Gateway:
                 if not self._clients:
                     self._no_clients_since = time.monotonic()
 
+    def _playback_sender(self, websocket, client):
+        """
+        What the speech relay uses to send to the client playing her
+        voice. The relay gives playback up when a send fails, so a client
+        that cannot keep up is disconnected: it comes back with its
+        session and takes playback again. Left connected, it would stay
+        silent while her voice played on the speakers.
+        """
+        outbox = client["outbox"]
+
+        def send(item):
+            if not client["open"]:
+                return False
+
+            try:
+                outbox.put(item, timeout=PLAYBACK_SEND_SECONDS)
+            except queue.Full:
+                client["open"] = False
+
+                try:
+                    # Not close(): that waits for the client to answer.
+                    websocket.socket.shutdown(socket.SHUT_RDWR)
+                except Exception:
+                    pass
+
+                return False
+
+            return True
+
+        return send
+
     def _introduce(self, websocket, message, client) -> None:
         """
         A client says what it is and what it would like. It is told what
@@ -634,20 +667,7 @@ class Gateway:
 
         # Only a program Freya paired may play her voice, and only one.
         if "speech.playback" in asked and client["kind"] == "native" and client["playback"] is None:
-            outbox = client["outbox"]
-
-            def send(item):
-                if not client["open"]:
-                    return False
-
-                try:
-                    outbox.put(item, timeout=2.0)
-                except queue.Full:
-                    return False
-
-                return True
-
-            client["playback"] = self.speech.claim(send)
+            client["playback"] = self.speech.claim(self._playback_sender(websocket, client))
 
             if client["playback"] is not None:
                 granted.append("speech.playback")

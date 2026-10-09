@@ -1483,7 +1483,13 @@ def main(window_only=False):
             },
         )
         control_plane.register_media(media)
-        freya.media_recall = lambda query: control_plane.broker.invoke("media.recall", query=query)
+        # Asked only while the owner has enabled it; otherwise every turn
+        # would make a refused request and tell the model about it.
+        freya.media_recall = lambda query: (
+            control_plane.broker.invoke("media.recall", query=query)
+            if control_plane.policy.decide(LOCAL_OWNER.actor, "media.recall").allow
+            else None
+        )
     except Exception:
         if media is not None:
             media.stop()
