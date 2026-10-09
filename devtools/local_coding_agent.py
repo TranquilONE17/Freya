@@ -111,12 +111,16 @@ def ask_ollama_cancellable(endpoint: str, model: str, prompt: str,
             if not byte:
                 raise RuntimeError("Ollama stream ended without completion")
             pending += byte
-            if len(pending) > MAX_RESPONSE_BYTES:
+            if total + len(pending) > MAX_RESPONSE_BYTES:
                 raise ValueError("Ollama response exceeds size limit")
             if byte != b"\n":
                 continue
             item = json.loads(pending)
             pending = b""
+            if not isinstance(item, dict):
+                raise ValueError("Invalid Ollama stream event")
+            if item.get("error"):
+                raise RuntimeError("Local Ollama reported generation error")
             fragment = item.get("response", "")
             if not isinstance(fragment, str):
                 raise ValueError("Invalid Ollama response fragment")
@@ -127,8 +131,6 @@ def ask_ollama_cancellable(endpoint: str, model: str, prompt: str,
             if item.get("done") is True:
                 checkpoint()
                 return "".join(chunks)
-            if item.get("error"):
-                raise RuntimeError("Local Ollama reported generation error")
     finally:
         connection.close()
 
