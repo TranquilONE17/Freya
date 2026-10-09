@@ -168,6 +168,68 @@ def test_a_measured_model_beats_an_unmeasured_cheaper_one(record):
     assert (result.entry, result.basis) == (measured, MEASURED)
 
 
+def test_high_value_work_needs_permission_before_an_unmeasured_model(record):
+    new = entry_id("ollama-local", "new", {"think": "off"})
+
+    refused = choose([Candidate(new)], "extraction", "high", record)
+    allowed = choose(
+        [Candidate(new)], "extraction", "high", record, unmeasured_allowed=True,
+    )
+    never = choose(
+        [Candidate(new)], "extraction", "low", record, unmeasured_allowed=False,
+    )
+
+    assert refused.entry is None and "permission" in refused.reason
+    assert (allowed.entry, allowed.basis) == (new, UNMEASURED)
+    assert never.entry is None
+
+
+def test_attempts_that_got_no_reply_count_against_a_model(record):
+    flaky = report("flaky", 15, graded=15)
+    flaky["summary"]["extraction"]["errors"] = 15
+    entry = record.add_report(flaky)
+
+    result = record.result(entry, "extraction")
+
+    assert result.attempts == 30
+    assert result.pass_rate == 0.5
+    assert choose([Candidate(entry)], "extraction", "low", record).entry is None
+
+
+def test_settings_cannot_be_dressed_up_as_other_settings():
+    assert entry_id("r", "m", {"a": "x,b=y"}) != entry_id("r", "m", {"a": "x", "b": "y"})
+    assert entry_id("r", "m", {"b": 1, "a": 2}) == entry_id("r", "m", {"a": 2, "b": 1})
+
+
+@pytest.mark.parametrize(
+    "change",
+    [
+        {"passed": 20, "graded": 15},
+        {"passed": -1},
+        {"graded": "many"},
+        {"errors": -3},
+    ],
+)
+def test_impossible_results_are_refused_and_nothing_is_recorded(record, change):
+    bad = report("small", 10)
+    bad["summary"]["extraction"].update(change)
+    good_kind = report("small", 18, kind="planning")["summary"]["planning"]
+    bad["summary"]["planning"] = good_kind
+
+    with pytest.raises(ValueError):
+        record.add_report(bad)
+
+    assert record.entries() == []
+
+
+def test_a_report_answered_by_more_than_one_model_is_refused(record):
+    mixed = report("claude", 18, route="anthropic-plan")
+    mixed["mixed_models"] = True
+
+    with pytest.raises(ValueError):
+        record.add_report(mixed)
+
+
 def test_nothing_is_chosen_when_every_model_is_measured_too_weak(record):
     weak = add(record, "weak", 12)
 

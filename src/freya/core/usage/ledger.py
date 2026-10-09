@@ -425,9 +425,16 @@ class UsageLedger:
         """
         label = f"the {status.name} limit on {status.route}"
 
+        if status.capacity == 0:
+            # Zero means off. A call estimated to cost nothing could
+            # still be charged, so it is not let through either.
+            return REFUSE, f"{label} is zero.", False
+
+        if estimate > status.capacity and status.hard:
+            # No reset can make this fit, so waiting would never end.
+            return REFUSE, f"This is larger than {label} allows.", False
+
         if status.used + estimate > status.capacity:
-            if status.capacity == 0:
-                return REFUSE, f"{label} is zero.", False
             if status.scope != SCOPE_PERIOD:
                 if status.hard:
                     return REFUSE, f"This would pass {label}.", False
@@ -488,10 +495,10 @@ class UsageLedger:
                 clauses.append("route = ?")
                 parameters.append(routes)
             if since is not None:
-                clauses.append("recorded_at >= ?")
+                clauses.append("(recorded_at >= ? OR state = 'reserved')")
                 parameters.append(_stamp(since))
             if until is not None:
-                clauses.append("recorded_at < ?")
+                clauses.append("(recorded_at < ? AND state != 'reserved')")
                 parameters.append(_stamp(until))
             if task is not None:
                 clauses.append("task_id = ?")

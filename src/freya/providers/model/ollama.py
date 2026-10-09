@@ -1,4 +1,4 @@
-import ollama
+import ollama as ollama_library
 
 from freya.core.capabilities import (
     CapabilityDefinition,
@@ -18,6 +18,12 @@ from freya.core.providers import (
 
 OLLAMA_PROVIDER = "ollama-local"
 
+# "Local" has to be true whatever the environment says, because full
+# conversation and memory context goes to this provider. The client is
+# pinned to this machine and ignores OLLAMA_HOST and proxy settings.
+LOCAL_OLLAMA_HOST = "http://127.0.0.1:11434"
+ollama = ollama_library.Client(host=LOCAL_OLLAMA_HOST, trust_env=False)
+
 OLLAMA_CAPABILITIES = [
     LLM_CHAT,
     LLM_CHAT_STREAM,
@@ -35,15 +41,49 @@ def _with_tag(model):
     return model if ":" in model else f"{model}:latest"
 
 
+def runs_elsewhere(model) -> bool:
+    """
+    Whether a model served by the local Ollama program actually runs
+    on someone else's servers. Ollama offers such models under a
+    "cloud" tag and reports where they run.
+    """
+    name = str(model).lower()
+
+    if name.endswith(("-cloud", ":cloud")) or ":cloud-" in name:
+        return True
+
+    show = getattr(ollama, "show", None)
+
+    if show is None:
+        return False
+
+    try:
+        details = show(model)
+    except Exception:
+        # An unreadable model is caught by the installed check.
+        return False
+
+    def field(name):
+        if isinstance(details, dict):
+            return details.get(name)
+        return getattr(details, name, None)
+
+    return bool(field("remote_host") or field("remote_model"))
+
+
 def check_ollama_health(models):
     """
     OFFLINE when the Ollama server cannot be reached, UNHEALTHY when
-    it is up but a required model is not installed, else HEALTHY.
+    it is up but a required model is not installed or would run on
+    someone else's servers, else HEALTHY.
     """
     try:
         listed = ollama.list()
     except Exception:
         return ProviderHealth.OFFLINE
+
+    if any(runs_elsewhere(model) for model in models):
+        return ProviderHealth.UNHEALTHY
 
     installed = {
         _with_tag(entry["model"])

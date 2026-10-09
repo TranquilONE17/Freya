@@ -35,7 +35,10 @@ Rules for the spec:
 - `src/freya/control_plane.py` — assembles providers, capabilities, policy, audit, and
   the broker for the single-workstation alpha.
 - `src/freya/providers/model/ollama.py` — the `ollama-local` provider and its
-  `llm.chat`, `llm.chat_stream`, and `llm.embed` capabilities.
+  `llm.chat`, `llm.chat_stream`, and `llm.embed` capabilities. Its client is pinned to
+  `127.0.0.1` and ignores `OLLAMA_HOST` and proxies, and a model that Ollama would run
+  on its own servers makes the provider unhealthy: full context goes here, so "local"
+  must be true.
 - `src/freya/core/` — `assistant.py`, `llm.py` (memory prompts; model calls go through
   `model_runtime.py`, which asks the broker),
   `capabilities/` (CapabilityRegistry, CapabilityBroker), `providers/`
@@ -163,10 +166,16 @@ Claude plan route: `providers/model/claude_plan.py` sends one brief to Claude by
 running the owner's own signed-in Claude Code program (`claude.exe` from the desktop
 app, found directly, never through the `.cmd` launcher; `FREYA_CLAUDE` overrides) and
 returns the reply as untrusted text with its token counts. Keep these rules: the brief
-goes in on standard input and never as an argument; the fixed arguments give the
-worker no tools, no owner settings, memory, plugins or MCP servers, and no saved
-session; it runs in an empty temporary folder with a filtered environment; Freya never
-reads the program's sign-in; never add a `--dangerously-` flag. The provider
+goes in on standard input and never as an argument; the fixed arguments ask for a
+worker with no tools, none of the owner's customisations, and no saved session (these
+are requests to the vendor's program, not containment); it runs in an empty temporary
+folder and is given only the variables in `ENVIRONMENT_ALLOWLIST`, never Freya's whole
+environment; before sending it asks the program how it is signed in and refuses
+anything but a Claude subscription served by Anthropic; Freya never reads the
+program's sign-in files; the vendor's error text goes in `PlanRouteError.detail`,
+never in the message, because the message reaches the audit log; never add a
+`--dangerously-` flag. `ask_claude_plan` sends whatever it is given: do not register
+the route in the control plane until one sending boundary checks every brief. The provider
 `anthropic-plan` and capability `cloud.anthropic_plan.ask` exist but are not
 registered by `build_local_control_plane`, are in no policy seed, and are not model
 tools. Nothing calls the route yet. Tests use a fake program.

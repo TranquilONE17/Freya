@@ -99,7 +99,9 @@ def test_a_zero_money_cap_refuses_any_cost_and_cannot_be_overridden(ledger):
 
     assert paid.verdict == REFUSE
     assert paid.event_id is None
-    assert free.verdict == GO
+    # Zero means off: a call estimated free could still be charged.
+    assert free.verdict == REFUSE
+    assert free.event_id is None
 
 
 def test_call_and_task_caps_ask_and_the_owner_may_exceed_once(ledger):
@@ -196,6 +198,29 @@ def test_nothing_passes_a_hard_allowance_not_even_urgent_work(weekly):
     assert result.verdict == WAIT
     assert result.event_id is None
     assert result.limit.resets_at == RESET
+
+
+def test_work_larger_than_a_hard_allowance_is_refused_not_told_to_wait(weekly):
+    result = weekly.assess(PLAN, "units", 701, "t", urgent=True, now=day(1))
+
+    assert result.verdict == REFUSE
+
+
+def test_a_call_still_in_flight_counts_after_the_reset(weekly):
+    pending = weekly.reserve(
+        PLAN, "units", 600, "t", value=VALUE_HIGH, now=day(7, 23),
+    )
+    after = RESET + timedelta(minutes=5)
+
+    assert weekly.status(PLAN, now=after)[0].used == 600
+    assert weekly.assess(
+        PLAN, "units", 200, "t", value=VALUE_HIGH, now=after
+    ).verdict == WAIT
+
+    # Once its outcome is known it belongs to the period it ran in.
+    weekly.settle(pending.event_id, 600)
+
+    assert weekly.status(PLAN, now=after)[0].used == 0
 
 
 def test_a_soft_period_cap_offers_the_choice_to_go_over(ledger):
