@@ -138,7 +138,8 @@ estimated and reported usage, each limit, how much of it is used, and when it re
   does not raise the task's value, approve a route, or change what may be sent.
   Each route used must be covered by its own approval, each
   draws on its own allowance, and the prompt says that the material goes to more than
-  one vendor. Urgent does not widen what may be sent.
+  one vendor. For each provider the prompt also shows Freya's estimate of how much of
+  the remaining allowance for the period the task would use. Urgent does not widen what may be sent.
 - **Order of routes.** Local first when a local model is good enough for that kind of
   task (ESC-001, judged from the evaluation results, not from the model's own
   confidence). Then plan allowance. Paid API calls last.
