@@ -439,6 +439,24 @@ and unused; this becomes an option only if the plan changes.
 7. A second opinion from Codex on this design, as the project rules ask before an
    architecture decision, once its allowance resets.
 
+## The Cloud tab
+
+Built: a Cloud tab in the window (`gateway/static/cloud.js`, message type `cloud`,
+`freya.delegation.window_requests`). It shows and changes the provider check boxes,
+the setting for each kind of material, the three bars, and the two screening lists,
+and shows the owner's record of sent briefs. Its answers go only to the window that
+asked. A change goes through the broker as `cloud.settings.change`, so the audit log
+records that a change was made, never what it was. That capability is allowed by a
+new default seed, `alpha-cloud-settings`: it lets the owner change their own choices
+and nothing else, sends nothing, and is not offered to the model. The seed is a policy
+change and needs the owner's agreement at review. The check boxes are only how the
+page shows an on/off value kept by Freya, so they can become a menu later.
+
+The tab cannot send a brief, add a policy rule for a cloud route, or set a usage
+limit. Those two locks have no window control yet: today the owner would add them by
+hand. Not built: the approval prompt with its four answers, the hold prompt, and a
+control for usage limits.
+
 ## Codex's second opinion (2026-10-09)
 
 Codex read this note and the code read-only and reported fifteen points. Each was
@@ -481,7 +499,8 @@ Accepted, not yet done:
   Assembling it allows nothing: the provider's switch, a policy rule for the route's
   capability, and a usage limit for the route are three separate locks, each of which
   stops a brief by itself, and each of which only the owner opens. Freya's startup
-  does not call it yet. Still to do: the window's prompts, and the turn that uses it.
+  now assembles it, so that the Cloud tab works; no turn uses it. Still to do: the
+  approval and hold prompts, and the turn that uses it.
 - **The program's flags are requests, not containment.** Safe mode leaves sign-in,
   model choice and administrator-managed settings in force, and a temporary folder
   does not confine a program. The route's wording now says so. What the worker can

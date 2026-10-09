@@ -17,6 +17,7 @@
       <button class="tab" role="tab" id="tab-avatar" aria-selected="false" aria-controls="view-avatar" data-view="avatar">Avatar</button>
       <button class="tab" role="tab" id="tab-media" aria-selected="false" aria-controls="view-media" data-view="media">Media</button>
       <button class="tab" role="tab" id="tab-memory" aria-selected="false" aria-controls="view-memory" data-view="memory">Memory</button>
+      <button class="tab" role="tab" id="tab-cloud" aria-selected="false" aria-controls="view-cloud" data-view="cloud">Cloud</button>
       <button class="tab" role="tab" id="tab-console" aria-selected="false" aria-controls="view-console" data-view="console" hidden>Console</button>
     </nav>
 
@@ -351,6 +352,67 @@
       </div>
     </section>
 
+    <section class="view" id="view-cloud" role="tabpanel" aria-labelledby="tab-cloud">
+      <div class="voice-scroll">
+        <div class="voice-bar">
+          <p class="voice-message" id="cloud-message" role="status"></p>
+        </div>
+
+        <article class="panel">
+          <h2>Cloud models Freya may use</h2>
+          <p class="panel-note">Freya answers you herself, on this computer. With a box ticked she may hand part of a task to that company's model, through your own subscription. With every box clear, nothing is sent anywhere. Ticking a box is not enough by itself: a policy rule and a usage limit for that provider must exist too.</p>
+          <div id="cloud-providers"></div>
+        </article>
+
+        <article class="panel">
+          <h2>What may leave this computer</h2>
+          <p class="panel-note">For each kind of material: allowed, ask you first, or never. Nothing you answer in a prompt can send a kind set to never.</p>
+          <div class="fields" id="cloud-material"></div>
+        </article>
+
+        <article class="panel">
+          <h2>How good a model must be</h2>
+          <p class="panel-note">The share of test tasks a model must have passed, for a kind of work, before Freya gives it work of each value. Low cannot ask more than normal, nor normal more than high.</p>
+          <form class="actions" id="cloud-bars-form">
+            <div class="fields">
+              <label>Low value (%) <input type="number" id="cloud-bar-low" min="1" max="100" step="1"></label>
+              <label>Normal value (%) <input type="number" id="cloud-bar-normal" min="1" max="100" step="1"></label>
+              <label>High value (%) <input type="number" id="cloud-bar-high" min="1" max="100" step="1"></label>
+            </div>
+            <button type="submit" class="primary">Save</button>
+          </form>
+        </article>
+
+        <article class="panel">
+          <h2>Corrections to screening</h2>
+          <p class="panel-note">Before anything is sent, it is compared with what Freya has saved about you, and held if it matches. Here you correct that. "Not private" stops a phrase or one memory from holding a brief. "Always private" always holds it, and wins. Use a memory's number from the Memory tab.</p>
+          <form class="actions" id="cloud-mark-form">
+            <select id="cloud-mark-list" aria-label="Which list">
+              <option value="not-private">Not private</option>
+              <option value="always-private">Always private</option>
+            </select>
+            <select id="cloud-mark-what" aria-label="Phrase or memory">
+              <option value="phrase">a phrase</option>
+              <option value="memory">a memory number</option>
+            </select>
+            <input type="text" id="cloud-mark-value" maxlength="200" aria-label="The phrase or the memory number">
+            <button type="submit" class="primary">Add</button>
+          </form>
+          <h3>Not private</h3>
+          <ul class="memory-list" id="cloud-not-private"></ul>
+          <h3>Always private</h3>
+          <ul class="memory-list" id="cloud-always-private"></ul>
+        </article>
+
+        <article class="panel">
+          <h2>What has been sent <span class="panel-note" id="cloud-sent-count"></span></h2>
+          <p class="panel-note">The exact text of every brief that left this computer, or may have. It is kept here only.</p>
+          <button type="button" class="ghost" id="cloud-sent-show">Show the most recent</button>
+          <ul class="memory-list" id="cloud-sent"></ul>
+        </article>
+      </div>
+    </section>
+
     <section class="view" id="view-media" role="tabpanel" aria-labelledby="tab-media">
       <div class="media-scroll">
         <p id="media-status" role="status">Connect to Freya to open the media library.</p>
@@ -459,6 +521,7 @@
   <script type="importmap">{"imports":{"three":"/vendor/three/three.module.js","three/addons/":"/vendor/three/addons/","@pixiv/three-vrm":"/vendor/three-vrm/three-vrm.module.min.js"}}</script>
   <script src="/app.js"></script>
   <script src="/media.js"></script>
+  <script src="/cloud.js"></script>
   <script type="module" src="/avatar-view.js"></script>
 </body>
 </html>
