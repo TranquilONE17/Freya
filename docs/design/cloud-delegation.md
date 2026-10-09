@@ -77,6 +77,25 @@ restated in her own words, so every cloud-bound brief passes these guards in ord
    the owner to read, with the route and the time. It is personal data and is stored
    and protected like the conversation store, not in the audit log.
 
+**Correcting a wrong label.** Screening will sometimes hold something that is not
+private (a common word that happens to be in a memory, a public name, Freya's own
+name) and will sometimes miss something that is. The owner corrects both, and the
+corrections are kept:
+
+- On a held brief the owner can also answer "this is not private". That adds the
+  matched phrase, or the one memory it matched, to a not-private list, so it is not
+  held again. The correction covers that phrase or that memory only, not its kind.
+- From the local record of sent briefs, or at any time in the window, the owner can
+  mark a phrase or a memory "always private". Such a mark always holds a brief, and
+  a not-private entry never overrides it.
+- Both lists are shown in the window and each entry can be removed. Entries are made
+  only by the owner's click, never by speech, by Freya, or by a model, and each
+  change is audited. The lists are personal data and stay on this machine.
+- A correction changes what screening holds. It does not change a kind's setting:
+  a stored memory still never leaves as a memory unless the owner changes that
+  setting; marking it not private only stops its words from holding a brief that
+  happens to contain them.
+
 This is a strong filter, not a proof. Screening catches copied and closely restated
 material; a loose paraphrase or an inference can pass. The owner's prompts, the local
 record and the per-provider switches are what bound the remainder.
