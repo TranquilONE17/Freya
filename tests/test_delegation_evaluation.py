@@ -6,6 +6,8 @@ import pytest
 
 from freya.evaluation import delegation
 from freya.evaluation.delegation_tasks import (
+    HARD_TASKS,
+    TALK_MINUTES,
     LOG_SITES,
     inspection_entries,
     inspection_log,
@@ -272,6 +274,121 @@ def test_the_small_project_prints_what_the_check_expects():
     assert f"{area(3, 4)} / {perimeter(3, 4)}" == "12 / 14"
 
 
+def test_every_kind_has_harder_tasks():
+    assert all(item.hard for item in HARD_TASKS)
+    for kind in KINDS:
+        assert sum(item.hard for item in tasks_of([kind])) >= 2
+
+
+def test_the_harder_answers():
+    subtotal = 14 * 85.00 + 14 * 32.00 + 2 * 120.00
+    discount = round(subtotal * 0.05, 2)
+    tax = round((subtotal - discount) * 0.10, 2)
+    assert (subtotal, discount, tax) == (1878.00, 93.90, 178.41)
+    assert round(subtotal - discount + tax, 2) == 1962.51
+
+    shifts = [
+        ("mon", 540, 780, "Asha"), ("mon", 720, 960, "Bo"),
+        ("mon", 750, 900, "Asha"), ("tue", 480, 720, "Cy"),
+        ("tue", 720, 960, "Cy"), ("wed", 600, 840, "Bo"),
+        ("wed", 780, 1020, "Dee"), ("wed", 810, 900, "Bo"),
+    ]
+    clashing = sorted({
+        a[3]
+        for a, b in itertools.combinations(shifts, 2)
+        if a[3] == b[3] and a[0] == b[0] and a[1] < b[2] and b[1] < a[2]
+    })
+    assert clashing == ["Asha", "Bo"]
+
+    # The slow clock, the job network and the codes.
+    assert (8 * 60 + 12 * 60 - 12 * 4) == 19 * 60 + 12
+    end = {"a": 3}
+    end["b"], end["c"] = end["a"] + 2, end["a"] + 4
+    end["d"] = end["b"] + 1
+    assert max(end["c"], end["d"]) + 2 == 9
+    assert sum(
+        1 for code in itertools.permutations("ABCD", 3) if code[0] != "A"
+    ) == 18
+
+    def f(n, seen=None):
+        seen = seen or set()
+        if n in seen or n <= 1:
+            return 0
+        seen.add(n)
+        return 1 + f(n // 2 if n % 2 == 0 else 3 * n + 1, seen)
+
+    assert f(6) == 8
+
+    # Each source's share rose while the overall share fell.
+    assert 22 / 100 > 40 / 200 and 114 / 1900 > 40 / 800
+    assert (22 + 114) / 2000 < (40 + 40) / 1000
+
+
+def test_the_search_bug_is_on_the_line_the_check_expects():
+    def find(xs, t, fixed):
+        lo, hi = 0, len(xs)
+        for _ in range(100):
+            if not lo < hi:
+                return lo if lo < len(xs) and xs[lo] == t else -1
+            mid = (lo + hi) // 2
+            if xs[mid] < t:
+                lo = mid + 1 if fixed else mid
+            else:
+                hi = mid
+        return "never ends"
+
+    assert find([1, 3, 5], 5, fixed=False) == "never ends"
+    assert find([1, 3, 5], 5, fixed=True) == 2
+
+
+def test_talks_and_hours_have_solutions_and_the_checks_are_strict():
+    talks = task("talk-rooms")
+    assert talks.grade(
+        '{"A": {"room": 1, "start": "09:45"}, "B": {"room": 1, "start": '
+        '"09:00"}, "C": {"room": 2, "start": "08:45"}}'
+    ) is not None
+    assert talks.grade(
+        '{"A": {"room": 2, "start": "09:00"}, "B": {"room": 2, "start": '
+        '"09:30"}, "C": {"room": 1, "start": "09:30"}}'
+    ) is not None
+    # Any plan that meets the rules passes, not only the reference.
+    assert talks.grade(
+        '{"A": {"room": 2, "start": "09:00"}, "B": {"room": 1, "start": '
+        '"09:00"}, "C": {"room": 2, "start": "09:30"}}'
+    ) is None
+    assert set(TALK_MINUTES) == {"a", "b", "c"}
+
+    valid = [
+        (2 * beta, beta, delta + 10, delta)
+        for beta in range(15, 40)
+        for delta in range(10, 60)
+        if 3 * beta + 2 * delta + 10 == 100
+    ]
+    assert valid and (32, 16, 31, 21) in valid
+    hours = task("hour-split")
+    for alpha, beta, gamma, delta in valid:
+        assert hours.grade(json.dumps({
+            "alpha": alpha, "beta": beta, "gamma": gamma, "delta": delta,
+        })) is None
+    assert hours.grade(
+        '{"alpha": 30, "beta": 15, "gamma": 32.5, "delta": 22.5}'
+    ) is not None
+
+
+def test_the_failed_inspections_favour_one_gate():
+    gates = ("north", "east", "service")
+    counts = {gate: 0 for gate in gates}
+    for number, _, _, status in inspection_entries():
+        if status == "failed":
+            counts[gates[number % 3]] += 1
+    ranked = sorted(counts.values(), reverse=True)
+
+    assert ranked[0] > ranked[1]
+    assert task("long-log-gate").grade(
+        f"ANSWER: {max(counts, key=counts.get)}"
+    ) is None
+
+
 def test_kilometre_rounding():
     assert round(26 * 1.609344) == 42
     assert round(5 * 1.609344) == 8
@@ -322,7 +439,7 @@ def test_listing_contacts_nothing(capsys):
     assert delegation.main(["--list", "--kind", "planning"]) == 0
 
     listed = capsys.readouterr().out.splitlines()
-    assert len(listed) == 5
+    assert len(listed) == len(tasks_of(["planning"])) == 7
     assert all(line.startswith("planning: ") for line in listed)
     assert delegation.main(["--list"]) == 0
     assert len(capsys.readouterr().out.splitlines()) == len(TASKS)
@@ -357,8 +474,9 @@ def test_a_report_is_written_and_never_overwritten(tmp_path, monkeypatch):
     report = json.loads(output.read_text(encoding="utf-8"))
 
     assert code == 0
+    assert report["settings"]["think"] == "default"
     assert report["route"] == "ollama-local"
-    assert len(report["attempts"]) == 10
+    assert len(report["attempts"]) == 14
     assert report["summary"]["planning"]["pass_rate"] == 1.0
 
     with pytest.raises(SystemExit):

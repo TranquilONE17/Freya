@@ -179,11 +179,17 @@ project. Not yet covered: long documents of real length, larger bodies of code, 
 images, which also need a route that can send a picture and a model that can read
 one.
 
+A result belongs to a model together with its settings. The same small model scored
+7, 21 and 26 out of 30 on one set of tasks depending only on whether it was allowed
+to think and how much output it was allowed, so each combination of model, thinking
+setting and allowances is measured and recorded as its own entry, and the router
+chooses among those entries.
+
 A model counts as measured for a kind once it has at least 15 graded attempts on the
 exact version in use. Writing code is not a kind yet: grading it means running what a
 model wrote, which must wait for the isolation the baseline requires (ARCH-017).
 
-The tasks are built: `freya.evaluation.delegation_tasks` holds 46 synthetic tasks,
+The tasks are built: `freya.evaluation.delegation_tasks` holds 63 synthetic tasks, 17 of them marked harder,
 at least five per kind, each with a deterministic check, a reply that must pass and
 one that must fail. `python -m freya.evaluation.delegation` runs them against an
 installed Ollama model, or against Claude on the plan with `--claude-plan`, which is
@@ -393,7 +399,7 @@ and unused; this becomes an option only if the plan changes.
 5. **Codex's ledger work** (`feat/synthetic-self-design`) holds reservation and
    accounting ideas that may be reusable for the usage ledger. It has not been reviewed.
 6. **The kinds of task and the bar for each value level** are a draft awaiting the
-   owner. Forty-six tasks are few: they can rank models but cannot show that a model
+   owner. Sixty-three tasks are few: they can rank models but cannot show that a model
    is reliable at a 95% bar, and they will need to grow and be kept unseen.
 7. A second opinion from Codex on this design, as the project rules ask before an
    architecture decision, once its allowance resets.

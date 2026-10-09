@@ -351,7 +351,7 @@ administrator. SQLite durability settings are provisional pending ADR-015; each 
 invocation currently costs roughly 30–60 ms in synchronous writes. Default policy rules
 are applied once per named seed (`policy_seed` table), so removed rules stay removed.
 
-`python -m freya.evaluation.delegation` measures a model on 46 synthetic delegated
+`python -m freya.evaluation.delegation` measures a model on 63 synthetic delegated
 tasks in eight kinds (`evaluation/delegation_tasks.py`), each with a deterministic
 check. It runs an installed Ollama model, or Claude on the owner's plan with
 `--claude-plan`, which is refused without `--owner-approved-cloud-run` because it
