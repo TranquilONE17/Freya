@@ -46,8 +46,8 @@ class OllamaCancellationTests(unittest.TestCase):
             if checks > 4:
                 raise PermissionError("revoked")
 
-        with patch("local_coding_agent.http.client.HTTPConnection", FakeConnection), \\
-             patch("local_coding_agent.select.select", return_value=([object()], [], [])):
+        with (patch("local_coding_agent.http.client.HTTPConnection", FakeConnection),
+              patch("local_coding_agent.select.select", return_value=([object()], [], []))):
             with self.assertRaises(PermissionError):
                 ask_ollama_cancellable(
                     "http://127.0.0.1:11434/api/generate", "mock", "task",
