@@ -39,6 +39,18 @@ class CodingAuthorizationTests(unittest.TestCase):
             policy_checkpoint(policy, "local-owner", cancelled=broken)()
         policy.decide.assert_not_called()
 
+    def test_non_boolean_policy_allow_fails_closed(self):
+        policy = Mock()
+        policy.decide.return_value = PolicyDecision(1, "malformed")
+        with self.assertRaises(CodingAuthorizationRevoked):
+            policy_checkpoint(policy, "local-owner")()
+
+    def test_missing_policy_decision_fails_closed(self):
+        policy = Mock()
+        policy.decide.return_value = None
+        with self.assertRaises(CodingAuthorizationRevoked):
+            policy_checkpoint(policy, "local-owner")()
+
     def test_missing_actor_rejected(self):
         with self.assertRaises(ValueError):
             policy_checkpoint(Mock(), "")
