@@ -11,12 +11,29 @@ MAX_FILE_BYTES = 120_000
 MAX_RESPONSE_BYTES = 1_000_000
 
 
+BLOCKED_FILENAMES = frozenset({".env", ".netrc", ".npmrc", "credentials.json", "secrets.json", "id_rsa", "id_ed25519"})
+BLOCKED_DIRECTORIES = frozenset({".git", ".ssh", ".aws", ".venv", "node_modules"})
+BLOCKED_EXTENSIONS = frozenset({".pem", ".key", ".p12", ".pfx", ".kdbx"})
+
+
 def selected_source(repo: Path, relative_path: str) -> str:
-    """Read only explicitly selected regular files contained in repo."""
-    if Path(relative_path).is_absolute():
-        raise ValueError("Source paths must be relative to the repository")
+    """Read only non-sensitive regular files selected inside the repository."""
+    relative = Path(relative_path)
+    if relative.is_absolute() or not relative.parts or ".." in relative.parts:
+        raise ValueError("Source must be a contained relative path")
+    if any(part.lower() in BLOCKED_DIRECTORIES for part in relative.parts):
+        raise ValueError("Source directory is excluded")
+    filename = relative.name.lower()
+    if (filename in BLOCKED_FILENAMES or filename.startswith(".env.")
+            or relative.suffix.lower() in BLOCKED_EXTENSIONS):
+        raise ValueError("Sensitive source file is excluded")
     root = repo.resolve(strict=True)
-    source = (root / relative_path).resolve()
+    current = root
+    for part in relative.parts:
+        current = current / part
+        if current.is_symlink():
+            raise ValueError("Symbolic-link sources are excluded")
+    source = current.resolve(strict=True)
     if not source.is_relative_to(root) or not source.is_file():
         raise ValueError("Source must be a regular file inside the repository")
     if source.stat().st_size > MAX_FILE_BYTES:
