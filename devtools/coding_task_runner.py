@@ -9,6 +9,7 @@ import argparse
 import hashlib
 import json
 from pathlib import Path
+from typing import Callable
 
 from coding_task_journal import TaskJournal
 from local_coding_agent import ask_ollama, build_prompt, selected_source
@@ -20,27 +21,37 @@ ENDPOINT = "http://127.0.0.1:11434/api/generate"
 
 def propose(repo: Path, task: str, paths: list[str], model: str,
             journal_dir: Path, output_dir: Path, *,
-            generate=ask_ollama) -> dict[str, str]:
+            generate=ask_ollama, checkpoint: Callable[[], None] | None = None) -> dict[str, str]:
     """Record a single local proposal attempt; never apply its result."""
     if not task.strip() or not model.strip() or not paths:
         raise ValueError("Task, model, and selected files are required")
     if len(set(paths)) != len(paths):
         raise ValueError("Duplicate selected paths")
     # Read first, before a task is created; no model receives an unchecked path.
+    if checkpoint is not None:
+        checkpoint()
     sources = [(path, selected_source(repo, path)) for path in paths]
     journal = TaskJournal.create(journal_dir)
     output = output_dir.resolve() / f"{journal.task_id}.patch"
     try:
         journal.transition("generating", f"model={model}; files={len(paths)}")
         patch = generate(ENDPOINT, model, build_prompt(task, sources))
+        if checkpoint is not None:
+            checkpoint()
         validate_unified_diff(patch, set(paths))
+        if checkpoint is not None:
+            checkpoint()
         output_dir.mkdir(parents=True, exist_ok=True)
         # Exclusive creation prevents accidental overwrite; patch is not executed.
         with output.open("x", encoding="utf-8") as file:
             file.write(patch)
         digest = hashlib.sha256(patch.encode("utf-8")).hexdigest()
         journal.transition("proposed", f"sha256={digest}")
+        if checkpoint is not None:
+            checkpoint()
         check_patch(repo, patch, set(paths))
+        if checkpoint is not None:
+            checkpoint()
         journal.transition("verified", "git apply --check passed on disposable copy")
         return {"task_id": journal.task_id, "state": "verified",
                 "patch": str(output), "sha256": digest}
