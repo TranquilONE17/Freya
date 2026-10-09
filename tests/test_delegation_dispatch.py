@@ -357,6 +357,41 @@ def test_the_dispatcher_can_tell_a_route_what_it_is_sending(h):
     assert seen == [(True, False)]
     assert not h.dispatcher.in_flight(brief.text)
 
+
+def test_one_send_carries_one_permit(h):
+    brief = h.compose()
+    taken = []
+
+    def ask(text):
+        # The route takes its permit; a second caller with the same
+        # text at the same moment finds none.
+        taken.append(h.dispatcher.take_permit(text))
+        taken.append(h.dispatcher.take_permit(text))
+        return Reply()
+
+    h.dispatcher = Dispatcher(
+        h.settings, h.ledger, [Route(ROUTE, VENDOR, ask)],
+        lambda: MEMORIES, h.sent, h.corrections, clock=lambda: h.time,
+    )
+
+    assert not h.dispatcher.take_permit(brief.text)
+    h.dispatcher.send(
+        h.dispatcher.authorize(brief, ROUTE, "task-1", now=NOW), brief.text,
+    )
+
+    assert taken == [True, False]
+    assert not h.dispatcher.take_permit(brief.text)
+
+
+def test_a_permit_nobody_took_does_not_stay_behind(h):
+    brief = h.compose()
+
+    h.dispatcher.send(
+        h.dispatcher.authorize(brief, ROUTE, "task-1", now=NOW), brief.text,
+    )
+
+    assert not h.dispatcher.take_permit(brief.text)
+
 def test_a_checked_brief_is_sent_recorded_and_counted(h):
     brief = h.compose()
     authorization = h.dispatcher.authorize(brief, ROUTE, "task-1", now=NOW)

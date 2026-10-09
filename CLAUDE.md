@@ -156,8 +156,8 @@ with unchanged settings, then settles the ledger and appends to the owner's reco
 parts again and requires the text to equal what they assemble to. The plan's value
 and urgent flag are suggestions; the caller passes the owner's. Do not add a prose
 field to the plan, do not show the writer anything not cleared to leave, and do not
-call a route's `ask` from anywhere but the dispatcher (the Claude capability checks
-`Dispatcher.in_flight`). `service.build_cloud_delegation` assembles
+call a route's `ask` from anywhere but the dispatcher (the Claude capability must take
+the send's one permit, `Dispatcher.take_permit`). `service.build_cloud_delegation` assembles
 them on a control plane and registers `anthropic-plan`; a brief then goes dispatcher,
 broker, route. Three locks only the owner opens each stop a brief alone: the
 provider's switch, a policy rule for `cloud.anthropic_plan.ask` (never put it in a

@@ -129,7 +129,7 @@ class Dispatcher:
     here, for the same text, once, soon, and only if the owner's
     settings are unchanged and the brief still passes screening. A
     route's own `ask` is never called from anywhere else, and a route
-    can ask `in_flight` to confirm that.
+    enforces that by taking the send's one permit (`take_permit`).
 
     The value of a task and whether it is urgent come from the caller
     acting for the owner, never from the model's plan.
@@ -165,12 +165,33 @@ class Dispatcher:
         )
 
     def in_flight(self, text: str) -> bool:
-        """
-        Whether this exact text is being sent by the dispatcher right
-        now. A route's capability uses it to refuse any other caller.
-        """
+        """Whether a send of this exact text is waiting for its route."""
         with self._lock:
             return self._in_flight.get(brief_hash(text), 0) > 0
+
+    def take_permit(self, text: str) -> bool:
+        """
+        Use up the one permit a send in progress holds for this exact
+        text. A route's capability calls this before sending and
+        refuses when it is False.
+
+        Each authorized send carries exactly one permit, so each
+        authorization leads to at most one call to the route, even if
+        something else asks for the same text at the same moment.
+        """
+        digest = brief_hash(text)
+
+        with self._lock:
+            waiting = self._in_flight.get(digest, 0)
+
+            if waiting <= 0:
+                return False
+            if waiting == 1:
+                del self._in_flight[digest]
+            else:
+                self._in_flight[digest] = waiting - 1
+
+            return True
 
     def _check_screening(self, text, hold_released):
         screening = self.screen(text)
@@ -359,12 +380,9 @@ class Dispatcher:
                 self._release(authorization)
             raise
         finally:
-            with self._lock:
-                remaining = self._in_flight.get(digest, 1) - 1
-                if remaining > 0:
-                    self._in_flight[digest] = remaining
-                else:
-                    self._in_flight.pop(digest, None)
+            # A route that never asked for its permit leaves it
+            # behind; it must not stay for someone else to use.
+            self.take_permit(text)
 
         # The owner's record comes first: it must exist even if the
         # accounting below goes wrong.
