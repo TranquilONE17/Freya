@@ -27,12 +27,12 @@ class CodingTaskRunnerTests(unittest.TestCase):
 
     def test_proposal_is_saved_not_applied(self):
         result = self.run_proposal(lambda endpoint, model, prompt: PATCH)
-        self.assertEqual(result["state"], "proposed")
+        self.assertEqual(result["state"], "verified")
         self.assertEqual(Path(result["patch"]).read_text(), PATCH)
         self.assertEqual((self.repo / "demo.py").read_text(), "print('old')\n")
         self.assertEqual([event.state for event in TaskJournal(
             self.journals, result["task_id"]).read()],
-            ["requested", "generating", "proposed"])
+            ["requested", "generating", "proposed", "verified"])
 
     def test_invalid_patch_marks_failed(self):
         with self.assertRaises(ValueError):
