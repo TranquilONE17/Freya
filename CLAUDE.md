@@ -139,6 +139,16 @@ file means the strict defaults; a part of unknown kind never leaves; an approval
 cannot release a kind set to never; nothing is sendable to a provider that is off.
 Nothing sends a brief yet.
 
+Model record: `freya.delegation.record.ModelRecord` keeps, in
+`data/model_record.json`, what evaluation reports measured for each entry (a route, a
+model and its settings together) by kind of task: counts and timings only. `choose`
+picks the least costly allowed entry whose measured pass rate reaches the owner's bar
+for the task's value (`CloudSettings.bars`, 70/85/95% to start). Keep these rules:
+only measured results count, never a model's own claim; fewer than 15 graded attempts
+is unmeasured; an unmeasured entry is used only when no measured one qualifies and is
+labelled so; when every candidate is measured and none qualifies, nothing is chosen.
+Nothing calls `choose` yet.
+
 Claude plan route: `providers/model/claude_plan.py` sends one brief to Claude by
 running the owner's own signed-in Claude Code program (`claude.exe` from the desktop
 app, found directly, never through the `.cmd` launcher; `FREYA_CLAUDE` overrides) and

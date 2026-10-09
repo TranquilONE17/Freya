@@ -193,8 +193,14 @@ The tasks are built: `freya.evaluation.delegation_tasks` holds 63 synthetic task
 at least five per kind, each with a deterministic check, a reply that must pass and
 one that must fail. `python -m freya.evaluation.delegation` runs them against an
 installed Ollama model, or against Claude on the plan with `--claude-plan`, which is
-refused without `--owner-approved-cloud-run`. No reply is executed. The record the
-router reads, and the router, are not built.
+refused without `--owner-approved-cloud-run`. No reply is executed.
+
+The record and the choice are built (`freya.delegation.record`): `ModelRecord`
+takes in evaluation reports and keeps counts and timings per entry and kind in
+`data/model_record.json`; `choose` applies the rules above to the candidates it is
+given; the bars are in `CloudSettings` and validated when changed. Nothing calls
+`choose` yet: the part that gathers the allowed candidates, checks the ledger and
+sends the brief is not built.
 
 ## What may leave the machine
 

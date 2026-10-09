@@ -1,0 +1,272 @@
+import json
+import os
+import threading
+from dataclasses import dataclass
+from pathlib import Path
+from typing import Dict, List, Optional, Sequence
+
+
+
+DATA_DIR = Path(__file__).resolve().parents[3] / "data"
+MODEL_RECORD_PATH = DATA_DIR / "model_record.json"
+
+VALUE_LOW = "low"
+VALUE_NORMAL = "normal"
+VALUE_HIGH = "high"
+
+# The owner's starting bars (2026-10-09): the share of graded attempts a
+# model must pass, for a kind of task, to be given work of each value.
+DEFAULT_BARS = {VALUE_LOW: 0.70, VALUE_NORMAL: 0.85, VALUE_HIGH: 0.95}
+
+# Fewer graded attempts than this and a model counts as unmeasured.
+MINIMUM_ATTEMPTS = 15
+
+MEASURED = "measured"
+UNMEASURED = "unmeasured"
+
+
+def validate_bars(bars) -> Dict[str, float]:
+    """
+    Bars as a complete, ordered set of shares between 0 and 1. Raises
+    ValueError for anything else.
+    """
+    if not isinstance(bars, dict) or set(bars) != set(DEFAULT_BARS):
+        raise ValueError("Bars are needed for low, normal and high.")
+
+    checked = {}
+
+    for value, bar in bars.items():
+        if isinstance(bar, bool) or not isinstance(bar, (int, float)):
+            raise ValueError("A bar is a number from 0 to 1.")
+        if not 0 < bar <= 1:
+            raise ValueError("A bar is a number above 0 and at most 1.")
+        checked[value] = float(bar)
+
+    if not (
+        checked[VALUE_LOW] <= checked[VALUE_NORMAL] <= checked[VALUE_HIGH]
+    ):
+        raise ValueError("Low cannot ask more than normal, nor normal than high.")
+
+    return checked
+
+
+def entry_id(route, model, settings) -> str:
+    """
+    One measured thing: a model on a route with particular settings.
+    The same model with different settings is a different entry.
+    """
+    settings = settings or {}
+    detail = ",".join(f"{name}={settings[name]}" for name in sorted(settings))
+    return f"{route}|{model or 'default'}|{detail}"
+
+
+@dataclass(frozen=True)
+class KindResult:
+    graded: int
+    passed: int
+    median_seconds: Optional[float] = None
+    mean_tokens: Optional[float] = None
+    measured_at: str = ""
+
+    @property
+    def measured(self) -> bool:
+        return self.graded >= MINIMUM_ATTEMPTS
+
+    @property
+    def pass_rate(self) -> Optional[float]:
+        return self.passed / self.graded if self.graded else None
+
+
+class ModelRecord:
+    """
+    What has been measured about each model, by kind of task.
+
+    Filled from evaluation reports. It holds counts and timings only;
+    the tasks, prompts and replies stay in the reports. An unreadable
+    file is an empty record, which makes every model unmeasured.
+    """
+
+    def __init__(self, path=MODEL_RECORD_PATH):
+        self.path = Path(path)
+        self._lock = threading.Lock()
+        self._entries: Dict[str, dict] = {}
+        self._load()
+
+    def _load(self):
+        try:
+            data = json.loads(self.path.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            return
+
+        if isinstance(data, dict) and isinstance(data.get("entries"), dict):
+            self._entries = {
+                key: entry
+                for key, entry in data["entries"].items()
+                if isinstance(entry, dict)
+                and isinstance(entry.get("kinds"), dict)
+            }
+
+    def _save(self):
+        self.path.parent.mkdir(parents=True, exist_ok=True)
+        temporary = self.path.with_suffix(".tmp")
+        temporary.write_text(
+            json.dumps({"entries": self._entries}, indent=2, sort_keys=True),
+            encoding="utf-8",
+        )
+        os.replace(temporary, self.path)
+
+    def add_report(self, report) -> str:
+        """
+        Take in one evaluation report. Its figures replace what was
+        recorded for the same entry and kinds, because an entry
+        describes one exact model and a newer run is the newer truth.
+        Returns the entry's id.
+        """
+        summary = report.get("summary")
+
+        if not isinstance(summary, dict) or not summary:
+            raise ValueError("The report has no results to record.")
+
+        key = entry_id(
+            report.get("route"), report.get("model"), report.get("settings"),
+        )
+
+        with self._lock:
+            entry = self._entries.setdefault(
+                key,
+                {
+                    "route": report.get("route"),
+                    "model": report.get("model"),
+                    "settings": report.get("settings") or {},
+                    "kinds": {},
+                },
+            )
+
+            for kind, row in summary.items():
+                entry["kinds"][kind] = {
+                    "graded": int(row["graded"]),
+                    "passed": int(row["passed"]),
+                    "median_seconds": row.get("median_seconds"),
+                    "mean_tokens": row.get("mean_tokens"),
+                    "measured_at": report.get("created_at", ""),
+                }
+
+            self._save()
+
+        return key
+
+    def entries(self) -> List[str]:
+        with self._lock:
+            return sorted(self._entries)
+
+    def result(self, entry: str, kind: str) -> Optional[KindResult]:
+        with self._lock:
+            row = self._entries.get(entry, {}).get("kinds", {}).get(kind)
+
+        if not isinstance(row, dict):
+            return None
+
+        try:
+            return KindResult(
+                graded=int(row["graded"]),
+                passed=int(row["passed"]),
+                median_seconds=row.get("median_seconds"),
+                mean_tokens=row.get("mean_tokens"),
+                measured_at=str(row.get("measured_at", "")),
+            )
+        except (KeyError, TypeError, ValueError):
+            return None
+
+    def forget(self, entry: str) -> None:
+        """Drop an entry, for a model version that is no longer in use."""
+        with self._lock:
+            if self._entries.pop(entry, None) is not None:
+                self._save()
+
+
+@dataclass(frozen=True)
+class Candidate:
+    """
+    An entry the caller is allowed to use for this task. `tier` puts
+    routes in the owner's order of preference (local, then plan, then
+    paid); `cost` orders entries within a tier, lower being cheaper.
+    """
+
+    entry: str
+    tier: int = 0
+    cost: float = 0.0
+
+
+@dataclass(frozen=True)
+class Choice:
+    entry: Optional[str]
+    basis: Optional[str]
+    reason: str
+    pass_rate: Optional[float] = None
+
+
+def choose(
+    candidates: Sequence[Candidate],
+    kind: str,
+    value: str,
+    record: ModelRecord,
+    bars=None,
+) -> Choice:
+    """
+    The least costly allowed entry that is measured good enough for
+    this kind of task at this value.
+
+    Only measured results count; nothing a model says about itself is
+    looked at. If no measured entry reaches the bar, an unmeasured one
+    may be used, least costly first, and the choice says so. If every
+    candidate is measured and none reaches the bar, nothing is chosen.
+    """
+    bars = validate_bars(DEFAULT_BARS if bars is None else bars)
+
+    if value not in bars:
+        raise ValueError(f"Unknown task value: {value!r}")
+
+    bar = bars[value]
+    ordered = sorted(candidates, key=lambda c: (c.tier, c.cost, c.entry))
+    qualified, unmeasured = [], []
+
+    for candidate in ordered:
+        result = record.result(candidate.entry, kind)
+
+        if result is None or not result.measured:
+            unmeasured.append(candidate)
+        elif result.pass_rate >= bar:
+            qualified.append((candidate, result.pass_rate))
+
+    if qualified:
+        best = qualified[0][0]
+        # Among equally preferred, equally costly entries, the better one.
+        same = [
+            (candidate, rate)
+            for candidate, rate in qualified
+            if (candidate.tier, candidate.cost) == (best.tier, best.cost)
+        ]
+        candidate, rate = max(same, key=lambda pair: pair[1])
+        return Choice(
+            candidate.entry,
+            MEASURED,
+            f"Measured at {rate:.0%} on {kind}, against a bar of {bar:.0%}.",
+            rate,
+        )
+
+    if unmeasured:
+        return Choice(
+            unmeasured[0].entry,
+            UNMEASURED,
+            f"No measured model reaches {bar:.0%} on {kind}; "
+            "this one has not been measured on it.",
+        )
+
+    if not ordered:
+        return Choice(None, None, "No model is allowed for this task.")
+
+    return Choice(
+        None,
+        None,
+        f"No allowed model reaches {bar:.0%} on {kind}.",
+    )

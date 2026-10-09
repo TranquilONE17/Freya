@@ -95,6 +95,30 @@ def test_a_damaged_file_means_the_strict_defaults(tmp_path, content):
     assert settings.enabled_providers() == []
 
 
+def test_the_bars_start_at_the_owners_figures_and_can_be_moved(tmp_path):
+    path = tmp_path / "cloud_settings.json"
+    first = CloudSettings(path)
+
+    assert first.bars == {"low": 0.70, "normal": 0.85, "high": 0.95}
+
+    first.set_bars({"low": 0.6, "normal": 0.8, "high": 0.9})
+
+    assert CloudSettings(path).bars == {"low": 0.6, "normal": 0.8, "high": 0.9}
+    with pytest.raises(ValueError):
+        first.set_bars({"low": 0.9, "normal": 0.8, "high": 0.95})
+    assert first.bars["low"] == 0.6
+
+
+def test_damaged_bars_mean_the_starting_bars(tmp_path):
+    path = tmp_path / "cloud_settings.json"
+    path.write_text(
+        json.dumps({"bars": {"low": 0.1, "normal": 5, "high": 0.2}}),
+        encoding="utf-8",
+    )
+
+    assert CloudSettings(path).bars == {"low": 0.70, "normal": 0.85, "high": 0.95}
+
+
 def test_bad_choices_are_refused(settings):
     with pytest.raises(ValueError):
         settings.set_material("everything", ALLOWED)
