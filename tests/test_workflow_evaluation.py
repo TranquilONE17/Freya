@@ -343,3 +343,25 @@ def test_a_refused_record_must_not_be_answered_with_figures(tmp_path, monkeypatc
         e["capability"] == "model.record.read" and e["outcome"] == "denied"
         for e in result["audit_outcomes"]
     )
+
+
+def test_every_scenarios_patterns_can_be_graded():
+    import re
+
+    from freya.evaluation.scenarios import SCENARIOS
+
+    for scenario in SCENARIOS:
+        for turn in scenario.turns:
+            for pattern in turn.answer_patterns + turn.forbidden_patterns:
+                re.compile(pattern)
+            # Grading an ordinary reply must not raise.
+            workflow.grade_turn(turn, "I am measured at 21 of 21 on that.", [])
+
+
+def test_a_measured_strength_is_recognised():
+    turn = get_scenario("ability-strong-kind").turns[0]
+    calls = [{"name": "model_record_read", "result": {}}]
+
+    assert all(workflow.grade_turn(
+        turn, "Yes. I passed all 21 attempts at code review, so I can do it.", calls,
+    ).values())
