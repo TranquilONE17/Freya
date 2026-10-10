@@ -275,6 +275,23 @@ image waits for the model to reload. It has a local, reversible effect; before a
 tool with a consequential effect, decide how it is authorized, including whether a
 spoken request may trigger it.
 
+Reading files: `tools/file_tools.py` (`FileReader`) gives the model three read-only
+tools, `files.list`, `files.read` and `files.search` (provider `file-reader-local`,
+policy seed `alpha-file-read`), over the folders the owner has opened and nowhere
+else. No folder is open to start, and until one is the provider is unhealthy, so the
+tools are not offered at all. Only the owner's `/folders`, `/folder open <path>` and
+`/folder close <path>` (`file_access.py`, in both command paths) change the list,
+kept as `readable_folders` in `data/freya_settings.json`; nothing the model can call
+does. Keep these rules: a path is resolved to where it really is before it is
+checked, so a link or junction cannot lead out; a refusal uses the same words
+whether or not anything is there and never names a path, because the message
+reaches the audit log; key and sign-in files and folders, `.git` among them (`SECRET_FILE_PATTERNS`,
+`CLOSED_FOLDER_NAMES`) and Freya's own `data/` stay shut even inside an opened
+folder; a whole drive, the whole user folder and `AppData` cannot be opened; every
+call returns a bounded amount. There is no tool that writes, and adding one is a
+separate decision. A spoken request can read an opened file aloud like a typed one;
+voice is not authentication, so open only folders that may be heard.
+
 Conversation memory: one run of Freya is one conversation. Each exchange is stored
 as it happens (`conversation`, `conversation_turn`, and the `conversation_search`
 index in `data/freya_memory.db`), with how it arrived (typed, voice, window).

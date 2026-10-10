@@ -59,6 +59,12 @@ from freya.providers.model.ollama import (
     register_ollama_capabilities,
     warm_ollama_models,
 )
+from freya.tools.file_tools import (
+    FILE_READER_CAPABILITIES,
+    FILE_READER_PROVIDER,
+    create_file_reader_provider,
+    register_file_reader_capabilities,
+)
 from freya.tools.model_tools import (
     MODEL_TOOL,
     TOOL_PARAMETERS,
@@ -282,6 +288,31 @@ class ControlPlane:
             LOCAL_OWNER.actor,
             [CONVERSATION_RECALL],
         )
+
+    def register_file_reader(self, reader) -> None:
+        """
+        Offer the model a way to list, read and search text files in
+        the folders the owner has opened. It only reads.
+
+        The provider is healthy only while a folder is open, so until
+        the owner opens one the tools are not offered at all. Call
+        `refresh_file_reader` after the owner opens or closes one.
+        """
+        self.providers.register(create_file_reader_provider(reader))
+        self.providers.start(FILE_READER_PROVIDER)
+        self.providers.check_health(FILE_READER_PROVIDER)
+        register_file_reader_capabilities(self.capabilities, reader)
+
+        seed_alpha_policy(
+            self.policy,
+            "alpha-file-read",
+            LOCAL_OWNER.actor,
+            FILE_READER_CAPABILITIES,
+        )
+
+    def refresh_file_reader(self) -> None:
+        if self.providers.get(FILE_READER_PROVIDER) is not None:
+            self.providers.check_health(FILE_READER_PROVIDER)
 
     def register_avatar(self, avatar) -> None:
         """
