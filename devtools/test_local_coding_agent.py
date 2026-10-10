@@ -1,6 +1,7 @@
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 from local_coding_agent import selected_source, validate_proposal, build_prompt
 
 
@@ -24,6 +25,24 @@ class LocalCodingAgentTests(unittest.TestCase):
 
     def test_prompt_contains_task(self):
         self.assertIn("fix bug", build_prompt("fix bug", [("a.py", "pass")]))
+
+    def test_personal_storage_rejected_before_any_file_read(self):
+        # Every path and payload here is synthetic; no owner storage is used.
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            for name in ("data/example.py", "nested/data/example.py",
+                         "Data/example.py", "nested/DATA/example.py"):
+                with self.subTest(name=name):
+                    with patch.object(Path, "read_text", side_effect=AssertionError("read")) as read:
+                        with self.assertRaises(ValueError):
+                            selected_source(root, name)
+                        read.assert_not_called()
+
+    def test_nonstorage_source_with_data_in_filename_allowed(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / "data_model.py").write_text("pass", encoding="utf-8")
+            self.assertEqual(selected_source(root, "data_model.py"), "pass")
 
 
 if __name__ == "__main__":

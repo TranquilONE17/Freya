@@ -16,7 +16,7 @@ MAX_RESPONSE_BYTES = 1_000_000
 
 
 BLOCKED_FILENAMES = frozenset({".env", ".netrc", ".npmrc", "credentials.json", "secrets.json", "id_rsa", "id_ed25519"})
-BLOCKED_DIRECTORIES = frozenset({".git", ".ssh", ".aws", ".venv", "node_modules"})
+BLOCKED_DIRECTORIES = frozenset({".git", ".ssh", ".aws", ".venv", "node_modules", "data"})
 BLOCKED_EXTENSIONS = frozenset({".pem", ".key", ".p12", ".pfx", ".kdbx"})
 
 

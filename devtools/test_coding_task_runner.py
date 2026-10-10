@@ -1,4 +1,5 @@
 """Offline tests: no Ollama service required."""
+import hashlib
 import tempfile
 import unittest
 from pathlib import Path
@@ -29,6 +30,9 @@ class CodingTaskRunnerTests(unittest.TestCase):
         result = self.run_proposal(lambda endpoint, model, prompt: PATCH)
         self.assertEqual(result["state"], "verified")
         self.assertEqual(Path(result["patch"]).read_text(), PATCH)
+        artifact_bytes = Path(result["patch"]).read_bytes()
+        self.assertEqual(artifact_bytes, PATCH.encode("utf-8"))
+        self.assertEqual(hashlib.sha256(artifact_bytes).hexdigest(), result["sha256"])
         self.assertEqual((self.repo / "demo.py").read_text(), "print('old')\n")
         self.assertEqual([event.state for event in TaskJournal(
             self.journals, result["task_id"]).read()],

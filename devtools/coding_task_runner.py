@@ -33,6 +33,7 @@ def propose(repo: Path, task: str, paths: list[str], model: str,
     sources = [(path, selected_source(repo, path)) for path in paths]
     journal = TaskJournal.create(journal_dir)
     output = output_dir.resolve() / f"{journal.task_id}.patch"
+    output_created = False
     try:
         journal.transition("generating", f"model={model}; files={len(paths)}")
         prompt = build_prompt(task, sources)
@@ -47,7 +48,8 @@ def propose(repo: Path, task: str, paths: list[str], model: str,
             checkpoint()
         output_dir.mkdir(parents=True, exist_ok=True)
         # Exclusive creation prevents accidental overwrite; patch is not executed.
-        with output.open("x", encoding="utf-8") as file:
+        with output.open("x", encoding="utf-8", newline="") as file:
+            output_created = True
             file.write(patch)
         digest = hashlib.sha256(patch.encode("utf-8")).hexdigest()
         journal.transition("proposed", f"sha256={digest}")
@@ -62,7 +64,8 @@ def propose(repo: Path, task: str, paths: list[str], model: str,
     except Exception as exc:
         # Never leave an apparently usable patch behind after revocation,
         # failed verification, or cancellation. Only this task owns output.
-        output.unlink(missing_ok=True)
+        if output_created:
+            output.unlink(missing_ok=True)
         # Avoid persisting model output or sensitive source text in the journal.
         try:
             journal.transition("failed", f"{type(exc).__name__}: proposal failed")
