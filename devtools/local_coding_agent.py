@@ -37,11 +37,39 @@ BLOCKED_DIRECTORIES = frozenset({".git", ".ssh", ".aws", ".venv", "node_modules"
 BLOCKED_EXTENSIONS = frozenset({".pem", ".key", ".p12", ".pfx", ".kdbx"})
 
 
+# Names Windows treats as devices in any directory, with any extension.
+WINDOWS_RESERVED_NAMES = frozenset(
+    {"con", "prn", "aux", "nul", "conin$", "conout$"}
+    | {f"{device}{n}" for device in ("com", "lpt") for n in "123456789¹²³"}
+)
+
+
+def portable_relative_path(relative_path: str) -> Path:
+    """Validate a repository-relative path the same way on Windows and Linux.
+
+    Rejects names that mean something else on one platform: drive or
+    stream syntax (":"), backslashes, device names, and components ending
+    in a dot or space, which Windows silently strips.
+    """
+    if not relative_path or any(c in relative_path for c in ':\\\0') or any(
+            ord(c) < 32 for c in relative_path):
+        raise ValueError("Source must be a contained relative path")
+    # Checked on the text, before Path() drops "." and empty components,
+    # so the name read is exactly the name a patch must use.
+    if any(part in ("", ".", "..") for part in relative_path.split("/")):
+        raise ValueError("Source must be a contained relative path")
+    relative = Path(relative_path)
+    if relative.is_absolute():
+        raise ValueError("Source must be a contained relative path")
+    for part in relative.parts:
+        if part.endswith((".", " ")) or part.split(".")[0].rstrip(" ").lower() in WINDOWS_RESERVED_NAMES:
+            raise ValueError("Source path is not portable")
+    return relative
+
+
 def selected_source(repo: Path, relative_path: str) -> str:
     """Read only non-sensitive regular files selected inside the repository."""
-    relative = Path(relative_path)
-    if relative.is_absolute() or not relative.parts or ".." in relative.parts:
-        raise ValueError("Source must be a contained relative path")
+    relative = portable_relative_path(relative_path)
     if any(part.lower() in BLOCKED_DIRECTORIES for part in relative.parts):
         raise ValueError("Source directory is excluded")
     filename = relative.name.lower()
