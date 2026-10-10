@@ -2,6 +2,7 @@
 import http.client
 import json
 import unittest
+import traceback
 from unittest.mock import Mock, patch
 
 from local_coding_agent import MAX_RESPONSE_BYTES, ask_ollama
@@ -70,6 +71,7 @@ class OllamaTransportTests(unittest.TestCase):
                     with self.assertRaises(RuntimeError) as caught:
                         ask_ollama(self.endpoint, "mock", "synthetic source")
                 self.assertNotIn("PRIVATE_SOURCE", str(caught.exception))
+                self.assertNotIn("PRIVATE_SOURCE", "".join(traceback.format_exception(caught.exception)))
                 connection.close.assert_called_once()
 
     def test_oversized_response_is_rejected(self):

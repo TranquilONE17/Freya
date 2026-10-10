@@ -71,8 +71,8 @@ def ask_ollama(endpoint: str, model: str, prompt: str) -> str:
         if response.status != 200:
             raise RuntimeError(f"Local Ollama HTTP status {response.status}")
         data = response.read(MAX_RESPONSE_BYTES + 1)
-    except (OSError, http.client.HTTPException) as exc:
-        raise RuntimeError("Local Ollama request failed") from exc
+    except (OSError, http.client.HTTPException):
+        raise RuntimeError("Local Ollama request failed") from None
     finally:
         connection.close()
     if len(data) > MAX_RESPONSE_BYTES:
