@@ -32,6 +32,13 @@ class DeveloperProfile:
         DeveloperAction.PROPOSE_PATCH,
     })
 
+    def __post_init__(self) -> None:
+        try:
+            actions = frozenset(DeveloperAction(action) for action in self.permitted_actions)
+        except (TypeError, ValueError):
+            raise ValueError("Expected a collection of known developer actions.") from None
+        object.__setattr__(self, "permitted_actions", actions)
+
     def allows(self, action: DeveloperAction | str) -> bool:
         try:
             requested = DeveloperAction(action)
