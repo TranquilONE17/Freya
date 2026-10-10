@@ -100,8 +100,9 @@ def main():
         if not files:
             raise ValueError("CodeQL did not produce SARIF results")
         summarizer = bandit_summary if args.scanner == "bandit" else sarif_summary
-        summary = "".join(summarizer(json.loads(path.read_text(encoding="utf-8")))
-                          for path in files)
+        reports = [json.loads(path.read_text(encoding="utf-8")) for path in files]
+        summary = "".join(summarizer(report) for report in reports)
+        report_data = reports[0] if args.scanner == "bandit" else None
     except (OSError, ValueError, TypeError) as exc:
         # Do not expose report content or source snippets on parse failure.
         raise SystemExit("Invalid or incomplete scanner evidence") from exc
@@ -109,8 +110,8 @@ def main():
     if args.fail_on_high:
         if args.scanner != "bandit":
             raise SystemExit("--fail-on-high requires a Bandit report")
-        data = json.loads(args.path.read_text(encoding="utf-8"))
-        if any(item["issue_severity"] == "HIGH" for item in data["results"]):
+        # Reuse the validated report and avoid reading mutable evidence twice.
+        if any(item["issue_severity"] == "HIGH" for item in report_data["results"]):
             raise SystemExit("High-severity Bandit findings require remediation")
     destination = os.environ.get("GITHUB_STEP_SUMMARY")
     if destination:
