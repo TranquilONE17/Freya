@@ -105,7 +105,7 @@ def _run_git_check(executable: Path, patch_file: Path, work: Path, home: Path,
     if IS_WINDOWS:
         options["creationflags"] = subprocess.CREATE_NO_WINDOW
     try:
-        result = subprocess.run(  # nosec B603 - fixed argument list, absolute git, no shell
+        result = subprocess.run(  # nosec B603 # fixed argv, absolute git path, no shell
             command, cwd=work, env=git_environment(home), timeout=timeout,
             stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL, check=False, **options,
