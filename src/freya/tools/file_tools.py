@@ -1,4 +1,5 @@
 import fnmatch
+import functools
 import os
 import time
 from pathlib import Path
@@ -67,6 +68,7 @@ SKIPPED_IN_SEARCH = frozenset({
 OUTSIDE = "That is not inside a folder the user has opened for reading."
 NOTHING_OPEN = "The user has not opened any folder for reading."
 WITHHELD = "That is a kind of file or folder that is never read."
+UNREADABLE = "That could not be read just now."
 
 
 class FileAccessError(ValueError):
@@ -74,6 +76,23 @@ class FileAccessError(ValueError):
     A path could not be read. The message is written for the model and
     reaches the audit log, so it never holds a path or any content.
     """
+
+
+def _path_free(method):
+    """
+    Turn a failure of the disk into words without a path. The system's
+    own message names the file, and a tool's failure is written to the
+    audit log.
+    """
+
+    @functools.wraps(method)
+    def guarded(*args, **kwargs):
+        try:
+            return method(*args, **kwargs)
+        except OSError:
+            raise FileAccessError(UNREADABLE) from None
+
+    return guarded
 
 
 def _key(path) -> str:
@@ -214,6 +233,14 @@ class FileReader:
             if not any(_inside(claimed, root) for root in roots):
                 continue
 
+            # The name asked for counts as well as where it leads: a
+            # link called .env is still a .env.
+            if any(
+                _inside(claimed, root) and self._withheld(claimed, root)
+                for root in roots
+            ):
+                raise FileAccessError(WITHHELD)
+
             try:
                 real = claimed.resolve(strict=True)
             except OSError:
@@ -228,6 +255,7 @@ class FileReader:
 
         raise FileAccessError(OUTSIDE)
 
+    @_path_free
     def list(self, path: str) -> dict:
         """
         What is in one folder. A path of "." gives the opened folders
@@ -259,8 +287,14 @@ class FileReader:
                 except OSError:
                     continue
 
-                # A link that leads out, or anything withheld, is not shown.
-                if not _inside(real, root) or self._withheld(real, root):
+                # A link that leads out, or anything withheld by its
+                # own name or by where it leads, is not shown.
+                if (
+                    not _inside(real, root)
+                    or self._withheld(real, root)
+                    or is_secret_name(entry.name)
+                    or is_closed_folder_name(entry.name)
+                ):
                     continue
 
                 if len(entries) >= MAX_LISTED:
@@ -291,6 +325,7 @@ class FileReader:
 
             return (start + handle.read()).decode("utf-8", errors="replace")
 
+    @_path_free
     def read(self, path: str, start_line: str = "1") -> dict:
         """
         Part of one text file, from a given line: at most
@@ -334,6 +369,7 @@ class FileReader:
             "text": "\n".join(chosen),
         }
 
+    @_path_free
     def search(self, folder: str, text: str) -> dict:
         """
         The lines holding some text, in the text files under one
@@ -355,6 +391,12 @@ class FileReader:
         matches, searched, stopped = [], 0, None
 
         for current, folders, files in os.walk(start):
+            # Checked for every folder, so a tree of empty folders
+            # cannot outlast the time allowed.
+            if time.monotonic() > deadline:
+                stopped = "the time allowed ran out"
+                break
+
             here = Path(current)
             folders[:] = sorted(
                 name for name in folders

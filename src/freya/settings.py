@@ -64,10 +64,10 @@ class Settings:
         folders = data.get("readable_folders")
 
         if isinstance(folders, list):
-            self._readable_folders = [
-                folder for folder in dict.fromkeys(folders)
+            self._readable_folders = list(dict.fromkeys(
+                folder for folder in folders
                 if isinstance(folder, str) and folder.strip()
-            ]
+            ))
 
         stored = data.get("wake_names")
 

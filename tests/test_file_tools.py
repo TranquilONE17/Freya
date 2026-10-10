@@ -15,6 +15,7 @@ from freya.tools.file_tools import (
     FILES_READ,
     NOTHING_OPEN,
     OUTSIDE,
+    UNREADABLE,
     WITHHELD,
     FileAccessError,
     FileReader,
@@ -209,6 +210,54 @@ def test_a_link_inside_an_opened_folder_cannot_lead_out_of_it(reader, tree):
     assert reader.search(str(tree), "not for reading")["matches"] == []
 
 
+def test_a_link_with_a_secret_name_is_withheld_whatever_it_leads_to(reader, tree):
+    try:
+        os.symlink(tree / "notes.txt", tree / "id_rsa")
+    except OSError:
+        made = subprocess.run(
+            ["cmd", "/c", "mklink", "/H", str(tree / "id_rsa"), str(tree / "notes.txt")],
+            capture_output=True,
+        )
+        if made.returncode != 0:
+            pytest.skip("This account can make neither links nor hard links.")
+
+    with pytest.raises(FileAccessError) as refused:
+        reader.read("id_rsa")
+
+    assert str(refused.value) == WITHHELD
+    assert "id_rsa" not in names(reader.list(str(tree)))
+    assert len(reader.search(str(tree), "oat milk")["matches"]) == 1
+
+
+def test_a_failure_of_the_disk_is_reported_without_the_path(reader, tree, monkeypatch):
+    def fail(path):
+        raise PermissionError(13, "Access is denied", str(path))
+
+    monkeypatch.setattr(FileReader, "_text_of", staticmethod(fail))
+
+    with pytest.raises(FileAccessError) as refused:
+        reader.read("notes.txt")
+
+    assert str(refused.value) == UNREADABLE
+    assert refused.value.__cause__ is None
+
+    monkeypatch.setattr(file_tools.os, "scandir", fail)
+
+    with pytest.raises(FileAccessError, match=UNREADABLE):
+        reader.list(str(tree))
+
+
+def test_search_stops_on_time_even_among_empty_folders(reader, tree, monkeypatch):
+    for number in range(20):
+        (tree / f"empty-{number}").mkdir()
+
+    monkeypatch.setattr(file_tools, "SEARCH_SECONDS", -1.0)
+    found = reader.search(str(tree), "milk")
+
+    assert found["matches"] == []
+    assert "time" in found["stopped_early"]
+
+
 def test_a_file_that_is_not_text_is_refused(reader):
     with pytest.raises(FileAccessError, match="not text"):
         reader.read("picture.bin")
@@ -332,7 +381,7 @@ def test_damaged_folder_settings_open_nothing(tmp_path):
 
     assert Settings(path).readable_folders == []
 
-    path.write_text(json.dumps({"readable_folders": [5, "", "C:\\Work", "C:\\Work"]}), encoding="utf-8")
+    path.write_text(json.dumps({"readable_folders": [5, "", {"a": 1}, ["b"], "C:\\Work", "C:\\Work"]}), encoding="utf-8")
 
     assert Settings(path).readable_folders == ["C:\\Work"]
 
