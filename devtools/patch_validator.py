@@ -9,6 +9,9 @@ import re
 from pathlib import PurePosixPath
 
 HUNK = re.compile(r"^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@(?:.*)$")
+# Git's marker after a line that has no trailing newline. It is not a line
+# of either file, so it does not count against the hunk's line numbers.
+NO_NEWLINE = "\\ No newline at end of file"
 FORBIDDEN = ("diff --git ", "index ", "new file mode ", "deleted file mode ",
              "old mode ", "new mode ", "rename ", "copy ", "Binary files ",
              "GIT binary patch", "*** Begin Patch", "+++ /dev/null", "--- /dev/null")
@@ -26,6 +29,10 @@ def _path(header: str, prefix: str, selected: set[str]) -> str:
     if name not in selected:
         raise ValueError("Patch modifies an unselected path")
     return name
+
+
+def _follows_content(lines: list[str], index: int) -> bool:
+    return index > 0 and lines[index - 1][:1] in (" ", "-", "+") and lines[index - 1] != NO_NEWLINE
 
 
 def validate_unified_diff(patch: str, selected: set[str]) -> None:
@@ -61,6 +68,9 @@ def validate_unified_diff(patch: str, selected: set[str]) -> None:
                 if index >= len(lines):
                     raise ValueError("Truncated hunk")
                 line = lines[index]
+                if line == NO_NEWLINE and _follows_content(lines, index):
+                    index += 1
+                    continue
                 if line.startswith(" "):
                     old_count -= 1
                     new_count -= 1
@@ -73,7 +83,7 @@ def validate_unified_diff(patch: str, selected: set[str]) -> None:
                 if old_count < 0 or new_count < 0:
                     raise ValueError("Hunk line counts exceeded")
                 index += 1
-            if index < len(lines) and lines[index] == "\\\\ No newline at end of file":
+            if index < len(lines) and lines[index] == NO_NEWLINE and _follows_content(lines, index):
                 index += 1
         if not hunk_count:
             raise ValueError("Patch file has no hunks")

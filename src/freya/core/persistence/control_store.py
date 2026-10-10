@@ -1,8 +1,11 @@
+import logging
 import sqlite3
 import threading
 from contextlib import contextmanager
 from pathlib import Path
 
+
+logger = logging.getLogger(__name__)
 
 DATA_DIR = Path(__file__).resolve().parents[4] / "data"
 CONTROL_DATABASE_PATH = DATA_DIR / "freya_control.db"
@@ -157,8 +160,19 @@ class ControlStore:
         return row[0]
 
     def execute(self, sql, parameters=()):
+        """
+        Run one statement and return its rows, already read.
+
+        The connection is shared between threads, so rows are fetched
+        while the lock is held. Fetching later, from a cursor another
+        thread's statement can disturb, returned rows of the wrong
+        shape or none at all, which policy turned into spurious
+        denials and the audit check could have turned into spurious
+        tamper reports.
+        """
         with self._lock:
-            return self._connection.execute(sql, parameters)
+            cursor = self._connection.execute(sql, parameters)
+            return _Rows(cursor.fetchall(), cursor.rowcount)
 
     @contextmanager
     def transaction(self):
@@ -170,11 +184,23 @@ class ControlStore:
             self._connection.execute("BEGIN IMMEDIATE")
             try:
                 yield self._connection
-            except BaseException:
-                self._connection.execute("ROLLBACK")
-                raise
-            else:
                 self._connection.execute("COMMIT")
+            except BaseException:
+                # A failed COMMIT (busy, disk full, I/O error) can leave
+                # the transaction open; without a rollback every later
+                # BEGIN would fail and the store would stay unusable.
+                self._rollback_quietly()
+                raise
+
+    def _rollback_quietly(self):
+        # Only reached while another exception is propagating; that
+        # exception is the one the caller needs to see.
+        if not self._connection.in_transaction:
+            return
+        try:
+            self._connection.execute("ROLLBACK")
+        except sqlite3.Error as exc:
+            logger.warning("Control store rollback failed: %s", exc)
 
     def close(self):
         with self._lock:
@@ -199,3 +225,30 @@ def _split_statements(script):
         raise ValueError("Incomplete SQL statement in migration.")
 
     return statements
+
+
+class _Rows:
+    """
+    The rows of a finished statement, with the parts of the sqlite3
+    cursor interface that callers use.
+    """
+
+    def __init__(self, rows, rowcount):
+        self._rows = rows
+        self._position = 0
+        self.rowcount = rowcount
+
+    def fetchone(self):
+        if self._position >= len(self._rows):
+            return None
+        row = self._rows[self._position]
+        self._position += 1
+        return row
+
+    def fetchall(self):
+        rows = self._rows[self._position:]
+        self._position = len(self._rows)
+        return rows
+
+    def __iter__(self):
+        return iter(self.fetchall())

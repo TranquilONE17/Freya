@@ -1,7 +1,9 @@
 """Policy-backed cooperative revocation checks for long-running coding proposals.
 
-This does not interrupt an in-progress synchronous model call. It prevents
-subsequent proposal lifecycle stages once a policy decision is withdrawn.
+The streaming model client calls the checkpoint at least every
+local_coding_agent.POLL_INTERVAL seconds and closes the connection when it
+raises; every later proposal stage checks it again. A custom, non-streaming
+`generate` function passed to the runner is not interrupted mid-call.
 """
 from __future__ import annotations
 
