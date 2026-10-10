@@ -69,8 +69,11 @@ def propose(repo: Path, task: str, paths: list[str], model: str,
         # Avoid persisting model output or sensitive source text in the journal.
         try:
             journal.transition("failed", f"{type(exc).__name__}: proposal failed")
-        except Exception:
-            pass  # Preserve the original error; recovery can inspect the journal.
+        except Exception as journal_error:
+            # Keep the original error, but do not hide that the journal
+            # still shows the task as in progress.
+            exc.add_note("The task journal could not record the failure: "
+                         f"{type(journal_error).__name__}")
         raise
 
 
