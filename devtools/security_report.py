@@ -1,7 +1,7 @@
 """Validate advisory scanner evidence before publishing counts.
 
-A successful scan with findings stays advisory. Missing, malformed, empty or
-incomplete scan evidence fails CI. Summaries omit source excerpts and messages.
+Findings stay advisory unless an explicit severity gate is requested. Missing,
+malformed, empty or incomplete evidence fails CI. Summaries omit source excerpts.
 """
 from __future__ import annotations
 
@@ -20,6 +20,12 @@ def _object(value, label):
 def _list(value, label):
     if not isinstance(value, list):
         raise ValueError(f"Invalid {label}")
+    return value
+
+
+def _line_number(value):
+    if not isinstance(value, int) or isinstance(value, bool) or value < 1:
+        raise ValueError("Invalid source line number")
     return value
 
 
@@ -44,7 +50,8 @@ def bandit_summary(data):
         # JSON quoting prevents embedded newlines from creating log commands.
         location = json.dumps(item.get("filename", ""), ensure_ascii=True)
         rule = json.dumps(item.get("test_id", ""), ensure_ascii=True)
-        lines.append(f"- {severity}: {rule} at {location}:{item.get('line_number', 0)}")
+        line = _line_number(item.get("line_number"))
+        lines.append(f"- {severity}: {rule} at {location}:{line}")
     lines.extend(f"- {level}: {count}" for level, count in counts.items())
     lines.append(f"- Scanned source lines: {loc}")
     return "\n".join(lines) + "\n"
@@ -80,7 +87,9 @@ def sarif_summary(data):
                 artifact = _object(physical.get("artifactLocation", {}), "SARIF artifact")
                 region = _object(physical.get("region", {}), "SARIF region")
                 uri = json.dumps(artifact.get("uri", ""), ensure_ascii=True)
-                lines.append(f"- {rule} at {uri}:{region.get('startLine', 0)}")
+                line = (_line_number(region["startLine"])
+                        if "startLine" in region else "file-level")
+                lines.append(f"- {rule} at {uri}:{line}")
             else:
                 lines.append(f"- {rule} (no source location)")
     lines.append(f"- Total findings: {count}")
@@ -103,20 +112,20 @@ def main():
         reports = [json.loads(path.read_text(encoding="utf-8")) for path in files]
         summary = "".join(summarizer(report) for report in reports)
         report_data = reports[0] if args.scanner == "bandit" else None
-    except (OSError, ValueError, TypeError) as exc:
+    except (OSError, ValueError, TypeError):
         # Do not expose report content or source snippets on parse failure.
-        raise SystemExit("Invalid or incomplete scanner evidence") from exc
+        raise SystemExit("Invalid or incomplete scanner evidence") from None
     print(summary)
+    destination = os.environ.get("GITHUB_STEP_SUMMARY")
+    if destination:
+        with open(destination, "a", encoding="utf-8") as output:
+            output.write(summary)
     if args.fail_on_high:
         if args.scanner != "bandit":
             raise SystemExit("--fail-on-high requires a Bandit report")
         # Reuse the validated report and avoid reading mutable evidence twice.
         if any(item["issue_severity"] == "HIGH" for item in report_data["results"]):
             raise SystemExit("High-severity Bandit findings require remediation")
-    destination = os.environ.get("GITHUB_STEP_SUMMARY")
-    if destination:
-        with open(destination, "a", encoding="utf-8") as output:
-            output.write(summary)
 
 
 if __name__ == "__main__":
