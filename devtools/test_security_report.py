@@ -135,6 +135,49 @@ class SecurityReportTests(unittest.TestCase):
             self.assertEqual(result.returncode, 0, result.stderr)
             self.assertIn("Scanned source lines: 12", result.stdout)
 
+    def test_high_gate_keeps_step_summary_before_failing(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            report = root / "report.json"
+            summary = root / "summary.md"
+            data = self.bandit()
+            data["results"] = [{"issue_severity": "HIGH", "filename": "demo.py",
+                                "test_id": "B999", "line_number": 1}]
+            report.write_text(json.dumps(data), encoding="utf-8")
+            result = subprocess.run(
+                [sys.executable, str(Path(__file__).with_name("security_report.py")),
+                 "bandit", str(report), "--fail-on-high"],
+                capture_output=True, text=True, check=False,
+                env={**os.environ, "GITHUB_STEP_SUMMARY": str(summary)})
+            self.assertNotEqual(result.returncode, 0)
+            self.assertTrue(summary.exists(), "Failed gate must retain its summary")
+            self.assertIn("HIGH: 1", summary.read_text(encoding="utf-8"))
+
+    def test_bandit_rejects_invalid_location_lines(self):
+        for line in (None, 0, -1, True, "1\n::error::injected", [], {}):
+            data = self.bandit()
+            data["results"] = [{"issue_severity": "LOW", "filename": "demo.py",
+                                "test_id": "B999", "line_number": line}]
+            with self.subTest(line=line), self.assertRaises(ValueError):
+                bandit_summary(data)
+
+    def test_sarif_rejects_invalid_location_lines(self):
+        for line in (0, -1, True, "1\n::error::injected", [], {}):
+            data = self.sarif()
+            data["runs"][0]["results"] = [{
+                "ruleId": "py/example", "locations": [{"physicalLocation": {
+                    "artifactLocation": {"uri": "demo.py"},
+                    "region": {"startLine": line}}}]}]
+            with self.subTest(line=line), self.assertRaises(ValueError):
+                sarif_summary(data)
+
+    def test_sarif_file_location_without_region_is_valid(self):
+        data = self.sarif()
+        data["runs"][0]["results"] = [{
+            "ruleId": "py/example", "locations": [{"physicalLocation": {
+                "artifactLocation": {"uri": "demo.py"}}}]}]
+        self.assertIn("Total findings: 1", sarif_summary(data))
+
 
 if __name__ == "__main__":
     unittest.main()
