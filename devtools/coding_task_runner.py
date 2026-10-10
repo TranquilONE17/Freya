@@ -8,11 +8,15 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import os
 from pathlib import Path
 from typing import Callable
 
 from coding_task_journal import TaskJournal
-from local_coding_agent import ask_ollama, ask_ollama_cancellable, build_prompt, selected_source
+from local_coding_agent import (ask_ollama, ask_ollama_cancellable, build_prompt,
+                                selected_source_bytes, source_text)
+from coding_proposal_receipt import (assert_sources_current, canonical_receipt,
+                                     verify_proposal_receipt)
 from patch_validator import validate_unified_diff
 from patch_applicability import check_patch
 
@@ -30,10 +34,16 @@ def propose(repo: Path, task: str, paths: list[str], model: str,
     # Read first, before a task is created; no model receives an unchecked path.
     if checkpoint is not None:
         checkpoint()
-    sources = [(path, selected_source(repo, path)) for path in paths]
+    target = str(repo.resolve(strict=True))
+    snapshot = {path: selected_source_bytes(repo, path) for path in paths}
+    sources = [(path, source_text(contents)) for path, contents in snapshot.items()]
+    source_hashes = {path: hashlib.sha256(contents).hexdigest()
+                     for path, contents in snapshot.items()}
     journal = TaskJournal.create(journal_dir)
     output = output_dir.resolve() / f"{journal.task_id}.patch"
     output_created = False
+    receipt_path = output.with_suffix(".receipt.json")
+    receipt_created = False
     try:
         journal.transition("generating", f"model={model}; files={len(paths)}")
         prompt = build_prompt(task, sources)
@@ -44,6 +54,7 @@ def propose(repo: Path, task: str, paths: list[str], model: str,
         if checkpoint is not None:
             checkpoint()
         validate_unified_diff(patch, set(paths))
+        assert_sources_current(repo, source_hashes)
         if checkpoint is not None:
             checkpoint()
         output_dir.mkdir(parents=True, exist_ok=True)
@@ -55,15 +66,28 @@ def propose(repo: Path, task: str, paths: list[str], model: str,
         journal.transition("proposed", f"sha256={digest}")
         if checkpoint is not None:
             checkpoint()
-        check_patch(repo, patch, set(paths))
+        check_patch(repo, patch, set(paths), source_sha256=source_hashes)
         if checkpoint is not None:
             checkpoint()
-        journal.transition("verified", "git apply --check passed on disposable copy")
+        receipt_bytes = canonical_receipt(journal.task_id, target, source_hashes, digest)
+        receipt_digest = hashlib.sha256(receipt_bytes).hexdigest()
+        with receipt_path.open("xb") as file:
+            receipt_created = True
+            file.write(receipt_bytes)
+            file.flush()
+            os.fsync(file.fileno())
+        if checkpoint is not None:
+            checkpoint()
+        verify_proposal_receipt(repo, output, receipt_path, receipt_digest)
+        journal.transition("verified", f"receipt_sha256={receipt_digest}; git apply --check passed")
         return {"task_id": journal.task_id, "state": "verified",
-                "patch": str(output), "sha256": digest}
+                "patch": str(output), "sha256": digest,
+                "receipt": str(receipt_path), "receipt_sha256": receipt_digest}
     except Exception as exc:
         # Never leave an apparently usable patch behind after revocation,
         # failed verification, or cancellation. Only this task owns output.
+        if receipt_created:
+            receipt_path.unlink(missing_ok=True)
         if output_created:
             output.unlink(missing_ok=True)
         # Avoid persisting model output or sensitive source text in the journal.

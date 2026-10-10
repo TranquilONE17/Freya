@@ -25,6 +25,16 @@ BLOCKED_EXTENSIONS = frozenset({".pem", ".key", ".p12", ".pfx", ".kdbx"})
 
 def selected_source(repo: Path, relative_path: str) -> str:
     """Read only non-sensitive regular files selected inside the repository."""
+    return source_text(selected_source_bytes(repo, relative_path))
+
+
+def source_text(contents: bytes) -> str:
+    """Preserve the existing UTF-8/universal-newline prompt and Git-copy format."""
+    return contents.decode("utf-8").replace("\r\n", "\n").replace("\r", "\n")
+
+
+def selected_source_bytes(repo: Path, relative_path: str) -> bytes:
+    """Read bounded original bytes using the same source exclusions."""
     relative = Path(relative_path)
     if relative.is_absolute() or not relative.parts or ".." in relative.parts:
         raise ValueError("Source must be a contained relative path")
@@ -45,7 +55,11 @@ def selected_source(repo: Path, relative_path: str) -> str:
         raise ValueError("Source must be a regular file inside the repository")
     if source.stat().st_size > MAX_FILE_BYTES:
         raise ValueError(f"Source too large: {relative_path}")
-    return source.read_text(encoding="utf-8")
+    with source.open("rb") as file:
+        contents = file.read(MAX_FILE_BYTES + 1)
+    if len(contents) > MAX_FILE_BYTES:
+        raise ValueError(f"Source too large: {relative_path}")
+    return contents
 
 
 def build_prompt(task: str, files: list[tuple[str, str]]) -> str:
