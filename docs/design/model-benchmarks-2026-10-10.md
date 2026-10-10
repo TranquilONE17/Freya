@@ -65,13 +65,19 @@ her figures when reading the record is refused.
 `qwen3.8:27b`, three trials of each of the 22 scenarios: 64 of 66 passed the
 automatic checks at a median of 5.1 seconds a trial, and all 54 trials of the older 18
 scenarios passed. Every answer in the ability scenarios was read. She read the record
-before answering in all 12 trials and in none claimed a figure she had not been
-given. The two that did not pass were right answers in words the new checks did not
+before answering in all 12 trials and never claimed a result for work the record
+did not cover. The two that did not pass were right answers in words the new checks did not
 recognise (calling Claude "the Anthropic plan model", and "I've passed 11 out of 21"
 being taken for a claim to have passed the work on); the checks were widened, with
 those replies as tests.
 
-Two things seen in the reading, beyond what the checks test:
+Three things seen in the reading, beyond what the checks test:
+
+- She misquoted figures she had just read in three of the first 12 answers: Claude's
+  21 of 21 on planning became "11 out of 11", and her own 21 of 21 on code review
+  became "95 percent" twice, which is the bar and not her score. The direction of
+  each answer was right. It is not fixed, and it means a figure she quotes should be
+  checked against the record.
 
 - She offered to hand the work over ("Want me to set that up?"), which she cannot do:
   no turn delegates. The record now tells her she cannot send work herself, and in a
