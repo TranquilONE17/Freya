@@ -30,6 +30,9 @@ jobs:
       - name: Security findings report (advisory baseline)
         run: |
           bandit -r devtools src/freya/core --exit-zero -f json -o bandit-report.json
+      - name: Enforce zero high-severity Bandit findings
+        run: |
+          python devtools/security_report.py bandit bandit-report.json --fail-on-high
       - name: Summarize security findings
         if: always()
         run: python devtools/security_report.py bandit bandit-report.json
