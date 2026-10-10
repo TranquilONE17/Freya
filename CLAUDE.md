@@ -192,7 +192,8 @@ them on a control plane and registers `anthropic-plan`; a brief then goes dispat
 broker, route. Three locks only the owner opens each stop a brief alone: the
 provider's switch, a policy rule for `cloud.anthropic_plan.ask` (never put it in a
 seed), and a usage limit for the route. Freya's startup assembles it so the
-Cloud tab works; no turn uses it. The tab (`gateway/static/cloud.js`, message type
+Cloud tab works; a turn reaches it only through `work.delegate` (see
+"Delegation inside a turn"). The worker model is `sonnet` unless `FREYA_CLAUDE_MODEL` names another. The tab (`gateway/static/cloud.js`, message type
 `cloud`, `delegation/window_requests.py`) changes the owner's cloud settings through
 the `cloud.settings.change` capability (seed `alpha-cloud-settings`), so each change
 is audited without its content; its answers go only to the asking window. Switching a
@@ -200,6 +201,27 @@ provider on in the tab unlocks it (owner decision): the switch, the policy rule 
 its route (reason `SWITCH_REASON`, removed again when switched off) and a starting
 weekly allowance. The tab must never be able to send a brief or write any other
 policy rule.
+
+Delegation inside a turn: `delegation/turn.py` (`TurnDelegation`, built by
+`service.build_turn_delegation`) registers the model tool `work.delegate` (policy seed
+`alpha-work-delegate`, which lets the model *ask*; it allows no cloud call). Arguments are
+a `kind` (at most 20 characters, from the fixed list) and `inputs` (at most 400, ids
+separated by commas, may be empty); there is no prose field. Freya's code offers the ids
+before the model is called: `request`, `turn-1` to `turn-3` (the last exchanges) and
+`tool-N` (the Nth tool result of the turn, only from tools that read this PC). Memories,
+summaries, recalled passages and media are never offered, whatever the settings say; do
+not add a source without deciding that first. The tool is offered only while a turn is
+under way, a provider is switched on and a window is connected. One delegation a turn;
+`Dispatcher.authorize` gets value `normal` and urgent `False`, never the model's. The
+answer is an untrusted tool result cut to 8,000 characters. Every question to the owner
+(approval for ask-first material, confirmation for a spoken turn, screening hold, usage
+limit) goes through `gateway/prompts.py` (`OwnerPrompts`), never the event bus, whose
+history is replayed to new windows; a question is shown only to windows connected at the
+time, no answer in 120 seconds or when Freya closes is a denial, and an answer counts
+once and only if it is one the question offered. A refusal's wording is fixed: it reaches
+the model and the audit log, so it must never hold a brief, a match or the vendor's text.
+Out of this version: other providers, several delegations in a turn, file or code inputs,
+"Allow permanently", removing a passage and sending.
 
 Brief screening: `freya.delegation.screening.screen_brief` compares a brief bound for
 a cloud model with (id, text) pairs from the personal store and returns what matched;
@@ -237,7 +259,7 @@ never in the message, because the message reaches the audit log; never add a
 the route in the control plane until one sending boundary checks every brief. The provider
 `anthropic-plan` and capability `cloud.anthropic_plan.ask` exist but are not
 registered by `build_local_control_plane`, are in no policy seed, and are not model
-tools. Nothing calls the route yet. Tests use a fake program.
+tools. Only the dispatcher calls the route. Tests use a fake program.
 
 Model tool calling: `FreyaAssistant.respond_stream` offers the model the capabilities
 whose metadata has `model_tool: True` (never destructive ones) using the model's native
@@ -245,12 +267,12 @@ tool calling. Requested tools run through the broker, their JSON results go back
 the model, and it answers in its own words; at most three tool rounds and twelve
 tool attempts per streamed turn, including refused attempts. Requests on the final
 answer round are never dispatched. The
-offered tools take no arguments, and arguments the model invents are discarded. Tool
+offered tools mostly take no arguments, and arguments the model invents are discarded. Tool
 results are untrusted content from the model's point of view. The tool exchange is not
 kept in conversation history. A tool that takes arguments declares them in its metadata
 (`tool_parameters`); `ModelToolHost` passes only declared arguments and requires each
-to be non-empty text within its declared length. `image.generate` is the one such tool:
-it is provided by Freya's in-process image service (`image-service-local`), which starts
+to be non-empty text within its declared length (unless declared `optional`).
+`image.generate` and `work.delegate` take arguments. `image.generate` is provided by Freya's in-process image service (`image-service-local`), which starts
 ComfyUI on demand and unloads the Ollama models while it runs, so the reply after an
 image waits for the model to reload. It has a local, reversible effect; before adding a
 tool with a consequential effect, decide how it is authorized, including whether a
@@ -331,7 +353,9 @@ baseline: there is no pairing, no per-client scope, and window turns are attribu
 the same fixed `local-owner` principal. The page shows everything with `textContent`
 and a strict Content-Security-Policy, because replies and tool results are untrusted.
 The window can only ask for a chat turn, an image, mute/unmute, stopping speech, a
-voice volume, a Memory tab request, a command, or a Voice tab request (with a recording sent as binary messages);
+voice volume, a Memory tab request, a command, a Voice tab request (with a recording sent as binary messages),
+or an answer to a question Freya put (`cloud.answer`; Freya sends `cloud.prompt` and
+`cloud.prompt.closed` to the windows, never through the bus);
 add new message types deliberately. `main.py` publishes conversation and image events
 on a module-level `EVENTS` bus; the console still prints as before. The bus calls its
 subscribers in publish order while it is locked, so a subscriber must never block: the

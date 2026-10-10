@@ -18,7 +18,7 @@ from freya.gpu.resource_manager import GPUResourceManager
 from freya.image.image_generator import FreyaImageGenerator
 
 from freya.control_plane import build_local_control_plane
-from freya.delegation.service import build_cloud_delegation
+from freya.delegation.service import build_cloud_delegation, build_turn_delegation
 from freya.storage.backup import back_up_on_close
 from freya.config import OPEN_WINDOW, MODEL
 from freya.config import COMFYUI_AT_START
@@ -1086,6 +1086,34 @@ def main(window_only=False):
         cloud = None
 
         print(f"Cloud settings are unavailable: {exc}")
+
+    # Lets the model hand one piece of work to Claude during a turn.
+    # The tool is offered only while a provider is switched on and a
+    # window is open to ask the owner in. The window is made further
+    # on, so it is looked up when a question is asked.
+    window = None
+
+    if cloud is not None:
+
+        try:
+
+            freya.delegation = build_turn_delegation(
+
+                control_plane,
+
+                cloud,
+
+                lambda prompt: (
+                    window.ask_owner(prompt) if window is not None else None
+                ),
+
+                lambda: window is not None and window.has_window(),
+
+            )
+
+        except Exception as exc:
+
+            print(f"Handing work to an outside model is unavailable: {exc}")
 
     voice = FreyaVoice()
 

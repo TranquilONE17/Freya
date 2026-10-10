@@ -180,6 +180,101 @@
     }
   });
 
+  // -- questions Freya puts to the owner ------------------------------
+  // A brief's text is shown only here, only as text, and only in the
+  // window that was asked. Nothing is kept once the question is closed.
+
+  const dialog = document.getElementById("cloud-prompt");
+  let asking = null;
+
+  const TITLES = {
+    approval: (who) => "Send some of this to " + who + "?",
+    confirmation: (who) => "Send your spoken request to " + who + "?",
+    hold: () => "This request matches something private",
+    limit: () => "This would go over a usage limit",
+  };
+
+  function closePrompt() {
+    asking = null;
+    if (dialog.open) dialog.close();
+    document.getElementById("cloud-prompt-text").textContent = "";
+    document.getElementById("cloud-prompt-matches").replaceChildren();
+    document.getElementById("cloud-prompt-choices").replaceChildren();
+  }
+
+  function answerPrompt(choice) {
+    if (!asking) return;
+    send({type: "cloud.answer", id: asking.id, choice});
+    closePrompt();
+  }
+
+  function showPrompt(prompt) {
+    if (typeof prompt.id !== "string" || !Array.isArray(prompt.choices)) return;
+    if (asking) answerPrompt(asking.fallback);
+    const choices = prompt.choices.filter(
+      (choice) => choice && typeof choice.id === "string",
+    );
+    if (!choices.length) return;
+
+    // The last answer offered is always the one that sends nothing.
+    asking = {id: prompt.id, fallback: choices[choices.length - 1].id};
+
+    const title = (TITLES[prompt.kind] || (() => "Freya has a question"))(
+      String(prompt.provider || "an outside model"),
+    );
+    document.getElementById("cloud-prompt-title").textContent = title;
+
+    const lines = document.getElementById("cloud-prompt-lines");
+    lines.replaceChildren();
+    (prompt.lines || []).forEach((line) => lines.append(node("li", "", String(line))));
+
+    document.getElementById("cloud-prompt-reason").textContent =
+      prompt.reason ? String(prompt.reason) : "";
+
+    const matches = document.getElementById("cloud-prompt-matches");
+    matches.replaceChildren();
+    (prompt.matches || []).forEach((match) => {
+      matches.append(node("li", "", String(match.how) + ": " + String(match.text)));
+    });
+
+    document.getElementById("cloud-prompt-text-label").textContent =
+      String(prompt.text_label || "The request");
+    document.getElementById("cloud-prompt-text").textContent =
+      typeof prompt.text === "string" ? prompt.text : "";
+
+    const box = document.getElementById("cloud-prompt-choices");
+    box.replaceChildren();
+    choices.forEach((choice, position) => {
+      const button = node(
+        "button",
+        position === choices.length - 1 && choices.length > 1 ? "ghost" : "primary",
+        String(choice.label || choice.id),
+      );
+      button.type = "button";
+      button.addEventListener("click", () => answerPrompt(choice.id));
+      box.append(button);
+    });
+
+    if (!dialog.open) dialog.showModal();
+  }
+
+  // Closing the box with Escape is an answer, and it is "no".
+  dialog.addEventListener("cancel", (event) => {
+    event.preventDefault();
+    if (asking) answerPrompt(asking.fallback);
+  });
+
+  window.addEventListener("freya-cloud-prompt", (event) => {
+    showPrompt(event.detail || {});
+  });
+
+  window.addEventListener("freya-cloud-prompt-closed", (event) => {
+    if (asking && event.detail && event.detail.id === asking.id) closePrompt();
+  });
+
+  // A new connection means the question is no longer waiting.
+  window.addEventListener("freya-connected", closePrompt);
+
   byId("bars-form").addEventListener("submit", (event) => {
     event.preventDefault();
     const bars = {};

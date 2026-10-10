@@ -16,6 +16,7 @@ from websockets.datastructures import Headers
 from websockets.http11 import Response
 from websockets.sync.server import serve
 
+from freya.gateway.prompts import OwnerPrompts
 from freya.gateway.speech_relay import SpeechRelay
 
 
@@ -186,6 +187,11 @@ class Gateway:
         # Hands Freya's speech to the one client that plays it.
         self.speech = SpeechRelay()
 
+        # The windows (web pages) that are connected, and the questions
+        # put to the owner in them. A question is never put on the bus.
+        self._web_clients = []
+        self._prompts = OwnerPrompts(self._show_to_windows)
+
         self._work = queue.Queue()
         # Requests about the avatar have a queue of their own, so that
         # she can be moved or hidden while a long reply is under way.
@@ -267,6 +273,11 @@ class Gateway:
         turn depends on should only be closed after this returns True.
         """
         self._stopping.set()
+
+        # A turn may be waiting for the owner to answer a question. It
+        # must not hold up shutdown: the question is closed, and that
+        # is a denial.
+        self._prompts.close()
 
         # Turns that had not started are cancelled.
         while True:
@@ -498,6 +509,44 @@ class Gateway:
             },
         )
 
+    # -- questions for the owner -------------------------------------
+
+    def _show_to_windows(self, message: dict, recipients=None) -> list:
+        """
+        Put a message straight into each connected window's own queue
+        (or only those of `recipients`) and return the windows it
+        reached. It does not touch the event bus, which keeps a
+        history that windows opened later are given.
+        """
+        with self._lock:
+            clients = [
+                c for c in self._web_clients
+                if c["open"] and (recipients is None or c in recipients)
+            ]
+
+        reached = []
+
+        for client in clients:
+            try:
+                client["outbox"].put_nowait(message)
+                reached.append(client)
+            except queue.Full:
+                pass
+
+        return reached
+
+    def window_count(self) -> int:
+        """How many windows are connected and able to answer."""
+        with self._lock:
+            return sum(1 for c in self._web_clients if c["open"])
+
+    def ask_owner(self, prompt: dict):
+        """
+        Ask the owner a question in the window and wait for the answer.
+        Returns the id of the answer chosen, or None for no answer.
+        """
+        return self._prompts.ask(prompt)
+
     # -- WebSocket ---------------------------------------------------
 
     def idle_seconds(self):
@@ -557,6 +606,9 @@ class Gateway:
             self._clients += 1
             self.ever_connected = True
 
+            if client["kind"] == "web":
+                self._web_clients.append(client)
+
         try:
             # Subscribing and taking the history are one step, so an
             # event published right now is in exactly one of them.
@@ -586,6 +638,11 @@ class Gateway:
             pass
         finally:
             client["open"] = False
+
+            with self._lock:
+                if client in self._web_clients:
+                    self._web_clients.remove(client)
+
             self.speech.release(client["playback"])
             self._bus.unsubscribe(outbox.put_nowait)
 
@@ -783,6 +840,13 @@ class Gateway:
                 return reject("Freya is shutting down.")
 
             self._avatar_work.put(message)
+        elif kind == "cloud.answer":
+            # The owner's answer to a question Freya put. It is taken
+            # here, on this window's own thread: the turn that asked is
+            # waiting for it, so it cannot be queued behind that turn.
+            # Only a window may answer.
+            if client["kind"] == "web":
+                self._prompts.answer(message.get("id"), message.get("choice"))
         elif kind == "mute":
             self._actions.set_muted(message.get("muted") is True)
         elif kind == "volume":

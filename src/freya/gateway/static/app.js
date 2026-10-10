@@ -176,6 +176,16 @@ function showEvent(event) {
       window.dispatchEvent(new CustomEvent("freya-cloud", {detail: event}));
       break;
 
+    // A question Freya puts to the owner, and its being closed. These
+    // are handed straight to this window and are never replayed.
+    case "cloud.prompt":
+      window.dispatchEvent(new CustomEvent("freya-cloud-prompt", {detail: event}));
+      break;
+
+    case "cloud.prompt.closed":
+      window.dispatchEvent(new CustomEvent("freya-cloud-prompt-closed", {detail: event}));
+      break;
+
     case "status":
       showStatus(event.status);
       break;

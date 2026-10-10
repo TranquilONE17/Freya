@@ -33,6 +33,10 @@ class FreyaAssistant(ConversationMemory):
         # Optional: offers tools to the model and runs the ones it
         # asks for. Without it Freya answers from the model alone.
         self.tool_host = tool_host
+        # Optional: lets the model hand one piece of work to an outside
+        # model during a turn (see freya.delegation.turn). Without it a
+        # turn is exactly what it always was.
+        self.delegation = None
         # What she reads from her saved memories and conversations for
         # a reply is asked for through the broker. Without one, nothing
         # stored is given to the model.
@@ -93,6 +97,37 @@ class FreyaAssistant(ConversationMemory):
         return reply
 
     def respond_stream(self, user_input):
+        # The inputs a delegation could send are fixed here, before
+        # the model is first called, and dropped when the turn ends,
+        # whether it ends well, in an error, or by being closed.
+        turn = self._begin_delegation(user_input)
+
+        try:
+            yield from self._respond_stream(user_input, turn)
+        finally:
+            self._end_delegation(turn)
+
+    def _begin_delegation(self, user_input):
+        if self.delegation is None:
+            return None
+
+        try:
+            return self.delegation.begin_turn(
+                user_input, self.messages, self.source,
+            )
+        except Exception:
+            # Handing work over is optional; a fault in it must not
+            # stop a reply.
+            return None
+
+    def _end_delegation(self, turn):
+        if self.delegation is not None:
+            try:
+                self.delegation.end_turn(turn)
+            except Exception:
+                pass
+
+    def _respond_stream(self, user_input, turn):
         command_response = (
             self._handle_memory_command(
                 user_input
@@ -167,6 +202,8 @@ class FreyaAssistant(ConversationMemory):
                 else:
                     tool_attempts += 1
                     result = self.tool_host.run(call["name"], call["arguments"])
+                    if turn is not None:
+                        turn.add_tool_result(call["name"], result)
                 messages_for_model.append(
                     {
                         "role": "tool",

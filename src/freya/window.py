@@ -214,6 +214,20 @@ class FreyaWindow:
         """
         return self._gateway.new_pairing_key()
 
+    def has_window(self) -> bool:
+        """Whether a window is connected that could answer a question."""
+        return self.running and self._gateway.window_count() > 0
+
+    def ask_owner(self, prompt: dict):
+        """
+        Ask the owner a question in the window. Returns the id of the
+        answer chosen, or None when there is no window or no answer.
+        """
+        if not self.running:
+            return None
+
+        return self._gateway.ask_owner(prompt)
+
     def start(self) -> bool:
         """
         Start serving the window. Returns False, with Freya otherwise
