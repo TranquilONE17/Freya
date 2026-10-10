@@ -5,6 +5,9 @@ import pytest
 from freya.control_plane import build_local_control_plane
 from freya.delegation.abilities import (
     LOCAL_ROUTE,
+    OTHER_BUILD,
+    OTHER_TASKS,
+    CurrentFigures,
     NOT_MEASURED,
     advise,
     candidates,
@@ -315,3 +318,82 @@ def test_reports_are_recorded_from_the_command_line(tmp_path, capsys):
     assert record.entries() == [entry]
     assert record.result(entry, task.kind).passed == 16
     assert "bad.json: not recorded" in capsys.readouterr().err
+
+
+# Figures that no longer describe what would do the work.
+
+def test_figures_from_another_set_of_tasks_do_not_count(record):
+    record.add_report({**report(OWN, 20), "suite": "older-set"})
+
+    described = describe(record, suite="todays-set")
+    kind = described["you"]["measured"][0]["kinds"]["extraction"]
+
+    assert kind == {
+        "passed": 20, "attempts": 20, "good_enough_for": "unmeasured",
+        "does_not_count": OTHER_TASKS,
+    }
+    assert "unknown" in described["you"]["note"]
+    assert "has not been measured" in (
+        described["where_work_should_go"]["extraction"]["normal"]
+    )
+    # The same figures count when they are for today's tasks.
+    assert "does_not_count" not in describe(record, suite="older-set")["you"][
+        "measured"
+    ][0]["kinds"]["extraction"]
+
+
+def test_figures_with_no_task_set_recorded_do_not_count_once_one_is_asked(record):
+    record.add_report(report(OWN, 20))
+
+    kinds = describe(record, suite="todays-set")["you"]["measured"][0]["kinds"]
+
+    assert kinds["extraction"]["does_not_count"] == OTHER_TASKS
+
+
+def test_figures_from_another_build_of_the_model_do_not_count(record):
+    record.add_report({**report(OWN, 20), "identity": "build-one"})
+
+    def standing(identities):
+        return describe(record, identities=identities)["you"]["measured"][0][
+            "kinds"
+        ]["extraction"]
+
+    assert standing({f"{OWN}:latest": "build-two"})["does_not_count"] == OTHER_BUILD
+    assert standing({f"{OWN}:latest": "build-one"})["good_enough_for"] == "high"
+    # When the installed build cannot be learned, nothing is assumed.
+    assert standing({})["good_enough_for"] == "high"
+
+
+def test_a_stale_local_figure_does_not_keep_work_from_a_measured_model(record):
+    record.add_report({**report(OWN, 20), "identity": "build-one"})
+    record.add_report(report("claude", 20, route=CLOUD))
+    current = CurrentFigures(record, identities={f"{OWN}:latest": "build-two"})
+
+    choice = advise(current, "extraction", "high", [OWN], [CLOUD])
+
+    assert json.loads(choice.entry)[0] == CLOUD
+    assert advise(record, "extraction", "high", [OWN], [CLOUD]).entry != choice.entry
+
+
+def test_installed_builds_are_read_from_the_local_server(monkeypatch):
+    from freya.providers.model import ollama as provider
+
+    class Listing:
+        def list(self):
+            return {"models": [
+                {"model": "own-model:latest", "digest": "build-one"},
+                {"model": "other:7b", "digest": "build-nine"},
+                {"model": "no-digest:1b"},
+            ]}
+
+    monkeypatch.setattr(provider, "ollama", Listing())
+    assert provider.installed_digests() == {
+        "own-model:latest": "build-one", "other:7b": "build-nine",
+    }
+
+    class Down:
+        def list(self):
+            raise ConnectionError("not running")
+
+    monkeypatch.setattr(provider, "ollama", Down())
+    assert provider.installed_digests() == {}

@@ -234,7 +234,11 @@ unmeasured model is unknown, not better or worse; a cloud route is advised only
 while its provider is switched on; a line leaves `NOT_MEASURED` only when tasks for
 it exist and have been run. It reads and advises; it sends nothing and no turn
 delegates on it yet. Her replies name no thinking setting, which the record holds as
-`default`; figures for other settings are labelled as such.
+`default`; figures for other settings are labelled as such. A figure measured on
+another set of tasks than today's (`suite_version`), or on another build of a local
+model than the one installed (its digest, asked of Ollama directly when she reads),
+is shown but does not count (`CurrentFigures`): changing the tasks makes every model
+unmeasured until it is run again, which is intended.
 
 Claude plan route: `providers/model/claude_plan.py` sends one brief to Claude by
 running the owner's own signed-in Claude Code program (`claude.exe` from the desktop
@@ -454,9 +458,12 @@ administrator. SQLite durability settings are provisional pending ADR-015; each 
 invocation currently costs roughly 30–60 ms in synchronous writes. Default policy rules
 are applied once per named seed (`policy_seed` table), so removed rules stay removed.
 
-`python -m freya.evaluation.delegation` measures a model on 63 synthetic delegated
+`python -m freya.evaluation.delegation` measures a model on 91 synthetic delegated
 tasks in eight kinds (`evaluation/delegation_tasks.py`), each with a deterministic
-check. It runs an installed Ollama model, or Claude on the owner's plan with
+check. Twenty-eight of them (`STRETCH_TASKS`) are the hardest, added when the best
+local model passed all the rest; their expected answers are worked out by code from
+the data the brief is written from, and a test solves the puzzles again by trying
+every case. Add a task that way, not with an answer typed in by hand. It runs an installed Ollama model, or Claude on the owner's plan with
 `--claude-plan`, which is refused without `--owner-approved-cloud-run` because it
 sends the tasks to the vendor and uses allowance. Replies are read, never executed;
 do not add a task that is graded by running what a model wrote. Every task carries a
@@ -464,7 +471,10 @@ reply that must pass and one that must fail, and a test checks both.
 
 `python -m freya.evaluation.workflow` runs opt-in local-model evaluations with
 synthetic memory and simulated tools; see `docs/design/workflow-evaluation.md`.
-It never uses the owner's data or live hardware tools.
+It never uses the owner's data or live hardware tools. Its four `ability-` scenarios
+give her a made-up model record and check that she reads it before speaking of her
+own ability, calls unmeasured work unmeasured, and never claims to have sent work
+away.
 
 `tests/` covers the registries, tool modules, policy, audit, broker, model runtime,
 name matching, the listener, and the listening commands, using a fake Ollama client

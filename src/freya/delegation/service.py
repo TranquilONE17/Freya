@@ -9,7 +9,10 @@ from freya.core.persistence import ControlStore
 from freya.core.policy import seed_alpha_policy
 from freya.core.providers import ProviderDefinition
 from freya.core.usage import SCOPE_PERIOD, USAGE_MIGRATIONS, UsageLedger
-from freya.delegation.abilities import describe_abilities
+from freya.delegation.abilities import (
+    MODEL_RECORD_DESCRIPTION,
+    describe_abilities,
+)
 from freya.delegation.dispatch import Dispatcher, Route, SentBriefs
 from freya.delegation.material import CloudSettings
 from freya.delegation.record import ModelRecord
@@ -18,6 +21,7 @@ from freya.delegation.window_requests import (
     apply_cloud_change,
     cloud_window_request,
 )
+from freya.evaluation.delegation_tasks import suite_version
 from freya.providers.model.claude_plan import (
     ANTHROPIC_PLAN_PROVIDER,
     ANTHROPIC_PLAN_VENDOR,
@@ -26,6 +30,7 @@ from freya.providers.model.claude_plan import (
     create_claude_plan_provider,
     register_claude_plan_capability,
 )
+from freya.providers.model.ollama import installed_digests
 from freya.tools.model_tools import MODEL_TOOL
 
 
@@ -89,6 +94,8 @@ class CloudDelegation:
     # The model Freya answers with, then any other she runs here.
     local_models: Tuple[str, ...] = (MODEL, BACKGROUND_MODEL)
     context_tokens: Optional[int] = CONTEXT_WINDOW_TOKENS
+    # The digest of each installed local model, asked when she reads.
+    local_identities: Callable[[], dict] = installed_digests
 
     @property
     def available_providers(self) -> Tuple[str, ...]:
@@ -185,7 +192,8 @@ class CloudDelegation:
         """
         What has been measured about Freya's own model and the models
         she could hand work to, read fresh from the record. A cloud
-        route is advised only while the owner has its provider on.
+        route is advised only while the owner has its provider on, and
+        only figures for today's tasks and the installed builds count.
         """
         self.record.refresh()
 
@@ -199,6 +207,8 @@ class CloudDelegation:
             },
             self.settings.bars,
             self.context_tokens,
+            suite=suite_version(),
+            identities=self.local_identities(),
         )
 
     def window_request(self, message: dict) -> dict:
@@ -337,16 +347,7 @@ def build_cloud_delegation(
     control_plane.capabilities.register(
         CapabilityDefinition(
             name=MODEL_RECORD_READ,
-            description=(
-                "Returns what evaluations have measured about your own "
-                "model and the other models work could be given to, by "
-                "kind of task: passes out of attempts, what value of "
-                "work each is good enough for, where a task of each "
-                "kind should go, and the kinds of work nobody has "
-                "measured. Use it before saying how good you are at "
-                "something, whether you can do a task well, or whether "
-                "Claude or another model would do it better."
-            ),
+            description=MODEL_RECORD_DESCRIPTION,
             provider=MODEL_RECORD_PROVIDER,
             handler=cloud.abilities,
             category="model",

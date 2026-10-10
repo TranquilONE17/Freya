@@ -44,6 +44,18 @@ NOT_MEASURED = (
     "work that takes many steps or many tool calls",
 )
 
+# What the model is told the tool is for. The evaluation offers the
+# same words, so it measures the tool Freya really has.
+MODEL_RECORD_DESCRIPTION = (
+    "Returns what evaluations have measured about your own model and "
+    "the other models work could be given to, by kind of task: passes "
+    "out of attempts, what value of work each is good enough for, "
+    "where a task of each kind should go, and the kinds of work nobody "
+    "has measured. Use it before saying how good you are at something, "
+    "whether you can do a task well, or whether Claude or another model "
+    "would do it better."
+)
+
 EVIDENCE = (
     "Pass counts on short, synthetic tasks graded by automatic checks, "
     "with the model working as a worker on one brief and no tools. "
@@ -70,7 +82,65 @@ def _label(about: dict) -> str:
     return ", ".join(parts)
 
 
-def _recorded(record: ModelRecord, route: str, models=None) -> List[tuple]:
+OTHER_TASKS = "measured on a different set of tasks from today's"
+OTHER_BUILD = "measured on a different build of this model from the one installed"
+
+
+def _with_tag(model):
+    return model if ":" in model else f"{model}:latest"
+
+
+class CurrentFigures:
+    """
+    The record as it applies today. A figure measured on another set
+    of tasks, or on another build of a model than the one installed,
+    is not a figure for what would do the work now, so it is treated
+    as no figure at all.
+
+    `suite` names today's set of tasks and `identities` gives the
+    digest of each installed local model. Either may be left out, and
+    then that check is not made.
+    """
+
+    def __init__(self, record: ModelRecord, suite=None, identities=None):
+        self._record = record
+        self._suite = suite
+        self._identities = dict(identities or {})
+
+    def entries(self):
+        return self._record.entries()
+
+    def about(self, entry):
+        return self._record.about(entry)
+
+    def recorded(self, entry, kind):
+        """The figure as recorded, whether or not it still applies."""
+        return self._record.result(entry, kind)
+
+    def stale(self, entry, kind) -> Optional[str]:
+        """Why a recorded figure does not apply today, or None."""
+        result = self._record.result(entry, kind)
+        about = self._record.about(entry)
+
+        if result is None or about is None:
+            return None
+        if self._suite and result.suite != self._suite:
+            return OTHER_TASKS
+        if about["route"] == LOCAL_ROUTE and about.get("identity"):
+            installed = self._identities.get(_with_tag(about["model"] or ""))
+            if installed and installed != about["identity"]:
+                return OTHER_BUILD
+
+        return None
+
+    def result(self, entry, kind):
+        if self.stale(entry, kind):
+            return None
+
+        return self._record.result(entry, kind)
+
+
+def _recorded(record, route: str, models=None) -> List[tuple]:
     found = []
 
     for entry in record.entries():
@@ -87,7 +157,7 @@ def _recorded(record: ModelRecord, route: str, models=None) -> List[tuple]:
 
 
 def candidates(
-    record: ModelRecord,
+    record,
     kind: str,
     local_models: Sequence[str],
     cloud_routes: Sequence[str] = (),
@@ -131,7 +201,7 @@ def candidates(
 
 
 def advise(
-    record: ModelRecord,
+    record,
     kind: str,
     value: str,
     local_models: Sequence[str],
@@ -167,20 +237,26 @@ def _entry_report(record, entry, about, bars, kinds) -> dict:
     measured = {}
 
     for kind in kinds:
-        result = record.result(entry, kind)
+        result = record.recorded(entry, kind)
 
         if result is None:
             continue
 
+        stale = record.stale(entry, kind)
         measured[kind] = {
             "passed": result.passed,
             "attempts": result.attempts,
-            "good_enough_for": _standing(result, bars),
+            "good_enough_for": (
+                "unmeasured" if stale else _standing(result, bars)
+            ),
         }
+
+        if stale:
+            measured[kind]["does_not_count"] = stale
 
     dates = sorted(
         result.measured_at[:10]
-        for result in (record.result(entry, kind) for kind in kinds)
+        for result in (record.recorded(entry, kind) for kind in kinds)
         if result and result.measured_at
     )
 
@@ -191,7 +267,7 @@ def _entry_report(record, entry, about, bars, kinds) -> dict:
     }
 
 
-def _whose(choice: Choice, record: ModelRecord) -> Optional[str]:
+def _whose(choice: Choice, record) -> Optional[str]:
     if choice.entry is None:
         return None
 
@@ -217,6 +293,8 @@ def describe_abilities(
     bars=None,
     context_tokens: Optional[int] = None,
     kinds: Sequence[str] = KINDS,
+    suite: Optional[str] = None,
+    identities: Optional[Dict[str, str]] = None,
 ) -> dict:
     """
     What has been measured about the model Freya answers with and the
@@ -226,7 +304,12 @@ def describe_abilities(
     switched its provider on. A route that is off is still described,
     so Freya can say what is known about it, but no work is advised
     towards it.
+
+    With `suite` and `identities` (see `CurrentFigures`), a figure
+    from another set of tasks or another build is shown but marked as
+    not counting, and no work is advised on it.
     """
+    record = CurrentFigures(record, suite, identities)
     bars = validate_bars(DEFAULT_BARS if bars is None else bars)
     cloud_routes = dict(cloud_routes or {})
     local_models = list(dict.fromkeys([model, *local_models]))
@@ -253,13 +336,18 @@ def describe_abilities(
     if context_tokens:
         report["you"]["context_tokens"] = context_tokens
 
-    if not own:
+    counted = [
+        (entry, about) for entry, about in own
+        if any(record.result(entry, kind) for kind in kinds)
+    ]
+
+    if not counted:
         report["you"]["note"] = (
-            "Nothing has been measured for this model. Its ability at "
-            "every kind of task is unknown."
+            "Nothing that counts today has been measured for this model. "
+            "Its ability at every kind of task is unknown."
         )
     elif not any(
-        about["settings"].get("think") == REPLY_THINKING for _, about in own
+        about["settings"].get("think") == REPLY_THINKING for _, about in counted
     ):
         report["you"]["note"] = (
             "These figures are for the thinking settings named. Your own "

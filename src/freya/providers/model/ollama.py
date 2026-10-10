@@ -97,6 +97,30 @@ def check_ollama_health(models):
     return ProviderHealth.UNHEALTHY
 
 
+def installed_digests() -> dict:
+    """
+    The digest of each installed model, by name with its tag. A digest
+    names one exact build of a model. Empty when the server cannot be
+    asked.
+    """
+    try:
+        listed = ollama.list()
+    except Exception:
+        return {}
+
+    digests = {}
+
+    for entry in listed["models"]:
+        try:
+            name, digest = entry["model"], entry["digest"]
+        except (KeyError, TypeError):
+            continue
+        if name and digest:
+            digests[_with_tag(name)] = digest
+
+    return digests
+
+
 def _has_own_model(chat_model, background_model):
     return bool(background_model) and (
         _with_tag(background_model) != _with_tag(chat_model)

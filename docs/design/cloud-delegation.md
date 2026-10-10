@@ -218,8 +218,9 @@ A model counts as measured for a kind once it has at least 15 graded attempts on
 exact version in use. Writing code is not a kind yet: grading it means running what a
 model wrote, which must wait for the isolation the baseline requires (ARCH-017).
 
-The tasks are built: `freya.evaluation.delegation_tasks` holds 63 synthetic tasks, 17 of them marked harder,
-at least five per kind, each with a deterministic check, a reply that must pass and
+The tasks are built: `freya.evaluation.delegation_tasks` holds 91 synthetic tasks, 45 of them marked harder
+and 28 of those the hardest (added 2026-10-10, three or four per kind, once the
+strongest local model passed everything else), at least eight per kind, each with a deterministic check, a reply that must pass and
 one that must fail. `python -m freya.evaluation.delegation` runs them against an
 installed Ollama model, or against Claude on the plan with `--claude-plan`, which is
 refused without `--owner-approved-cloud-run`. No reply is executed.

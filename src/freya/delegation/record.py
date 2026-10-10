@@ -72,6 +72,8 @@ class KindResult:
     median_seconds: Optional[float] = None
     mean_tokens: Optional[float] = None
     measured_at: str = ""
+    # The set of tasks it was measured on, when the report said.
+    suite: str = ""
 
     @property
     def attempts(self) -> int:
@@ -227,6 +229,7 @@ class ModelRecord:
                 "route": found.get("route"),
                 "model": found.get("model"),
                 "settings": dict(settings) if isinstance(settings, dict) else {},
+                "identity": found.get("identity"),
                 "kinds": sorted(found["kinds"]),
             }
 
@@ -245,6 +248,7 @@ class ModelRecord:
                 median_seconds=row.get("median_seconds"),
                 mean_tokens=row.get("mean_tokens"),
                 measured_at=str(row.get("measured_at", "")),
+                suite=str(row.get("suite") or ""),
             )
         except (KeyError, TypeError, ValueError):
             return None
