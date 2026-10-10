@@ -91,6 +91,8 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("scanner", choices=("bandit", "codeql"))
     parser.add_argument("path", type=Path)
+    parser.add_argument("--fail-on-high", action="store_true",
+                        help="Fail if a validated Bandit report contains HIGH findings")
     args = parser.parse_args()
     try:
         files = ([args.path] if args.scanner == "bandit"
@@ -104,6 +106,12 @@ def main():
         # Do not expose report content or source snippets on parse failure.
         raise SystemExit("Invalid or incomplete scanner evidence") from exc
     print(summary)
+    if args.fail_on_high:
+        if args.scanner != "bandit":
+            raise SystemExit("--fail-on-high requires a Bandit report")
+        data = json.loads(args.path.read_text(encoding="utf-8"))
+        if any(item["issue_severity"] == "HIGH" for item in data["results"]):
+            raise SystemExit("High-severity Bandit findings require remediation")
     destination = os.environ.get("GITHUB_STEP_SUMMARY")
     if destination:
         with open(destination, "a", encoding="utf-8") as output:
