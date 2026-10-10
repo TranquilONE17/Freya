@@ -9,6 +9,8 @@ import time
 from typing import Callable
 from pathlib import Path
 
+from patch_validator import validate_unified_diff
+
 MAX_FILE_BYTES = 120_000
 MAX_RESPONSE_BYTES = 1_000_000
 
@@ -105,6 +107,7 @@ def ask_ollama_cancellable(endpoint: str, model: str, prompt: str,
     deadline = time.monotonic() + timeout
     chunks = []
     total = 0
+    received = 0
     pending = b""
     try:
         connection.request("POST", "/api/generate", body=payload,
@@ -123,6 +126,9 @@ def ask_ollama_cancellable(endpoint: str, model: str, prompt: str,
             byte = response.read(1)
             if not byte:
                 raise RuntimeError("Ollama stream ended without completion")
+            received += len(byte)
+            if received > MAX_RESPONSE_BYTES:
+                raise ValueError("Ollama response exceeds size limit")
             pending += byte
             if total + len(pending) > MAX_RESPONSE_BYTES:
                 raise ValueError("Ollama response exceeds size limit")
@@ -149,21 +155,8 @@ def ask_ollama_cancellable(endpoint: str, model: str, prompt: str,
 
 
 def validate_proposal(patch: str, selected: set[str]) -> None:
-    """Basic output validation; not a substitute for git apply --check or review."""
-    if not patch.startswith("--- a/"):
-        raise ValueError("Model did not return a unified diff")
-    old_paths, new_paths = [], []
-    for line in patch.splitlines():
-        if line.startswith("--- "):
-            old_paths.append(line[6:])
-        elif line.startswith("+++ "):
-            new_paths.append(line[6:])
-        elif line.startswith(("diff --git ", "rename from ", "rename to ", "Binary files ", "GIT binary patch")):
-            raise ValueError("Unsupported patch format")
-    if not old_paths or len(old_paths) != len(new_paths):
-        raise ValueError("Malformed patch headers")
-    if any(a != b or a not in selected for a, b in zip(old_paths, new_paths)):
-        raise ValueError("Patch changes unselected paths")
+    """Use the task runner's strict parser; applicability and review remain separate."""
+    validate_unified_diff(patch, selected)
 
 
 def main() -> int:

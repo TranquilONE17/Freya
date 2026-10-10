@@ -26,6 +26,13 @@ class LocalCodingAgentTests(unittest.TestCase):
     def test_prompt_contains_task(self):
         self.assertIn("fix bug", build_prompt("fix bug", [("a.py", "pass")]))
 
+    def test_cli_validator_rejects_truncated_and_trailing_content(self):
+        valid = "--- a/safe.py\n+++ b/safe.py\n@@ -1 +1 @@\n-old\n+new\n"
+        for proposal in (valid.rsplit("+new\n", 1)[0], valid + "model prose\n",
+                         valid.replace("\n", "\r\n")):
+            with self.subTest(proposal=proposal), self.assertRaises(ValueError):
+                validate_proposal(proposal, {"safe.py"})
+
     def test_personal_storage_rejected_before_any_file_read(self):
         # Every path and payload here is synthetic; no owner storage is used.
         with tempfile.TemporaryDirectory() as directory:

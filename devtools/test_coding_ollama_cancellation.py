@@ -1,5 +1,6 @@
 """Cancellation closes a streamed Ollama connection before completion."""
 import unittest
+import json
 from unittest.mock import patch
 
 from local_coding_agent import ask_ollama_cancellable
@@ -37,6 +38,25 @@ class FakeConnection:
 
 
 class OllamaCancellationTests(unittest.TestCase):
+    def test_metadata_events_count_toward_response_byte_limit(self):
+        event = json.dumps({"response": "", "done": False,
+                            "metadata": "x" * 40}).encode() + b"\n"
+        self.assertLess(len(event), 120)
+
+        class MetadataResponse(FakeResponse):
+            def __init__(self):
+                self.data = iter(event * 2 + b'{"response":"ok","done":true}\n')
+
+        with (patch("local_coding_agent.http.client.HTTPConnection", FakeConnection),
+              patch.object(FakeConnection, "getresponse", return_value=MetadataResponse()),
+              patch("local_coding_agent.select.select", return_value=([object()], [], [])),
+              patch("local_coding_agent.MAX_RESPONSE_BYTES", 120)):
+            with self.assertRaises(ValueError):
+                ask_ollama_cancellable(
+                    "http://127.0.0.1:11434/api/generate", "mock", "synthetic",
+                    lambda: None)
+        self.assertTrue(FakeConnection.instance.closed)
+
     def test_malformed_event_is_rejected_and_connection_closed(self):
         class MalformedResponse(FakeResponse):
             def __init__(self):
