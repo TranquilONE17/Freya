@@ -171,10 +171,10 @@ class SqliteAuditLog:
                 )
                 event["row_hash"] = _row_hash(event)
 
-                columns = list(event)
+                columns = ("operation_id", "recorded_at", "kind", "actor", "client", "domain", "capability", "provider", "target_ref", "decision", "decision_reason", "policy_revision", "grant_epoch", "outcome", "error_summary", "arguments_digest", "event_id", "prev_hash", "row_hash")
                 connection.execute(
-                    f"INSERT INTO audit_event ({', '.join(columns)}) "
-                    f"VALUES ({', '.join('?' for _ in columns)})",
+                    "INSERT INTO audit_event (operation_id, recorded_at, kind, actor, client, domain, capability, provider, target_ref, decision, decision_reason, policy_revision, grant_epoch, outcome, error_summary, arguments_digest, event_id, prev_hash, row_hash) "
+                    "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                     [event[name] for name in columns],
                 )
         except Exception as exc:
