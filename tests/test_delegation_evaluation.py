@@ -1,12 +1,15 @@
 import itertools
 import json
+import statistics
 from datetime import date, timedelta
 
 import pytest
 
 from freya.evaluation import delegation
+from freya.evaluation import delegation_tasks as tasks
 from freya.evaluation.delegation_tasks import (
     HARD_TASKS,
+    STRETCH_TASKS,
     TALK_MINUTES,
     LOG_SITES,
     inspection_entries,
@@ -355,7 +358,7 @@ def test_the_harder_answers():
 
 
 def test_the_search_bug_is_on_the_line_the_check_expects():
-    def find(xs, t, fixed):
+    def task(xs, t, fixed):
         lo, hi = 0, len(xs)
         for _ in range(100):
             if not lo < hi:
@@ -367,8 +370,8 @@ def test_the_search_bug_is_on_the_line_the_check_expects():
                 hi = mid
         return "never ends"
 
-    assert find([1, 3, 5], 5, fixed=False) == "never ends"
-    assert find([1, 3, 5], 5, fixed=True) == 2
+    assert task([1, 3, 5], 5, fixed=False) == "never ends"
+    assert task([1, 3, 5], 5, fixed=True) == 2
 
 
 def test_talks_and_hours_have_solutions_and_the_checks_are_strict():
@@ -469,7 +472,7 @@ def test_listing_contacts_nothing(capsys):
     assert delegation.main(["--list", "--kind", "planning"]) == 0
 
     listed = capsys.readouterr().out.splitlines()
-    assert len(listed) == len(tasks_of(["planning"])) == 7
+    assert len(listed) == len(tasks_of(["planning"])) == 11
     assert all(line.startswith("planning: ") for line in listed)
     assert delegation.main(["--list"]) == 0
     assert len(capsys.readouterr().out.splitlines()) == len(TASKS)
@@ -508,7 +511,7 @@ def test_a_report_is_written_and_never_overwritten(tmp_path, monkeypatch):
     assert report["identity"] is None and report["mixed_models"] is False
     assert report["settings"]["think"] == "default"
     assert report["route"] == "ollama-local"
-    assert len(report["attempts"]) == 14
+    assert len(report["attempts"]) == 22
     assert report["summary"]["planning"]["pass_rate"] == 1.0
 
     with pytest.raises(SystemExit):
@@ -596,3 +599,203 @@ def test_a_failed_preflight_is_reported(tmp_path, monkeypatch):
 
     assert code == 2
     assert "not installed" in json.loads(output.read_text("utf-8"))["preflight_error"]
+
+
+# The hardest tasks. Their answers are worked out again here by trying
+# every case, so a brief cannot carry a wrong expected answer.
+
+def test_every_kind_has_stretch_tasks_and_they_are_marked_hard():
+    assert all(item.hard and item.stretch for item in STRETCH_TASKS)
+    assert not any(item.stretch for item in HARD_TASKS)
+    for kind in KINDS:
+        assert sum(item.stretch for item in tasks_of([kind])) >= 3
+
+
+def test_the_seating_puzzle_has_exactly_one_answer():
+    assert tasks.seating_orders() == [["Eli", "Dia", "Ana", "Ben", "Cal"]]
+
+
+def test_the_two_worker_plan_cannot_be_shorter():
+    days, after = tasks.SCHEDULE_DAYS, tasks.SCHEDULE_AFTER
+    best = None
+
+    # Placing tasks one at a time, each as early as it can go, in
+    # every allowed order, reaches a shortest plan.
+    for order in itertools.permutations(days):
+        place = {task: index for index, task in enumerate(order)}
+        if any(place[b] > place[a] for a, earlier in after.items() for b in earlier):
+            continue
+        busy, end = {1: [], 2: []}, {}
+        for task in order:
+            ready = max([end[other] for other in after.get(task, [])] or [0])
+            starts = []
+            for worker in (1, 2):
+                start = ready
+                while True:
+                    clash = [
+                        span for span in busy[worker]
+                        if start < span[1] and span[0] < start + days[task]
+                    ]
+                    if not clash:
+                        break
+                    start = max(span[1] for span in clash)
+                starts.append((start, worker))
+            start, worker = min(starts)
+            busy[worker].append((start, start + days[task]))
+            end[task] = start + days[task]
+        finish = max(end.values())
+        best = finish if best is None else min(best, finish)
+
+    assert best == tasks.SCHEDULE_BEST
+
+
+def test_unprotected_increments_can_lose_all_but_two():
+    # Each thread: (loops done, the value it has read or None).
+    start = (0, (0, None), (0, None))
+    seen, waiting, finals = {start}, [start], set()
+
+    while waiting:
+        x, *threads = waiting.pop()
+        if all(done == 3 for done, _ in threads):
+            finals.add(x)
+        for index, (done, held) in enumerate(threads):
+            if done == 3:
+                continue
+            after = list(threads)
+            if held is None:
+                after[index], value = (done, x), x
+            else:
+                after[index], value = (done + 1, None), held + 1
+            state = (value, *after)
+            if state not in seen:
+                seen.add(state)
+                waiting.append(state)
+
+    assert min(finals) == tasks.RACE_LEAST
+    assert max(finals) == 6
+
+
+def test_the_programs_to_read_do_what_the_answers_say(capsys):
+    # These are Freya's own programs, not anything a model wrote.
+    exec(tasks.TRACE_PROGRAM, {})
+    assert capsys.readouterr().out.strip() == tasks.TRACE_OUTPUT
+
+    scope = {}
+    exec(tasks.MEDIAN_PROGRAM, scope)
+    wrong = [
+        letter for letter, values in tasks.MEDIAN_INPUTS.items()
+        if scope["median"](values) != statistics.median(values)
+    ]
+    assert wrong == [tasks.MEDIAN_WRONG_FOR]
+
+    def merge(spans, line_7_fixed):
+        spans = sorted(spans)
+        out = [spans[0]]
+        for start, end in spans[1:]:
+            last_start, last_end = out[-1]
+            if start <= last_end:
+                out[-1] = (last_start, max(last_end, end) if line_7_fixed else end)
+            else:
+                out.append((start, end))
+        return out
+
+    spans = [(1, 10), (2, 3), (11, 12)]
+    assert merge(spans, line_7_fixed=False) == [(1, 3), (11, 12)]
+    assert merge(spans, line_7_fixed=True) == [(1, 10), (11, 12)]
+
+
+def test_the_rota_check_accepts_exactly_the_plans_that_meet_the_rules():
+    pairs = list(itertools.combinations(tasks.ROTA_STAFF, 2))
+    accepted = 0
+
+    for plan in itertools.product(pairs, repeat=5):
+        counts = {
+            person: sum(person in day for day in plan)
+            for person in tasks.ROTA_STAFF
+        }
+        allowed = (
+            all(count == 2 for count in counts.values())
+            and not any(set(a) & set(b) for a, b in zip(plan, plan[1:]))
+            and not any(set(day) == {"di", "ed"} for day in plan)
+            and not any(
+                day in tasks.ROTA_AWAY.get(person, ())
+                for day, people in zip(tasks.ROTA_DAYS, plan)
+                for person in people
+            )
+        )
+        reply = json.dumps(dict(zip(tasks.ROTA_DAYS, map(list, plan))))
+        assert (tasks._check_rota(reply) is None) == allowed
+        accepted += allowed
+
+    assert accepted == 4
+
+
+def test_best_loads_and_rounds_are_the_best():
+    worth, crates = tasks.crate_best()
+    weight, volume, total = tasks._crate_totals(crates)
+
+    assert (weight <= 12, volume <= 15, total) == (True, True, worth)
+    assert tasks.round_length(tasks.round_best()[1]) == tasks.round_best()[0]
+    # A plan as good as the reference passes even when it differs.
+    assert task("delivery-round").grade(
+        json.dumps(list(reversed(tasks.round_best()[1])))
+    ) is None
+
+
+def test_worked_answers_match_figures_done_by_hand():
+    assert tasks.ledger_net() == {"north": 516.60, "south": 293.65, "west": 715.00}
+    assert tasks.contract_terms()["total_fees"] == 3 * 400 + 3 * 450 + 12 * 425
+    assert tasks.booking_clashes() == [
+        "B02", "B03", "B04", "B06", "B07", "B08", "B09", "B13",
+    ]
+    assert tasks._bag_chance() == "16/33"
+    assert tasks._remainder_number() % 7 == 3
+    assert tasks.steepest_fall() == (28.0, "South", "Mar")
+    assert tasks.program_unreached() == [
+        "export", "helper", "legacy_a", "legacy_b", "save", "shout",
+    ]
+    assert tasks.reading_labels()[3] == "critical"
+    assert tasks.invoice_due(
+        tasks.date(2025, 1, 15), "end of the following month",
+    ) == tasks.date(2025, 2, 28)
+
+
+@pytest.mark.parametrize("name, reply", [
+    # Right words, wrong answer: each of these must fail.
+    ("exactly-twenty-words",
+     "Calder Bridge reopened on 3 March after repairs costing 2.4 million."),
+    ("without-the-letter-e", "On Friday Mark saw 43 boats in the harbour."),
+    ("which-bag", "ANSWER: 16/33 or about 4/15"),
+    ("trace-closures", "ANSWER: 1 [1, 2] [7, 9] 4 4"),
+    ("two-limit-load", '["anvil", "books", "harp"]'),
+    ("room-clashes", "[1,2,3,4,6,7,8,9,13]"),
+    ("room-clashes", "[13,9,8,7,6,4,3,2]"),
+    ("steepest-fall", '{"region": "South", "month": "Feb", "percent": 28.0}'),
+    ("net-year", "Net sales were 8,255; Q4 led with 2,535, ahead of Q2 at 2,220."),
+    ("project-unreached", '["export", "helper", "save", "shout"]'),
+    ("breaking-changes-only",
+     "Use /v2/export, grams for weight and the client field; the optional "
+     "note field is new."),
+])
+def test_stretch_checks_refuse_near_misses(name, reply):
+    assert task(name).grade(reply) is not None
+
+
+@pytest.mark.parametrize("name, reply", [
+    # Other honest ways of writing a right answer: each must pass.
+    ("which-bag", "The chance is sixteen in thirty-three.\nANSWER: 16 / 33"),
+    ("trace-closures", "ANSWER: 1 [1,2] [7,9] 4 6"),
+    # Seen in a real run (2026-10-10): the bookings named by number alone.
+    ("room-clashes", "[2,3,4,6,7,8,9,13]"),
+    ("median-after-fixes", "ANSWER: 41.15 mm"),
+    ("long-log-wet-mean", "ANSWER: 1.5"),
+    ("steepest-fall", '{"region": "south", "month": "March", "percent": "28.0"}'),
+    ("week-rota",
+     '{"Monday": ["Bo", "Ed"], "Tuesday": ["Cy", "Di"], "Wednesday": '
+     '["Ada", "Ed"], "Thursday": ["Bo", "Cy"], "Friday": ["Ada", "Di"]}'),
+    ("breaking-changes-only",
+     "Note that /v1/export is gone, so call /v2/export; weight is now in "
+     "grams; the customer field is now client."),
+])
+def test_stretch_checks_accept_other_right_answers(name, reply):
+    assert task(name).grade(reply) is None
