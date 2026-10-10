@@ -5,6 +5,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 from coding_task_runner import propose
+from coding_task_journal import TaskJournal
 
 
 class PatchCleanupTests(unittest.TestCase):
@@ -31,6 +32,49 @@ class PatchCleanupTests(unittest.TestCase):
             self.assertEqual((repo / "example.py").read_text(), "answer = 1\n")
             journal_files = list((root / "journal").glob("*.json"))
             self.assertEqual(len(journal_files), 1)
+
+    def test_preexisting_artifact_survives_exclusive_creation_failure(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            repo = root / "repo"
+            repo.mkdir()
+            (repo / "example.py").write_text("answer = 1\n")
+            journal = TaskJournal.create(root / "journal")
+            outputs = root / "patches"
+            outputs.mkdir()
+            existing = outputs / f"{journal.task_id}.patch"
+            original = b"Owner-created proposal\n"
+            existing.write_bytes(original)
+            diff = "--- a/example.py\n+++ b/example.py\n@@ -1 +1 @@\n-answer = 1\n+answer = 2\n"
+            with patch("coding_task_runner.TaskJournal.create", return_value=journal):
+                with self.assertRaises(FileExistsError):
+                    propose(repo, "change answer", ["example.py"], "mock",
+                            root / "journal", outputs, generate=lambda *args: diff)
+            self.assertEqual(existing.read_bytes(), original)
+            self.assertEqual(journal.read()[-1].state, "failed")
+            self.assertEqual((repo / "example.py").read_text(), "answer = 1\n")
+
+    def test_preexisting_artifact_survives_generation_failure(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            repo = root / "repo"
+            repo.mkdir()
+            (repo / "example.py").write_text("answer = 1\n")
+            journal = TaskJournal.create(root / "journal")
+            outputs = root / "patches"
+            outputs.mkdir()
+            existing = outputs / f"{journal.task_id}.patch"
+            existing.write_bytes(b"Owner-created proposal\n")
+
+            def fail(*args):
+                raise RuntimeError("Synthetic generation failure")
+
+            with patch("coding_task_runner.TaskJournal.create", return_value=journal):
+                with self.assertRaises(RuntimeError):
+                    propose(repo, "change answer", ["example.py"], "mock",
+                            root / "journal", outputs, generate=fail)
+            self.assertEqual(existing.read_bytes(), b"Owner-created proposal\n")
+            self.assertEqual(journal.read()[-1].state, "failed")
 
 
 if __name__ == "__main__":
