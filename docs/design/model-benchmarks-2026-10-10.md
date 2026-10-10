@@ -54,6 +54,24 @@ By kind of task (passed of attempts):
 - **Thinking off is for the simplest work only.** It is five times quicker and wrong
   on most things that need working out or an exact form.
 
+## Her live replies are allowed a quarter of that output
+
+The runs above allow 8,192 tokens of output. Freya's own replies are allowed 2,048
+(`ContextBudget.output_tokens`), and the model's thinking counts against them. Four
+kinds were run again at 2,048 tokens with default thinking (153 attempts):
+
+| Output allowed | Passed | Empty replies | Reasoning | Code review | Planning | Analysis |
+|---|---|---|---|---|---|---|
+| 8,192 tokens | 147 of 153 | 4 | 39/39 | 30/33 | 30/33 | 48/48 |
+| 2,048 tokens | 139 of 153 | 13 | 38/39 | 30/33 | 23/33 | 48/48 |
+
+At her live limit every attempt at four of the hardest tasks came back empty, and
+planning fell from 30 to 23 of 33. In a live turn an empty reply was shown as nothing
+at all and the question was dropped from the conversation. A fix on its own branch
+(`fix/empty-reply-notice`) makes her say that she did not manage an answer. Whether
+to allow her more output is the owner's choice: every token reserved for output is
+one fewer for the conversation in a 16,384-token window.
+
 ## The conversation suite, with four scenarios about her own ability
 
 The suite gained four scenarios that give Freya a made-up model record: asked how she
