@@ -7,8 +7,6 @@ import http.client
 import select
 import time
 from typing import Callable
-import urllib.error
-import urllib.request
 from pathlib import Path
 
 MAX_FILE_BYTES = 120_000
@@ -62,15 +60,30 @@ def ask_ollama(endpoint: str, model: str, prompt: str) -> str:
     if endpoint not in ("http://127.0.0.1:11434/api/generate", "http://localhost:11434/api/generate"):
         raise ValueError("Only local Ollama endpoints are permitted")
     payload = json.dumps({"model": model, "prompt": prompt, "stream": False}).encode()
-    request = urllib.request.Request(endpoint, data=payload, headers={"Content-Type": "application/json"})
+    # Direct loopback HTTP ignores proxy environment and never follows redirects.
+    # The source-bearing POST must never be sent to a different destination.
+    host = "127.0.0.1" if "127.0.0.1" in endpoint else "localhost"
+    connection = http.client.HTTPConnection(host, 11434, timeout=240)
     try:
-        with urllib.request.urlopen(request, timeout=240) as response:
-            data = response.read(MAX_RESPONSE_BYTES + 1)
-    except (urllib.error.URLError, TimeoutError) as exc:
-        raise RuntimeError(f"Local Ollama request failed: {exc}") from exc
+        connection.request("POST", "/api/generate", body=payload,
+                           headers={"Content-Type": "application/json"})
+        response = connection.getresponse()
+        if response.status != 200:
+            raise RuntimeError(f"Local Ollama HTTP status {response.status}")
+        data = response.read(MAX_RESPONSE_BYTES + 1)
+    except (OSError, http.client.HTTPException) as exc:
+        raise RuntimeError("Local Ollama request failed") from exc
+    finally:
+        connection.close()
     if len(data) > MAX_RESPONSE_BYTES:
         raise ValueError("Ollama response exceeds size limit")
-    return str(json.loads(data)["response"])
+    item = json.loads(data)
+    if not isinstance(item, dict) or not isinstance(item.get("response"), str):
+        raise ValueError("Invalid Ollama response")
+    if item.get("error"):
+        raise RuntimeError("Local Ollama reported generation error")
+    return item["response"]
+
 
 
 
