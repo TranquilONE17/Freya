@@ -1,11 +1,45 @@
 import tempfile
+import sys
 import unittest
 from pathlib import Path
 from unittest.mock import patch
-from local_coding_agent import selected_source, validate_proposal, build_prompt
+from local_coding_agent import selected_source, validate_proposal, build_prompt, main
 
 
 class LocalCodingAgentTests(unittest.TestCase):
+    def test_cli_preserves_artifact_created_after_existence_check(self):
+        proposal = "--- a/safe.py\n+++ b/safe.py\n@@ -1 +1 @@\n-a\n+b\n"
+        with tempfile.TemporaryDirectory() as directory:
+            output = Path(directory) / "proposal.patch"
+            original_mkdir = Path.mkdir
+
+            def racing_mkdir(path, *args, **kwargs):
+                original_mkdir(path, *args, **kwargs)
+                output.write_bytes(b"unowned artifact")
+
+            with patch.object(sys, "argv", ["coding", "--repo", directory, "--model", "synthetic",
+                                          "--task", "fix", "--file", "safe.py",
+                                          "--output", str(output)]), \
+                    patch("local_coding_agent.selected_source", return_value="a\n"), \
+                    patch("local_coding_agent.ask_ollama", return_value=proposal), \
+                    patch.object(Path, "mkdir", racing_mkdir):
+                with self.assertRaises(FileExistsError):
+                    main()
+            self.assertEqual(output.read_bytes(), b"unowned artifact")
+
+    def test_cli_writes_exact_lf_proposal_bytes(self):
+        proposal = "--- a/safe.py\n+++ b/safe.py\n@@ -1 +1 @@\n-a\n+b\n"
+        with tempfile.TemporaryDirectory() as directory:
+            output = Path(directory) / "proposal.patch"
+            with patch.object(sys, "argv", ["coding", "--repo", directory, "--model", "synthetic",
+                                          "--task", "fix", "--file", "safe.py",
+                                          "--output", str(output)]), \
+                    patch("local_coding_agent.selected_source", return_value="a\n"), \
+                    patch("local_coding_agent.ask_ollama", return_value=proposal), \
+                    patch("builtins.print"):
+                self.assertEqual(main(), 0)
+            self.assertEqual(output.read_bytes(), proposal.encode("utf-8"))
+
     def test_selected_file(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)

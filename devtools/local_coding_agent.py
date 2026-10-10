@@ -236,7 +236,8 @@ def main() -> int:
     if output.exists():
         raise ValueError("Output already exists; refusing to overwrite")
     output.parent.mkdir(parents=True, exist_ok=True)
-    output.write_text(patch, encoding="utf-8")
+    with output.open("x", encoding="utf-8", newline="\n") as artifact:
+        artifact.write(patch)
     print(f"Proposal saved to {output}; NOT applied. Review and run git apply --check.")
     return 0
 
