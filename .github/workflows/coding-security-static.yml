@@ -16,6 +16,8 @@ jobs:
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
@@ -27,15 +29,14 @@ jobs:
         run: ruff check --select E9,F63,F7,F82 devtools src/freya/core
       - name: Security findings report (advisory baseline)
         run: |
-          bandit -r devtools src/freya/core -f json -o bandit-report.json || true
+          bandit -r devtools src/freya/core --exit-zero -f json -o bandit-report.json
       - name: Summarize security findings
         if: always()
-        run: |
-          python -c "import json, pathlib, os; p=pathlib.Path('bandit-report.json'); d=json.loads(p.read_text()) if p.exists() else {}; findings=d.get('results', []); counts={k:sum(x.get('issue_severity') == k for x in findings) for k in ('HIGH','MEDIUM','LOW')}; summary='## Bandit findings\\n\\n'+''.join(f'- {k}: {v}\\n' for k,v in counts.items()); pathlib.Path(os.environ['GITHUB_STEP_SUMMARY']).open('a').write(summary); print(summary)"
+        run: python devtools/security_report.py bandit bandit-report.json
       - name: Publish security findings
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: coding-security-bandit-report
           path: bandit-report.json
-          if-no-files-found: warn
+          if-no-files-found: error
