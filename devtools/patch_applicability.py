@@ -6,25 +6,32 @@ never writes to the source repository. Not a general-purpose execution sandbox.
 from __future__ import annotations
 
 import subprocess
+import hashlib
 import tempfile
 from pathlib import Path
 
-from local_coding_agent import selected_source
+from local_coding_agent import selected_source_bytes, source_text
 from patch_validator import validate_unified_diff
 
 
-def check_patch(repo: Path, patch: str, selected: set[str], *, timeout: int = 15) -> None:
+def check_patch(repo: Path, patch: str, selected: set[str], *, timeout: int = 15,
+                source_sha256: dict[str, str] | None = None) -> None:
     validate_unified_diff(patch, selected)
     if not selected:
         raise ValueError("No files selected")
+    if source_sha256 is not None and set(source_sha256) != selected:
+        raise ValueError("Source snapshot does not match selected paths")
     with tempfile.TemporaryDirectory(prefix="freya-patch-check-") as directory:
         root = Path(directory)
         for relative in selected:
-            # selected_source enforces containment and file size.
-            contents = selected_source(repo, relative)
+            # Source reads enforce containment, exclusions and byte limits.
+            contents = selected_source_bytes(repo, relative)
+            if (source_sha256 is not None
+                    and hashlib.sha256(contents).hexdigest() != source_sha256[relative]):
+                raise ValueError("Selected source changed since generation began")
             target = root / relative
             target.parent.mkdir(parents=True, exist_ok=True)
-            target.write_text(contents, encoding="utf-8", newline="")
+            target.write_text(source_text(contents), encoding="utf-8", newline="")
         patch_file = root / "proposal.patch"
         patch_file.write_text(patch, encoding="utf-8", newline="")
         try:

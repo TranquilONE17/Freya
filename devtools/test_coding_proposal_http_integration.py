@@ -23,6 +23,7 @@ from freya.core.providers import ProviderRegistry
 from coding_broker_adapter import register_coding_proposal
 from coding_capability_contract import CODING_PROPOSE
 from coding_task_journal import TaskJournal
+from coding_proposal_receipt import verify_proposal_receipt
 
 
 REAL_CONNECTION = http.client.HTTPConnection
@@ -138,6 +139,7 @@ class CodingProposalHTTPIntegrationTests(unittest.TestCase):
         if proposed:
             expected.append("proposed")
         self.assertEqual(states, expected + ["failed"])
+        self.assertEqual(list(self.artifacts.glob("*.receipt.json")), [])
         self.assertFalse(list(self.artifacts.glob("*.patch")))
         self.assertEqual(self.source.read_bytes(), SOURCE)
         self.assert_audit(result, ["dispatch", "outcome"], "failed-known")
@@ -156,6 +158,11 @@ class CodingProposalHTTPIntegrationTests(unittest.TestCase):
         self.assertEqual([event.state for event in events],
                          ["requested", "generating", "proposed", "verified"])
         self.assertIn(proposal["sha256"], events[2].details)
+        receipt = verify_proposal_receipt(self.repo, Path(proposal["patch"]),
+                                          Path(proposal["receipt"]), proposal["receipt_sha256"])
+        self.assertEqual(receipt["source_sha256"], {"example.py": hashlib.sha256(SOURCE).hexdigest()})
+        self.assertIn(proposal["receipt_sha256"], events[-1].details)
+        self.assertIs(receipt["authorization_granted"], False)
         self.assertEqual(self.source.read_bytes(), SOURCE)
         self.assertEqual(len(self.server.requests), 1)
         path, request = self.server.requests[0]
