@@ -3,8 +3,11 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 import http.client
-import select
+import queue
+import socket
+import threading
 import time
 from typing import Callable
 from pathlib import Path
@@ -92,66 +95,125 @@ def ask_ollama(endpoint: str, model: str, prompt: str) -> str:
 def ask_ollama_cancellable(endpoint: str, model: str, prompt: str,
                            checkpoint: Callable[[], None], *,
                            timeout: float = 240) -> str:
-    """Stream locally and close the HTTP connection on revoked authorization.
+    """Read HTTP-framed response bodies while checking cooperative revocation.
 
-    Socket polling bounds detection delay during idle streaming; closing this
-    connection does not guarantee that Ollama immediately stops GPU work.
+    One bounded reader owns HTTP buffering. Cancellation shuts down this request's
+    socket and joins the reader; it does not guarantee Ollama stops GPU work.
     """
     if endpoint not in ("http://127.0.0.1:11434/api/generate",
                         "http://localhost:11434/api/generate"):
         raise ValueError("Only local Ollama endpoints are permitted")
     checkpoint()
+    if (isinstance(timeout, bool) or not isinstance(timeout, (int, float))
+            or not math.isfinite(timeout) or timeout <= 0):
+        raise ValueError("A positive finite timeout is required")
     payload = json.dumps({"model": model, "prompt": prompt, "stream": True}).encode()
     host = "127.0.0.1" if "127.0.0.1" in endpoint else "localhost"
-    connection = http.client.HTTPConnection(host, 11434, timeout=0.5)
+    connection = http.client.HTTPConnection(host, 11434, timeout=min(0.5, timeout))
     deadline = time.monotonic() + timeout
+    stopped = threading.Event()
+    messages = queue.Queue(maxsize=1)
+    transport = None
+    response = None
+    reader = None
+    reader_started = False
     chunks = []
-    total = 0
-    received = 0
-    pending = b""
+    total = received = 0
+    pending = bytearray()
+
+    def check():
+        checkpoint()
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            raise TimeoutError("Local Ollama generation timed out")
+        return remaining
+
+    def deliver(message):
+        while not stopped.is_set():
+            try:
+                messages.put(message, timeout=0.1)
+                return
+            except queue.Full:
+                continue
+
+    def read_response():
+        count = 0
+        try:
+            while not stopped.is_set() and count <= MAX_RESPONSE_BYTES:
+                data = response.read1(min(4096, MAX_RESPONSE_BYTES + 1 - count))
+                if not data:
+                    deliver(None)
+                    return
+                count += len(data)
+                deliver(data)
+        except TimeoutError:
+            deliver(TimeoutError("Local Ollama generation timed out"))
+        except Exception:
+            deliver(RuntimeError("Local Ollama stream transport failed"))
+        finally:
+            response.close()
+
     try:
         connection.request("POST", "/api/generate", body=payload,
                            headers={"Content-Type": "application/json"})
+        # getresponse() may clear connection.sock for Connection: close.
+        transport = connection.sock
         response = connection.getresponse()
         if response.status != 200:
             raise RuntimeError(f"Local Ollama HTTP status {response.status}")
-        connection.sock.settimeout(timeout)
+        remaining = check()
+        transport.settimeout(remaining)
+        reader = threading.Thread(target=read_response, daemon=True,
+                                  name=f"freya-ollama-reader-{id(connection)}")
+        reader.start()
+        reader_started = True
         while True:
-            checkpoint()
-            if time.monotonic() >= deadline:
-                raise TimeoutError("Local Ollama generation timed out")
-            ready, _, _ = select.select([connection.sock], [], [], 0.25)
-            if not ready:
+            remaining = check()
+            try:
+                data = messages.get(timeout=min(0.1, remaining))
+            except queue.Empty:
                 continue
-            byte = response.read(1)
-            if not byte:
+            check()
+            if isinstance(data, Exception):
+                raise data from None
+            if data is None:
                 raise RuntimeError("Ollama stream ended without completion")
-            received += len(byte)
+            received += len(data)
             if received > MAX_RESPONSE_BYTES:
                 raise ValueError("Ollama response exceeds size limit")
-            pending += byte
-            if total + len(pending) > MAX_RESPONSE_BYTES:
-                raise ValueError("Ollama response exceeds size limit")
-            if byte != b"\n":
-                continue
-            item = json.loads(pending)
-            pending = b""
-            if not isinstance(item, dict):
-                raise ValueError("Invalid Ollama stream event")
-            if item.get("error"):
-                raise RuntimeError("Local Ollama reported generation error")
-            fragment = item.get("response", "")
-            if not isinstance(fragment, str):
-                raise ValueError("Invalid Ollama response fragment")
-            total += len(fragment.encode("utf-8"))
-            if total > MAX_RESPONSE_BYTES:
-                raise ValueError("Ollama response exceeds size limit")
-            chunks.append(fragment)
-            if item.get("done") is True:
-                checkpoint()
-                return "".join(chunks)
+            pending.extend(data)
+            while (boundary := pending.find(b"\n")) >= 0:
+                check()
+                item = json.loads(bytes(pending[:boundary]))
+                del pending[:boundary + 1]
+                if not isinstance(item, dict):
+                    raise ValueError("Invalid Ollama stream event")
+                if item.get("error"):
+                    raise RuntimeError("Local Ollama reported generation error")
+                fragment = item.get("response", "")
+                if not isinstance(fragment, str):
+                    raise ValueError("Invalid Ollama response fragment")
+                total += len(fragment.encode("utf-8"))
+                if total > MAX_RESPONSE_BYTES:
+                    raise ValueError("Ollama response exceeds size limit")
+                chunks.append(fragment)
+                if item.get("done") is True:
+                    check()
+                    return "".join(chunks)
     finally:
+        stopped.set()
+        if transport is not None:
+            try:
+                transport.shutdown(socket.SHUT_RDWR)
+            except OSError:
+                pass  # Already closed by HTTP EOF or the peer.
         connection.close()
+        if reader_started:
+            reader.join(timeout=1)
+            if reader.is_alive():
+                raise RuntimeError("Local Ollama response reader did not stop")
+        elif response is not None:
+            response.close()
 
 
 def validate_proposal(patch: str, selected: set[str]) -> None:
