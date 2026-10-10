@@ -3,11 +3,13 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Callable, Iterable, Optional, Tuple
 
+from freya.config import BACKGROUND_MODEL, CONTEXT_WINDOW_TOKENS, MODEL
 from freya.core.capabilities import LOCAL_OWNER, CapabilityDefinition
 from freya.core.persistence import ControlStore
 from freya.core.policy import seed_alpha_policy
 from freya.core.providers import ProviderDefinition
 from freya.core.usage import SCOPE_PERIOD, USAGE_MIGRATIONS, UsageLedger
+from freya.delegation.abilities import describe_abilities
 from freya.delegation.dispatch import Dispatcher, Route, SentBriefs
 from freya.delegation.material import CloudSettings
 from freya.delegation.record import ModelRecord
@@ -24,6 +26,7 @@ from freya.providers.model.claude_plan import (
     create_claude_plan_provider,
     register_claude_plan_capability,
 )
+from freya.tools.model_tools import MODEL_TOOL
 
 
 DATA_DIR = Path(__file__).resolve().parents[3] / "data"
@@ -31,6 +34,10 @@ DATA_DIR = Path(__file__).resolve().parents[3] / "data"
 CLOUD_SETTINGS_PROVIDER = "cloud-settings-local"
 CLOUD_SETTINGS_CHANGE = "cloud.settings.change"
 CLOUD_SETTINGS_SEED = "alpha-cloud-settings"
+
+MODEL_RECORD_PROVIDER = "model-record-local"
+MODEL_RECORD_READ = "model.record.read"
+MODEL_RECORD_SEED = "alpha-model-record"
 
 # The reason written on a policy rule that a provider's switch added,
 # so that switching it off removes that rule and no other.
@@ -79,6 +86,9 @@ class CloudDelegation:
     broker: object = None
     policy: object = None
     routes: dict = field(default_factory=dict)
+    # The model Freya answers with, then any other she runs here.
+    local_models: Tuple[str, ...] = (MODEL, BACKGROUND_MODEL)
+    context_tokens: Optional[int] = CONTEXT_WINDOW_TOKENS
 
     @property
     def available_providers(self) -> Tuple[str, ...]:
@@ -169,6 +179,26 @@ class CloudDelegation:
             hard=True,
             source="estimate",
             now=moment,
+        )
+
+    def abilities(self) -> dict:
+        """
+        What has been measured about Freya's own model and the models
+        she could hand work to, read fresh from the record. A cloud
+        route is advised only while the owner has its provider on.
+        """
+        self.record.refresh()
+
+        return describe_abilities(
+            self.record,
+            self.local_models[0],
+            self.local_models,
+            {
+                route.route_id: self.settings.provider_enabled(provider)
+                for provider, route in self.routes.items()
+            },
+            self.settings.bars,
+            self.context_tokens,
         )
 
     def window_request(self, message: dict) -> dict:
@@ -290,10 +320,50 @@ def build_cloud_delegation(
         },
     )
 
+    # What Freya may read about her own measured ability. It reads
+    # counts from the model record and the owner's bars, sends
+    # nothing, and is the one thing here offered to the model.
+    control_plane.providers.register(
+        ProviderDefinition(
+            provider_id=MODEL_RECORD_PROVIDER,
+            name="What each model measured",
+            capabilities=[MODEL_RECORD_READ],
+            start_handler=lambda: None,
+            health_handler=lambda: True,
+        )
+    )
+    control_plane.providers.start(MODEL_RECORD_PROVIDER)
+    control_plane.providers.check_health(MODEL_RECORD_PROVIDER)
+    control_plane.capabilities.register(
+        CapabilityDefinition(
+            name=MODEL_RECORD_READ,
+            description=(
+                "Returns what evaluations have measured about your own "
+                "model and the other models work could be given to, by "
+                "kind of task: passes out of attempts, what value of "
+                "work each is good enough for, where a task of each "
+                "kind should go, and the kinds of work nobody has "
+                "measured. Use it before saying how good you are at "
+                "something, whether you can do a task well, or whether "
+                "Claude or another model would do it better."
+            ),
+            provider=MODEL_RECORD_PROVIDER,
+            handler=cloud.abilities,
+            category="model",
+            metadata={MODEL_TOOL: True},
+        )
+    )
+    seed_alpha_policy(
+        control_plane.policy,
+        MODEL_RECORD_SEED,
+        LOCAL_OWNER.actor,
+        [MODEL_RECORD_READ],
+    )
+
     # The owner's own changes to these settings, made in the window.
-    # This is the one thing here that a default policy seed allows:
-    # it lets the owner change their own choices and have each change
-    # recorded. It sends nothing and is not offered to the model.
+    # A default policy seed allows it: it lets the owner change their
+    # own choices and have each change recorded. It sends nothing and
+    # is not offered to the model.
     control_plane.providers.register(
         ProviderDefinition(
             provider_id=CLOUD_SETTINGS_PROVIDER,

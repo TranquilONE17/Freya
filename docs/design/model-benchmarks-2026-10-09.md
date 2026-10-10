@@ -116,6 +116,34 @@ not going to do that") in words the check did not recognise. The check has since
 widened to the refusals and failure reports actually seen that day, with a test that
 a claim of success is still not accepted.
 
+## Evening runs: the live setting, and the exact build
+
+`qwen3.8:27b` was run again on the same 189 attempts at three thinking settings,
+this time with the model's digest recorded in each report (`aaee06c39dcf`). The
+reports are in `work/delegation-2026-10-09/round3/` (not committed) and their counts
+are in `data/model_record.json`, where they replaced the afternoon's figures for the
+same settings.
+
+| Thinking | Passed | Harder tasks | Median per task | Whole run |
+|---|---|---|---|---|
+| Default (what Freya's own replies use) | 188 of 189 | 50 of 51 | 2.6 s | 10 min |
+| Medium | 189 of 189 | 51 of 51 | 2.7 s | 10 min |
+| Off | 162 of 189 | 41 of 51 | 0.6 s | 5 min |
+
+- The default setting had not been measured before. It scores and costs the same as
+  medium, within one task: one of three attempts at `requirement-strength`
+  (classification) had all six labels wrong.
+- Off scored 162 against 165 in the afternoon, so three attempts in 189 is the size
+  of the difference between two runs of the same entry. Extraction with thinking off
+  fell from 15 to 13 of 21, below the 70% bar for low-value work.
+- The conversation suite, three trials of each of the 18 scenarios, after the
+  context fix and with the sentence about measured ability added to the tool
+  instructions: 53 of 54 passed the automatic checks, at a median of 4.6 seconds a
+  trial. The one that did not was read: asked for a codename from a deleted
+  conversation, the model searched, found nothing, and said it had no record, in
+  words the check did not recognise.
+- Claude on the owner's plan has not been run. It needs the owner to start it.
+
 ## Limits of this evidence
 
 - The two best entries passed every task, including the harder tier, so the set still
