@@ -8,6 +8,7 @@ Run with: PYTHONPATH=src:devtools python -m pytest devtools/test_coding_loopback
 """
 import json
 import shutil
+import subprocess
 import tempfile
 import threading
 import time
@@ -82,7 +83,7 @@ class CodingLoopbackIntegrationTests(unittest.TestCase):
         self.grant()
 
         with patch("patch_applicability.subprocess.run",
-                   wraps=__import__("subprocess").run) as run:
+                   wraps=subprocess.run) as run:
             result = self.broker.invoke(CODING_PROPOSE, "change answer", ["example.py"])
 
         self.assertEqual(result.outcome, "succeeded", result.error)
