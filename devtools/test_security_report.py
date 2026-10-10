@@ -104,6 +104,25 @@ class SecurityReportTests(unittest.TestCase):
                                              if key != "GITHUB_STEP_SUMMARY"})
             self.assertNotEqual(result.returncode, 0)
 
+    def test_cli_high_severity_gate(self):
+        with tempfile.TemporaryDirectory() as directory:
+            report = Path(directory) / "report.json"
+            script = Path(__file__).with_name("security_report.py")
+            data = self.bandit()
+            for severity, expected in (("LOW", 0), ("MEDIUM", 0), ("HIGH", 1)):
+                data["results"] = [{"issue_severity": severity,
+                                    "filename": "example.py", "test_id": "B999",
+                                    "line_number": 1}]
+                report.write_text(json.dumps(data), encoding="utf-8")
+                result = subprocess.run(
+                    [sys.executable, str(script), "bandit", str(report),
+                     "--fail-on-high"],
+                    capture_output=True, text=True, check=False,
+                    env={key: value for key, value in os.environ.items()
+                         if key != "GITHUB_STEP_SUMMARY"})
+                self.assertEqual(result.returncode != 0, bool(expected),
+                                 result.stderr)
+
     def test_cli_valid_report_succeeds(self):
         with tempfile.TemporaryDirectory() as directory:
             report = Path(directory) / "report.json"
