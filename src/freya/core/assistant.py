@@ -23,6 +23,13 @@ from freya.memory.deletion_ledger import StorageQuarantined
 MAX_TOOL_ROUNDS = 3
 MAX_TOOL_CALLS = 12
 
+# Said when the model returns no words at all.
+EMPTY_REPLY_NOTICE = (
+    "I did not manage to put an answer together for that. I may have "
+    "spent all the room I am allowed on working it out. Ask me again, "
+    "or for a smaller part of it."
+)
+
 
 class FreyaAssistant(ConversationMemory):
     def __init__(self, tool_host=None, broker=None, memory_ledger_path=None):
@@ -188,7 +195,12 @@ class FreyaAssistant(ConversationMemory):
         ).strip()
 
         if not reply:
-            return
+            # The model can spend its whole allowance working a
+            # problem out and have nothing left to answer with.
+            # Say so: silence would look like a fault, and the
+            # question would vanish from the conversation.
+            reply = EMPTY_REPLY_NOTICE
+            yield reply
 
         self.messages.append(
             {

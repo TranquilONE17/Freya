@@ -527,3 +527,28 @@ def test_model_without_a_tool_host_cannot_trigger_unsolicited_calls(
     assert "could not check" in reply
     result = stream_calls(fake_ollama)[1][2][-1]
     assert "not run" in json.loads(result["content"])["error"]
+
+
+def test_a_reply_with_no_words_is_said_to_be_one_and_kept(assistant, fake_ollama):
+    from freya.core.assistant import EMPTY_REPLY_NOTICE
+
+    fake_ollama.stream_script = [""]
+
+    reply = "".join(assistant.respond_stream("Plan the whole week for me."))
+
+    assert reply.strip() == EMPTY_REPLY_NOTICE
+    # The question does not vanish from the conversation.
+    assert assistant.messages[-2:] == [
+        {"role": "user", "content": "Plan the whole week for me."},
+        {"role": "assistant", "content": EMPTY_REPLY_NOTICE},
+    ]
+
+
+def test_no_words_after_a_tool_is_also_said(assistant, fake_ollama):
+    from freya.core.assistant import EMPTY_REPLY_NOTICE
+
+    fake_ollama.stream_script = [[("system_cpu", {})], ""]
+
+    reply = "".join(assistant.respond_stream("How busy is the processor?"))
+
+    assert reply.strip() == EMPTY_REPLY_NOTICE
