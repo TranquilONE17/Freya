@@ -77,5 +77,28 @@ class PatchCleanupTests(unittest.TestCase):
             self.assertEqual(journal.read()[-1].state, "failed")
 
 
+    def test_journal_failure_is_noted_on_the_original_error(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            repo = root / "repo"
+            repo.mkdir()
+            (repo / "example.py").write_text("answer = 1\n")
+
+            def fail(*args):
+                raise RuntimeError("Synthetic generation failure")
+
+            real_transition = TaskJournal.transition
+
+            def transition(journal, state, details=""):
+                if state == "failed":
+                    raise OSError("journal disk full")
+                return real_transition(journal, state, details)
+
+            with patch.object(TaskJournal, "transition", transition):
+                with self.assertRaises(RuntimeError) as caught:
+                    propose(repo, "change answer", ["example.py"], "mock",
+                            root / "journal", root / "patches", generate=fail)
+            self.assertIn("journal could not record", " ".join(caught.exception.__notes__))
+
 if __name__ == "__main__":
     unittest.main()
