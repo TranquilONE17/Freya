@@ -46,9 +46,11 @@ SECRET_FILE_PATTERNS = (
     "credentials", "credentials.*", "secrets.*", "*.secret",
 )
 
-# Folders that hold sign-ins and keys by convention, likewise.
+# Folders that hold sign-ins and keys by convention, likewise. A
+# project's .git is among them: its settings can hold an address with
+# a password or token in it.
 CLOSED_FOLDER_NAMES = frozenset({
-    ".ssh", ".aws", ".azure", ".gnupg", ".kube", ".docker", ".claude",
+    ".git", ".ssh", ".aws", ".azure", ".gnupg", ".kube", ".docker", ".claude",
     ".codex",
 })
 
@@ -276,7 +278,7 @@ class FileReader:
 
         root = next(root for root in self.roots() if _inside(folder, root))
         entries = []
-        left_out = 0
+        left_out = withheld = 0
 
         with os.scandir(folder) as found:
             for entry in sorted(found, key=lambda item: item.name.lower()):
@@ -288,13 +290,16 @@ class FileReader:
                     continue
 
                 # A link that leads out, or anything withheld by its
-                # own name or by where it leads, is not shown.
+                # own name or by where it leads, is not shown. That
+                # something was left out is said, so that an absent
+                # name is not taken to mean there is no such file.
                 if (
                     not _inside(real, root)
                     or self._withheld(real, root)
                     or is_secret_name(entry.name)
                     or is_closed_folder_name(entry.name)
                 ):
+                    withheld += 1
                     continue
 
                 if len(entries) >= MAX_LISTED:
@@ -310,6 +315,11 @@ class FileReader:
 
         if left_out:
             result["not_shown"] = left_out
+        if withheld:
+            result["withheld"] = (
+                f"{withheld} more here are of a kind that is never "
+                "shown or read, such as key and sign-in files."
+            )
 
         return result
 

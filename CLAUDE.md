@@ -281,7 +281,7 @@ kept as `readable_folders` in `data/freya_settings.json`; nothing the model can 
 does. Keep these rules: a path is resolved to where it really is before it is
 checked, so a link or junction cannot lead out; a refusal uses the same words
 whether or not anything is there and never names a path, because the message
-reaches the audit log; key and sign-in files and folders (`SECRET_FILE_PATTERNS`,
+reaches the audit log; key and sign-in files and folders, `.git` among them (`SECRET_FILE_PATTERNS`,
 `CLOSED_FOLDER_NAMES`) and Freya's own `data/` stay shut even inside an opened
 folder; a whole drive, the whole user folder and `AppData` cannot be opened; every
 call returns a bounded amount. There is no tool that writes, and adding one is a

@@ -36,6 +36,10 @@ def tree(tmp_path):
     (opened / ".env").write_text("TOKEN=made-up-token\n", encoding="utf-8")
     (opened / "server.pem").write_text("made-up key\n", encoding="utf-8")
     (opened / ".ssh").mkdir()
+    (opened / ".git").mkdir()
+    (opened / ".git" / "config").write_text(
+        "url = https://user:made-up-password@example.invalid/repo", encoding="utf-8",
+    )
     (opened / ".ssh" / "config").write_text("Host made-up\n", encoding="utf-8")
     (opened / "picture.bin").write_bytes(b"\x89PNG\x00\x00binary")
     (opened / "data").mkdir()
@@ -78,6 +82,9 @@ def test_listing_shows_files_and_folders_but_never_keys_or_freyas_data(reader, t
     listing = reader.list(str(tree))
 
     assert names(listing) == ["notes.txt", "picture.bin", "src"]
+    # .env, server.pem, .ssh, .git and Freya's data: said to be there, not named.
+    assert listing["withheld"].startswith("5 more")
+    assert "withheld" not in reader.list("src")
     assert {"name": "src", "folder": True} in listing["entries"]
     assert {"name": "notes.txt", "bytes": (tree / "notes.txt").stat().st_size} in (
         listing["entries"]
@@ -159,6 +166,7 @@ def test_a_refusal_never_names_the_path(reader, tree):
 
 @pytest.mark.parametrize("path", [
     ".env", "server.pem", ".ssh/config", ".ssh", "data/memory.txt", "data",
+    ".git/config", ".git",
 ])
 def test_keys_sign_ins_and_freyas_own_data_stay_shut_inside_an_opened_folder(reader, path):
     for call in (reader.read, reader.list):
