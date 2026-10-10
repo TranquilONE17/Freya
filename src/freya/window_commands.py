@@ -4,6 +4,7 @@ import sys
 from dataclasses import dataclass
 from typing import Callable, Optional
 
+from freya.file_access import FOLDER_COMMANDS
 from freya.hands_free import LISTENING_COMMANDS, handle_listening_command
 
 
@@ -16,7 +17,8 @@ KEYBOARD_ONLY = ("/talk", "/listen", "/conversation", "/voice-file")
 
 HELP_TEXT = (
     "Commands: /names, /name add <name>, /name remove <name>, /mute, "
-    "/unmute, /interrupt, /image <description>, /terminal, /help. "
+    "/unmute, /interrupt, /image <description>, /folders, /folder open "
+    "<path>, /folder close <path>, /terminal, /help. "
     "/memory-help lists the memory commands."
 )
 
@@ -43,6 +45,10 @@ class CommandContext:
     # The assistant's memory-command handler: given a line, it returns
     # the answer, or None when the line is not a memory command.
     memory_command: Optional[Callable[[str], Optional[str]]] = None
+
+    # Opens and closes the folders Freya may read: given a line, it
+    # answers on the console and returns True if it was its command.
+    folder_command: Optional[Callable[[str], bool]] = None
 
 
 class _Both(io.TextIOBase):
@@ -107,6 +113,13 @@ def _dispatch(line: str, context: CommandContext) -> bool:
             context.settings,
         )
         context.publish_status()
+        return True
+
+    if command in FOLDER_COMMANDS:
+        if context.folder_command is None:
+            print("Freya: Folders cannot be opened from here.")
+        else:
+            context.folder_command(line)
         return True
 
     if command == "/image":

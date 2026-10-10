@@ -22,6 +22,7 @@ from freya.delegation.service import build_cloud_delegation
 from freya.storage.backup import back_up_on_close
 from freya.config import OPEN_WINDOW, MODEL
 from freya.config import COMFYUI_AT_START
+from freya.file_access import FOLDER_COMMANDS, FileAccess
 from freya.hands_free import LISTENING_COMMANDS
 from freya.hands_free import describe_listening
 from freya.hands_free import handle_listening_command
@@ -84,7 +85,7 @@ COMMANDS = (
 
     IMAGE_COMMAND,
 
-) + LISTENING_COMMANDS + (WINDOW_COMMAND,)
+) + LISTENING_COMMANDS + FOLDER_COMMANDS + (WINDOW_COMMAND,)
 
 
 
@@ -1126,6 +1127,13 @@ def main(window_only=False):
     stt = load_speech_recognition()
 
     settings = Settings()
+    # The folders the owner has opened for Freya to read. None
+    # to start, and then the file tools are not offered at all.
+    file_access = FileAccess(
+        settings,
+        control_plane.refresh_file_reader,
+    )
+    control_plane.register_file_reader(file_access.reader)
 
     gate = TurnGate()
 
@@ -1582,6 +1590,7 @@ def main(window_only=False):
                     publish_status=publish_status,
 
                     memory_command=freya.memory_command,
+                    folder_command=file_access.command,
 
                     request_quit=(
 
@@ -1780,6 +1789,8 @@ def main(window_only=False):
                 continue
 
 
+            if file_access.command(user_input):
+                continue
             if user_input.lower() == WINDOW_COMMAND:
 
                 print(f"\n{window.open()}\n")
