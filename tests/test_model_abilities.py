@@ -397,3 +397,9 @@ def test_installed_builds_are_read_from_the_local_server(monkeypatch):
 
     monkeypatch.setattr(provider, "ollama", Down())
     assert provider.installed_digests() == {}
+
+
+def test_she_is_told_she_cannot_send_work_herself(record):
+    record.add_report(report(OWN, 20))
+
+    assert "cannot send work" in describe(record)["sending_work"]

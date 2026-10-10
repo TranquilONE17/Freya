@@ -44,6 +44,14 @@ NOT_MEASURED = (
     "work that takes many steps or many tool calls",
 )
 
+# She can say where work should go but cannot yet send it: no turn
+# delegates. Without this she offers to hand work over.
+SENDING = (
+    "You cannot send work to another model yourself. Say where it "
+    "should go and why, and leave arranging it to the user; never "
+    "offer to hand it over or say that you have."
+)
+
 # What the model is told the tool is for. The evaluation offers the
 # same words, so it measures the tool Freya really has.
 MODEL_RECORD_DESCRIPTION = (
@@ -329,6 +337,7 @@ def describe_abilities(
             ],
         },
         "other_models": [],
+        "sending_work": SENDING,
         "where_work_should_go": {},
         "never_measured_for_any_model": list(NOT_MEASURED),
     }
