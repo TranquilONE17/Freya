@@ -159,6 +159,34 @@ def test_the_tab_lists_and_removes_rules_but_cannot_make_one(cloud):
     assert cloud.window_request({"action": "unrule", "id": rule["id"]})["error"]
 
 
+def test_the_window_can_say_how_much_its_next_message_matters(cloud):
+    # Before a turn can hand work over there is nothing to tell.
+    assert cloud.window_request(
+        {"action": "next", "value": "high", "urgent": False},
+    )["error"]
+
+    class Delegation:
+        chosen = None
+
+        def set_next(self, value, urgent):
+            if value not in ("low", "normal", "high") or not isinstance(urgent, bool):
+                raise ValueError("no")
+            self.chosen = (value, urgent)
+
+    cloud.turn_delegation = Delegation()
+    before = len(changes(cloud))
+
+    assert "error" not in cloud.window_request(
+        {"action": "next", "value": "high", "urgent": True},
+    )
+    assert cloud.turn_delegation.chosen == ("high", True)
+    assert cloud.window_request(
+        {"action": "next", "value": "highest", "urgent": True},
+    )["error"]
+    # It is one message's choice, not a change to the owner's settings.
+    assert len(changes(cloud)) == before
+
+
 def test_switching_a_provider_on_unlocks_it_and_off_locks_it(cloud):
     capability = "cloud.anthropic_plan.ask"
 

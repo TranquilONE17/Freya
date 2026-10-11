@@ -207,6 +207,16 @@ asking. Keep these rules: a rule is made only by that answer (the `rule` action 
 removes); it holds only kinds set to ask first and never brings back a kind set to
 never; it does not cover a held brief or a spoken turn's click; a stored rule that is
 not understood is dropped. A rule has no usage limit of its own yet.
+How much a hand-over matters (low, normal, high, and urgent) is the owner's to say
+and never a model's. In the window it is set beside the chat box and sent just ahead of
+the message (`cloud` request `next`, `TurnDelegation.set_next`); it applies to that one
+message and is not a setting. A spoken request may ask for a setting change, but the
+change is made only by a click on a confirmation shown on the device that recorded the
+request (owner decision, 2026-10-11). So far that covers only value and urgency: words
+found in the owner's transcribed sentence by code (`said_value`) add a choice to the
+prompt a spoken hand-over always shows. Do not let spoken words change anything
+without that click, and send the prompt only to the device that heard them once more
+than one can listen.
 The tab must never be able to send a brief or write any other
 policy rule.
 

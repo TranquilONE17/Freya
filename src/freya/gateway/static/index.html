@@ -41,6 +41,13 @@
         <textarea id="chat-input" rows="1" placeholder="Message Freya, or type /help for commands" aria-label="Message Freya" maxlength="4000"></textarea>
         <label class="volume" title="How loudly Freya speaks. A change applies from her next sentence.">Voice <span class="value" id="voice-volume-value">100%</span>
           <input type="range" id="voice-volume" min="0" max="100" step="5" value="100" aria-label="Voice volume"></label>
+        <label class="volume" title="How much your next message matters, if Freya hands part of it to a cloud model. Low waits while allowance is short; high may go past today's share. It goes back to normal after each message.">Cloud work
+          <select id="chat-value" aria-label="Value of the next message for cloud work">
+            <option value="low">Low</option>
+            <option value="normal" selected>Normal</option>
+            <option value="high">High</option>
+          </select></label>
+        <label class="volume" title="Do not wait for an allowance to reset. Applies to your next message only."><input type="checkbox" id="chat-urgent"> Urgent</label>
         <button type="button" class="ghost" id="stop-speaking" title="Stop her speaking">Stop voice</button>
         <button type="submit" class="primary">Send</button>
       </form>

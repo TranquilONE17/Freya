@@ -8,6 +8,9 @@ from freya.delegation.screening import Corrections
 # What the Cloud tab may ask for. Reading shows the owner's own
 # choices; every other action changes one of them.
 READS = ("state", "sent")
+# How much the next message typed in this window matters. It is the
+# owner's choice for one message, not a setting, so it is not kept.
+NEXT = "next"
 CHANGES = ("provider", "limit", "material", "bars", "mark", "unmark", "unrule")
 # A rule is made only by the owner's answer to a prompt that showed
 # exactly what it covers, never by a request from the tab: the tab
@@ -191,6 +194,11 @@ def cloud_window_request(
         if action == "sent":
             entries: List[dict] = cloud.sent.entries()[-SENT_SHOWN:]
             answer["sent"] = list(reversed(entries))
+        elif action == NEXT:
+            delegation = getattr(cloud, "turn_delegation", None)
+            if delegation is None:
+                raise CloudRequestRefused("Work cannot be handed over just now.")
+            delegation.set_next(message.get("value"), message.get("urgent"))
         elif action in CHANGES:
             change(message)
         elif action != "state":
