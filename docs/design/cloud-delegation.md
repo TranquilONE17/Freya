@@ -40,8 +40,12 @@ provider module plus a price table and a list of limits; nothing else changes.
 
 ## How a turn flows
 
-The owner only ever talks to Freya's main local reasoning model. No other model,
-local or cloud, answers the owner directly.
+The owner only ever addresses Freya's main local reasoning model. The model that did
+delegated work, local or cloud, may answer the owner directly: its answer is shown
+under its own name, and Freya's interpretation follows (owner decision, 2026-10-10;
+NEW-LC11, `docs/design/attributed-chat-responses.md`). On a spoken turn Freya speaks
+only her interpretation; the other model's answer stays in the window. This replaces
+the earlier rule that no other model answers the owner directly.
 
 1. The owner says something. The main model decides whether she can answer herself or
    whether part of the work should go to another model.
@@ -49,9 +53,11 @@ local or cloud, answers the owner directly.
    for that model and that job, as short as it can be while still complete.
 3. The router chooses the route for each brief (local first, then plan, then paid API)
    under the limits, check boxes, rules and prompts described below, and sends it.
-4. What comes back is untrusted text. It goes to the main model as labelled input, the
-   same way tool results do.
-5. The main model writes the reply in her own words, saying which models contributed.
+4. What comes back is untrusted text. It is shown to the owner under the name of the
+   model that wrote it (the label comes from the route, never from the text), and it
+   goes to the main model as labelled input, the same way tool results do.
+5. The main model then gives her interpretation in her own words, without repeating
+   the other model's answer.
 
 This can happen inside an ordinary conversation turn; it does not need the owner to
 declare a task. The existing `background` role (memory decisions, ranking, summaries)

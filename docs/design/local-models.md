@@ -7,10 +7,10 @@ each model's own licence text, and what was noticed.
 
 | Model (Ollama name) | Id | Size | Licence | Used for |
 |---|---|---|---|---|
-| `gpt-oss:20b` | `9ba9cc2b4e02` | 13 GB | Apache 2.0 | Freya's replies and background work |
+| `gpt-oss:20b` | `9ba9cc2b4e02` | 13 GB | Apache 2.0 | Freya's main model until 2026-10-09; kept for comparison |
 | `nomic-embed-text` | `0a109f422b47` | 274 MB | Apache 2.0 | Embeddings for memory search |
 | `qwen3.6:27b` | `bcbdbd4bcf86` | 17 GB | Apache 2.0 | Benchmarked; not used by Freya |
-| `qwen3.8:27b` | `aaee06c39dcf` | 17 GB | Apache 2.0 | Benchmarked; not used by Freya |
+| `qwen3.8:27b` | `aaee06c39dcf` | 17 GB | Apache 2.0 | Freya's replies and background work since 2026-10-09 (`docs/design/model-benchmarks-2026-10-09.md`) |
 | `qwen3.5:9b` | `56671c2ab938` | 6.6 GB | Apache 2.0 | Benchmarked; not used by Freya |
 | `granite4.2:8b` | `f586c02fdecd` | 5.3 GB | Apache 2.0 | Benchmarked; not used by Freya |
 | `tev1:4b` | `9b5bb969e46c` | 4.5 GB | Apache 2.0 | Benchmarked; not used by Freya |

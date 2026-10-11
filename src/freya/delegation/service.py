@@ -1,3 +1,4 @@
+import os
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -17,6 +18,8 @@ from freya.delegation.dispatch import Dispatcher, Route, SentBriefs
 from freya.delegation.material import CloudSettings
 from freya.delegation.record import ModelRecord
 from freya.delegation.screening import Corrections
+from freya.delegation.compose import TASK_KINDS
+from freya.delegation.turn import TurnDelegation
 from freya.delegation.window_requests import (
     apply_cloud_change,
     cloud_window_request,
@@ -31,7 +34,8 @@ from freya.providers.model.claude_plan import (
     register_claude_plan_capability,
 )
 from freya.providers.model.ollama import installed_digests
-from freya.tools.model_tools import MODEL_TOOL
+from freya.tools.model_tools import MODEL_TOOL, TOOL_PARAMETERS
+from freya.tools.system_tools import SYSTEM_TOOLS_PROVIDER
 
 
 DATA_DIR = Path(__file__).resolve().parents[3] / "data"
@@ -43,6 +47,15 @@ CLOUD_SETTINGS_SEED = "alpha-cloud-settings"
 MODEL_RECORD_PROVIDER = "model-record-local"
 MODEL_RECORD_READ = "model.record.read"
 MODEL_RECORD_SEED = "alpha-model-record"
+# The tool the main model calls to hand one piece of work to Claude.
+DELEGATION_PROVIDER = "delegation-local"
+WORK_DELEGATE = "work.delegate"
+WORK_DELEGATE_SEED = "alpha-work-delegate"
+
+# The model the Claude route asks for. The program's own default is its
+# largest model, which uses a plan's allowance fastest.
+CLAUDE_MODEL_VARIABLE = "FREYA_CLAUDE_MODEL"
+DEFAULT_CLAUDE_MODEL = "sonnet"
 
 # The reason written on a policy rule that a provider's switch added,
 # so that switching it off removes that rule and no other.
@@ -237,6 +250,7 @@ def build_cloud_delegation(
     data_dir=DATA_DIR,
     claude_program=None,
     closeness=None,
+    claude_model=None,
 ) -> CloudDelegation:
     """
     Assemble cloud delegation on a control plane and register the
@@ -256,9 +270,16 @@ def build_cloud_delegation(
     take the one permit that an authorized send holds.
 
     `memories` supplies the (id, text) pairs briefs are screened
-    against. The caller decides how they are read.
+    against. The caller decides how they are read. `claude_model` names
+    the model the Claude route asks for; without it the route uses
+    `FREYA_CLAUDE_MODEL`, or "sonnet".
     """
     data_dir = Path(data_dir)
+    claude_model = (
+        claude_model
+        or os.environ.get(CLAUDE_MODEL_VARIABLE, "").strip()
+        or DEFAULT_CLAUDE_MODEL
+    )
     settings = CloudSettings(data_dir / "cloud_settings.json")
     usage_store = ControlStore(data_dir / "freya_usage.db", USAGE_MIGRATIONS)
     ledger = UsageLedger(usage_store)
@@ -310,6 +331,7 @@ def build_cloud_delegation(
         control_plane.capabilities,
         dispatcher.take_permit,
         claude_program,
+        model=claude_model,
         on_failure=note_failure,
     )
 
@@ -397,3 +419,123 @@ def build_cloud_delegation(
     )
 
     return cloud
+
+
+def build_turn_delegation(
+    control_plane,
+    cloud: CloudDelegation,
+    ask_owner: Callable[[dict], Optional[str]],
+    window_connected: Callable[[], bool],
+) -> TurnDelegation:
+    """
+    Let the main model hand one piece of work to Claude during a turn.
+
+    This registers the `work.delegate` tool and offers it to the model
+    only while it can work: a provider with a route is switched on in
+    the cloud settings and a window is connected to ask the owner in.
+    Its policy seed allows the model to *ask* for delegation. It
+    allows no cloud call: the dispatcher's own locks (the provider's
+    switch, the route's policy rule and its usage limit) still decide
+    that, and every question the settings require is put to the owner.
+
+    `ask_owner(prompt)` shows a question in the window and returns the
+    id of the answer chosen, or None.
+    """
+    broker = control_plane.broker
+    capabilities = control_plane.capabilities
+
+    def accepts_tool_result(tool_name) -> bool:
+        # Only tools that read this PC. A tool that returns saved
+        # memories, past conversations or media records must never
+        # have its output offered under the label "tool result".
+        for capability in capabilities.list_capabilities():
+            if capability.name.replace(".", "_") == tool_name:
+                return capability.provider == SYSTEM_TOOLS_PROVIDER
+
+        return False
+
+    def mark_not_private(phrase: str) -> bool:
+        result = broker.invoke(
+            CLOUD_SETTINGS_CHANGE,
+            {"action": "mark", "list": "not-private", "phrase": phrase},
+        )
+
+        return result.success
+
+    delegation = TurnDelegation(
+        cloud,
+        control_plane.model_runtime.chat,
+        ask_owner,
+        window_connected,
+        mark_not_private,
+        accepts_tool_result,
+    )
+
+    control_plane.providers.register(
+        ProviderDefinition(
+            provider_id=DELEGATION_PROVIDER,
+            name="Handing work to an outside model",
+            capabilities=[WORK_DELEGATE],
+            start_handler=lambda: None,
+            health_handler=lambda: True,
+        )
+    )
+    control_plane.providers.start(DELEGATION_PROVIDER)
+    control_plane.providers.check_health(DELEGATION_PROVIDER)
+
+    capabilities.register(
+        CapabilityDefinition(
+            name=WORK_DELEGATE,
+            description=(
+                "Hands one piece of work to a stronger outside model and "
+                "returns its answer. Use it for work you cannot do well "
+                "yourself: long analysis, careful reasoning, review. Do "
+                "not use it for conversation, for anything about the user "
+                "personally, or for what you can answer directly. Give "
+                "the kind of task and the ids of the inputs to send with "
+                "it. You do not write the request; it is written from the "
+                "inputs you choose. The answer comes from another model "
+                "and may be wrong."
+            ),
+            provider=DELEGATION_PROVIDER,
+            handler=delegation.delegate,
+            category="cloud",
+            metadata={
+                MODEL_TOOL: True,
+                # No argument is a place to write a sentence: only a
+                # kind from a fixed list and the ids of offered inputs.
+                TOOL_PARAMETERS: {
+                    "kind": {
+                        "description": (
+                            "The kind of task, one of: "
+                            + ", ".join(TASK_KINDS)
+                            + "."
+                        ),
+                        "max_length": 20,
+                    },
+                    "inputs": {
+                        "description": (
+                            "The ids of the offered inputs to send with "
+                            "the work, separated by commas. May be empty."
+                        ),
+                        "max_length": 400,
+                        "optional": True,
+                    },
+                },
+            },
+        )
+    )
+
+    control_plane.model_tools.add_offer_condition(
+        WORK_DELEGATE, delegation.available,
+    )
+    control_plane.model_tools.add_hint_source(delegation.hint)
+
+    seed_alpha_policy(
+        control_plane.policy,
+        WORK_DELEGATE_SEED,
+        LOCAL_OWNER.actor,
+        [WORK_DELEGATE],
+    )
+
+    return delegation

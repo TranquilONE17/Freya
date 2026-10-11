@@ -154,6 +154,42 @@ same settings.
   documents, large bodies of code, writing code, or images.
 - `gpt-oss:20b` was loaded by something else for part of the first run, which may have
   slowed `granite4.2:8b` with thinking off slightly. It does not change the ranking.
-- This measures delegated work. It does not measure conversation with tools and
-  memory, which the earlier 18-scenario suite covers and where `gpt-oss:20b` passed
-  54 of 54 and `qwen3.6:27b` 53 of 54. `qwen3.8:27b` has not been run on that suite.
+- This measures delegated work. Conversation with tools and memory is the separate
+  scenario suite: `gpt-oss:20b` passed 54 of 54, `qwen3.6:27b` 53 of 54, and
+  `qwen3.8:27b` 53 of 54 after the context fix (above), and 64 of 66 on the 22
+  scenarios of 2026-10-10 (below).
+
+## Runs of 2026-10-10: the larger task set
+
+Recorded from the run logs in `work/delegation-2026-10-10/` and
+`work/model-comparison-2026-10-09/` (not committed). These runs used 91 tasks, 273
+attempts per entry (30 per kind, 39 for reasoning, 33 for code review and planning,
+48 for analysis). **The committed `delegation_tasks.py` still holds 63**: the added
+tasks are in the owner's working copy only, and should be committed before these
+figures are put in the record or compared with anyone else's run.
+
+| Entry | Passed | Extraction | Summarising | Classification | Rewriting | Reasoning | Code review | Planning | Analysis |
+|---|---|---|---|---|---|---|---|---|---|
+| `qwen3.8:27b` medium | 267/273 | 30/30 | 30/30 | 30/30 | 30/30 | 39/39 | 29/33 | 31/33 | 48/48 |
+| `qwen3.8:27b` default | 264/273 | 27/30 | 30/30 | 30/30 | 30/30 | 39/39 | 30/33 | 30/33 | 48/48 |
+| `gpt-oss:20b` medium | 245/273 | 28/30 | 23/30 | 28/30 | 26/30 | 39/39 | 29/33 | 25/33 | 47/48 |
+| `qwen3.8:27b` off | 199/273 | 15/30 | 22/30 | 21/30 | 21/30 | 36/39 | 30/33 | 14/33 | 40/48 |
+
+A fifth run gave `qwen3.8:27b` (default thinking) only 2,048 output tokens on four
+kinds: reasoning 38/39, code review 30/33, analysis 48/48, but planning fell to 23/33
+(70%), with `two-workers`, `two-limit-load` and `delivery-round` failed in all three
+attempts. Planning needs the room to think; the 8,192-token allowance matters.
+
+- The larger set now separates the entries: `qwen3.8:27b` with thinking is still
+  first, `gpt-oss:20b` falls behind on summarising (77%) and planning (76%), and
+  thinking off is below the 70% bar on extraction and planning.
+- `code-review/lost-updates` failed all three attempts **for every entry**, and
+  `extraction/room-clashes` all three for `qwen3.8:27b` at default. A task that every
+  model fails may have a wrong check or a wrong expected answer; read its stored
+  replies before counting it against any model.
+- The scenario suite, now 22 scenarios with the four about Freya's own measured
+  ability, passed 64 of 66 on `qwen3.8:27b`. Both failures were `ability-weak-kind`
+  (1 of 3 passed): asked about a kind of work her record shows she is weak at, she
+  did not reliably say so. That is the judgement delegation depends on, and it
+  should be read and fixed (prompt or check) before delegation is relied on.
+- Claude on the owner's plan has still not been measured.
