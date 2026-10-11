@@ -40,7 +40,11 @@ REQUEST_ID = "request"
 RECENT_EXCHANGES = 3
 # What one earlier exchange or tool result may add to a brief.
 MAX_INPUT_CHARACTERS = 20_000
-MAX_ANSWER_CHARACTERS = 8_000
+# The context authority clips every tool message to 2,400 bytes and
+# turns a longer one into a broken excerpt. The whole result is kept
+# under this, so the main model always gets valid JSON; the answer in
+# full is in the card the owner sees.
+MAX_RESULT_BYTES = 2_000
 # The providers this version may hand work to, in order of preference.
 PROVIDERS = ("anthropic",)
 # The most times the sending checks are asked again after the owner
@@ -95,6 +99,8 @@ class DelegationTurn:
         self.delegated = False
         # Set when the owner said no: the model is not to ask again.
         self.declined = False
+        # What the record says about the kind of work being handed over.
+        self.measured: List[str] = []
 
     @property
     def inputs(self) -> Tuple[AvailableInput, ...]:
@@ -192,12 +198,15 @@ def build_inputs(user_input: str, messages) -> List[AvailableInput]:
     """
     inputs = [AvailableInput(REQUEST_ID, KIND_REQUEST, user_input)]
 
-    for number, (said, replied) in enumerate(recent_exchanges(messages), 1):
+    # Only what the owner said. Freya's own replies often restate what
+    # she recalled from memory, so offering them as "this conversation"
+    # would let memory leave under another label.
+    for number, (said, _) in enumerate(recent_exchanges(messages), 1):
         inputs.append(
             AvailableInput(
                 f"turn-{number}",
                 KIND_CONVERSATION,
-                f"User: {said}\nFreya: {replied}"[:MAX_INPUT_CHARACTERS],
+                said[:MAX_INPUT_CHARACTERS],
             )
         )
 
@@ -237,7 +246,9 @@ class TurnDelegation:
         window_connected: Callable[[], bool],
         mark_not_private: Callable[[str], bool],
         accepts_tool_result: Callable[[str], bool] = lambda tool_name: False,
+        measured: Callable[[str, str], List[str]] = lambda kind, route: [],
     ):
+        self._measured = measured
         self._cloud = cloud
         self._chat = chat
         self._ask_owner = ask_owner
@@ -313,7 +324,15 @@ class TurnDelegation:
             + ". The Nth tool result you receive in this turn is tool-N, "
             "and only results that read this PC can be sent. "
             "When you used delegated work, say in your reply that part "
-            "of the answer came from another model, and name it."
+            "of the answer came from another model, and name it. The user "
+            "is shown that model's answer in full under its own name, so "
+            "do not repeat it: add what you make of it."
+            + (
+                " This turn was spoken, and your reply will be read aloud: "
+                "give only your own short interpretation."
+                if turn.origin == ORIGIN_VOICE
+                else ""
+            )
         )
 
     # -- the tool --------------------------------------------------
@@ -353,6 +372,19 @@ class TurnDelegation:
             raise DelegationRefused("No outside model is switched on.")
 
         provider, route = chosen
+
+        # What the record says about this kind of work. It informs the
+        # owner and the model; it does not refuse or redirect, and it
+        # changes nothing about what is sent.
+        try:
+            measured = [
+                str(line)
+                for line in self._measured(plan.kind, route.route_id)
+            ]
+        except Exception:
+            measured = []
+
+        turn.measured = measured
         brief = self._compose(plan, turn, provider)
 
         if brief.review.ask:
@@ -391,26 +423,55 @@ class TurnDelegation:
                 "received."
             )
 
-        return self._answer(provider, reply)
+        return self._answer(provider, reply, measured)
 
     @staticmethod
-    def _answer(provider, reply) -> dict:
+    def _answer(provider, reply, measured=()) -> dict:
+        """
+        The tool result for the main model: who answered, what the
+        record says, and as much of the answer as fits her context.
+        The owner sees the whole answer in its card.
+        """
         text = getattr(reply, "text", "")
         text = text if isinstance(text, str) else ""
-        cut = len(text) > MAX_ANSWER_CHARACTERS or bool(
-            getattr(reply, "truncated", False)
-        )
         result = {
             "from": PROVIDER_LABELS.get(provider, provider),
-            "model": str(getattr(reply, "model", "") or ""),
-            "answer": text[:MAX_ANSWER_CHARACTERS],
+            "model": str(getattr(reply, "model", "") or "")[:80],
+            "answer": text,
+            "shown_to_user": (
+                "The user sees this answer in full, under the name above. "
+                "Do not repeat it; say what you make of it."
+            ),
         }
 
-        if cut:
+        if measured:
+            result["measured"] = " ".join(measured)
+
+        def size():
+            return len(json.dumps(result, default=str).encode("utf-8"))
+
+        if size() > MAX_RESULT_BYTES or getattr(reply, "truncated", False):
+            result["shortened"] = True
             result["note"] = (
-                f"The answer was cut to its first {MAX_ANSWER_CHARACTERS:,} "
-                "characters."
+                "Only the start of the answer is here; the user sees all of it."
             )
+
+            # The longest start of the answer that fits, found by
+            # halving. Whole characters are cut, and the size is taken
+            # from the same encoding the tool result is sent in, where
+            # one character can cost six bytes.
+            low, high = 0, len(text)
+
+            while low < high:
+                middle = (low + high + 1) // 2
+                result["answer"] = text[:middle]
+
+                if size() <= MAX_RESULT_BYTES:
+                    low = middle
+                else:
+                    high = middle - 1
+
+            result["answer"] = text[:low]
 
         return result
 
@@ -556,6 +617,13 @@ class TurnDelegation:
         question offered counts; anything else, and no answer at all,
         is a denial.
         """
+        turn = self.current_turn
+
+        if turn is not None and turn.measured:
+            # What the record says about this kind of work, after the
+            # description of what would be sent.
+            prompt = {**prompt, "lines": [*prompt["lines"], *turn.measured]}
+
         try:
             answer = self._ask_owner(prompt)
         except Exception:

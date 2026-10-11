@@ -2,7 +2,7 @@ import os
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from typing import Callable, Iterable, Optional, Tuple
+from typing import Callable, Iterable, List, Optional, Tuple
 
 from freya.config import BACKGROUND_MODEL, CONTEXT_WINDOW_TOKENS, MODEL
 from freya.core.capabilities import LOCAL_OWNER, CapabilityDefinition
@@ -13,6 +13,7 @@ from freya.core.usage import SCOPE_PERIOD, USAGE_MIGRATIONS, UsageLedger
 from freya.delegation.abilities import (
     MODEL_RECORD_DESCRIPTION,
     describe_abilities,
+    delegation_notes,
 )
 from freya.delegation.dispatch import Dispatcher, Route, SentBriefs
 from freya.delegation.material import CloudSettings
@@ -22,6 +23,7 @@ from freya.delegation.screening import Corrections
 from freya.delegation.compose import TASK_KINDS
 from freya.delegation.turn import TurnDelegation
 from freya.delegation.window_requests import (
+    PROVIDER_LABELS,
     apply_cloud_change,
     cloud_window_request,
 )
@@ -202,6 +204,26 @@ class CloudDelegation:
             now=moment,
         )
 
+    def delegation_notes(self, kind: str, route_id: str) -> List[str]:
+        """What the record says about handing this kind of work to a route."""
+        self.record.refresh()
+        provider = next(
+            (name for name, route in self.routes.items()
+             if route.route_id == route_id),
+            route_id,
+        )
+
+        return delegation_notes(
+            self.record,
+            kind,
+            self.local_models,
+            route_id,
+            PROVIDER_LABELS.get(provider, provider),
+            self.settings.bars,
+            suite=suite_version(),
+            identities=self.local_identities(),
+        )
+
     def abilities(self) -> dict:
         """
         What has been measured about Freya's own model and the models
@@ -223,7 +245,17 @@ class CloudDelegation:
             self.context_tokens,
             suite=suite_version(),
             identities=self.local_identities(),
+            can_delegate=self.can_delegate(),
         )
+
+    def can_delegate(self) -> bool:
+        """Whether a turn could hand work over right now."""
+        delegation = getattr(self, "turn_delegation", None)
+
+        try:
+            return bool(delegation is not None and delegation.available())
+        except Exception:
+            return False
 
     def window_request(self, message: dict) -> dict:
         """
@@ -472,7 +504,11 @@ def build_turn_delegation(
         window_connected,
         mark_not_private,
         accepts_tool_result,
+        measured=cloud.delegation_notes,
     )
+    # So that what Freya reads about herself says whether she can
+    # hand work over in this turn.
+    cloud.turn_delegation = delegation
 
     control_plane.providers.register(
         ProviderDefinition(

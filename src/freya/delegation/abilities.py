@@ -44,12 +44,20 @@ NOT_MEASURED = (
     "work that takes many steps or many tool calls",
 )
 
-# She can say where work should go but cannot yet send it: no turn
-# delegates. Without this she offers to hand work over.
+# Whether she can hand work over depends on the turn: the tool is
+# offered only while a provider is switched on and a window is open
+# to ask the owner in. Without one of these sentences she offers to
+# hand work over when she cannot, or claims to have.
 SENDING = (
     "You cannot send work to another model yourself. Say where it "
     "should go and why, and leave arranging it to the user; never "
     "offer to hand it over or say that you have."
+)
+SENDING_AVAILABLE = (
+    "You can hand one piece of work to an outside model in a turn, "
+    "with the work delegate tool, when that tool is offered to you. "
+    "The user is asked before anything leaves this computer. Never "
+    "say work was handed over unless that tool returned an answer."
 )
 
 # What the model is told the tool is for. The evaluation offers the
@@ -231,6 +239,63 @@ def advise(
     )
 
 
+def delegation_notes(
+    record,
+    kind: str,
+    local_models: Sequence[str],
+    route: str,
+    route_label: str,
+    bars=None,
+    suite: Optional[str] = None,
+    identities: Optional[Dict[str, str]] = None,
+) -> List[str]:
+    """
+    What the record says when work of one kind is about to be handed
+    to a cloud route, as sentences for the owner and the model.
+
+    It informs; it never refuses or redirects. Only figures for
+    today's tasks and the installed builds count, and nothing here is
+    a model's opinion of itself.
+    """
+    figures = CurrentFigures(record, suite, identities)
+    notes = []
+
+    local = advise(
+        figures, kind, "normal", local_models, (), bars,
+        unmeasured_allowed=False,
+    )
+
+    if local.entry is not None and local.pass_rate is not None:
+        notes.append(
+            f"Measured: work done on this PC passed {_percent(local.pass_rate)} "
+            f"of the test tasks for {kind}, which is good enough for "
+            "ordinary work, so handing this over may not be needed."
+        )
+
+    measured = [
+        result
+        for result in (
+            figures.result(entry, kind)
+            for entry, _ in _recorded(figures, route)
+        )
+        if result is not None and result.measured
+    ]
+
+    if measured:
+        best = max(result.pass_rate for result in measured)
+        notes.append(
+            f"Measured: {route_label} passed {_percent(best)} of the test "
+            f"tasks for {kind}."
+        )
+    else:
+        notes.append(
+            f"{route_label} has not been measured on {kind} work, so how "
+            "well it does this is not known."
+        )
+
+    return notes
+
+
 def _standing(result, bars) -> str:
     """The highest value of work a result is good enough for."""
     if result is None or not result.measured:
@@ -303,6 +368,7 @@ def describe_abilities(
     kinds: Sequence[str] = KINDS,
     suite: Optional[str] = None,
     identities: Optional[Dict[str, str]] = None,
+    can_delegate: bool = False,
 ) -> dict:
     """
     What has been measured about the model Freya answers with and the
@@ -337,7 +403,7 @@ def describe_abilities(
             ],
         },
         "other_models": [],
-        "sending_work": SENDING,
+        "sending_work": SENDING_AVAILABLE if can_delegate else SENDING,
         "where_work_should_go": {},
         "never_measured_for_any_model": list(NOT_MEASURED),
     }

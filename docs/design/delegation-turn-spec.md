@@ -26,10 +26,10 @@ code on `feat/delegation-turn` already meets it.
    - The card shows the answer in full (within the observer's own bound); only the
      main model's copy is shortened to fit her context (item 5).
    - The same card is used when delegation to another local model is built.
-   - *Not met yet.* The `on_reply` observer, the `source_response` event and its
-     rendering exist only as uncommitted changes in the owner's working copy on
-     `feat/model-roles`; `feat/delegation-turn` was built without them. Commit them
-     on their own branch, then merge both, then wire the card into the turn.
+   - *Met on `integration/2026-10-11`.* The uncommitted card work was copied to a
+     snapshot branch and merged with the turn. A test shows one card per successful
+     send, labelled from the route even when the answer claims another name, holding
+     the whole answer, and none for a failed send.
    - Open, not a blocker: the card is in the bus history and replayed to any window
      that connects. On the loopback, single-owner alpha the only viewer is the owner,
      who approved what left. With authenticated sessions, a card must be shown only
@@ -38,8 +38,10 @@ code on `feat/delegation-turn` already meets it.
 2. **On a spoken turn Freya speaks only her own interpretation (owner decision).**
    The assisting model's answer is never read aloud; it is in the card. A spoken
    turn needs a window anyway, for the confirmation click (section 3, step 6), so the
-   card always has somewhere to appear. *Not met yet:* speech must skip the
-   `source_response` text.
+   card always has somewhere to appear. *Met on `integration/2026-10-11`:* the card
+   is a separate event that speech never reads; Freya speaks only her own reply, and
+   on a spoken turn she is told to give only her short interpretation and not to
+   repeat the answer. That last part is an instruction to a model, not a guarantee.
 
 3. **Tool results: only tools that read this PC.** A tool result is offered only
    when the capability that produced it belongs to the system-tools provider. The
@@ -52,7 +54,7 @@ code on `feat/delegation-turn` already meets it.
    restate what she recalled from memory, so offering them as "live conversation"
    would let memory leave under another label. `turn-1` to `turn-3` hold the owner's
    messages only, not Freya's replies. Screening remains a second safeguard, not the
-   reason this is safe. *Not met:* `turn.build_inputs` joins both sides.
+   reason this is safe. *Met on `integration/2026-10-11`.*
 
 5. **The answer's length must match what the context passes.**
    `ContextAuthority.fit_tools` clips every tool message to 2,400 bytes, JSON
@@ -65,7 +67,9 @@ code on `feat/delegation-turn` already meets it.
    - give `work.delegate` results a larger clip of their own, within the input
      budget, in `fit_tools`. That is a change to the context authority and needs
      its own test that the budget still holds.
-   *Not met.*
+   *Met on `integration/2026-10-11`, the first way:* the whole result is kept under
+   2,000 bytes in the encoding it is sent in, with `"shortened": true`, and a test
+   passes it through `fit_tools` and reads it back as the same JSON.
 
 6. **The model record is consulted, and says so.** The owner's rule is that one
    evaluation system decides every choice of model, local first (ESC-001). In this
@@ -80,7 +84,9 @@ code on `feat/delegation-turn` already meets it.
    - Nothing about this changes what is sent or who decides.
    Measuring Claude on the plan (`python -m freya.evaluation.delegation
    --claude-plan --owner-approved-cloud-run`) is the owner's action and should come
-   before the first real delegation, so the record has something to say. *Not met.*
+   before the first real delegation, so the record has something to say. *Met on
+   `integration/2026-10-11`* (`abilities.delegation_notes`), except that Claude has
+   still not been measured, so today the note says it is unmeasured.
 
 7. **Tests to add** (alongside those in "Tests that must exist and pass"):
    - A `conversation.recall` result and a media tool result in the turn are never

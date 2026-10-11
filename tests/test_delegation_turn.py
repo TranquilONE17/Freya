@@ -15,7 +15,7 @@ from freya.delegation.service import (
     build_turn_delegation,
 )
 from freya.delegation.turn import (
-    MAX_ANSWER_CHARACTERS,
+    MAX_RESULT_BYTES,
     DelegationRefused,
     DelegationTurn,
     build_inputs,
@@ -324,6 +324,21 @@ def test_only_the_last_three_exchanges_are_offered():
     assert [i.input_id for i in inputs] == ["request", "turn-1", "turn-2", "turn-3"]
     assert "question 4" in inputs[1].text
     assert "question 2" in inputs[3].text
+
+
+def test_an_earlier_exchange_carries_the_owners_words_and_none_of_freyas():
+    # Freya's replies often restate what she recalled from memory, so
+    # they must not leave under the label "this conversation".
+    messages = [
+        {"role": "user", "content": "What should I get my sister?"},
+        {"role": "assistant", "content": f"You told me that {SECRET_MEMORY}."},
+    ]
+
+    inputs = build_inputs("And for my brother?", messages)
+
+    assert inputs[1].text == "What should I get my sister?"
+    assert all("Quillfeather" not in item.text for item in inputs)
+    assert all("Freya:" not in item.text for item in inputs)
 
 
 def test_only_tools_that_read_this_pc_may_have_their_results_offered(open_rig):
@@ -669,21 +684,178 @@ def test_with_no_turn_there_is_nothing_to_hand_over(open_rig):
         open_rig.delegate()
 
 
-def test_the_answer_is_cut_to_the_limit_and_labelled(open_rig):
-    open_rig.behave(output=reply("x" * (MAX_ANSWER_CHARACTERS + 500)))
+@pytest.mark.parametrize(
+    "answer",
+    ["x" * 9000, "é" * 6000, 'He said "no"\n' * 800, "☃" * 3000],
+)
+def test_a_long_answer_reaches_the_model_as_valid_json(open_rig, answer):
+    from freya.kernel.context.authority import ContextAuthority
+
+    open_rig.behave(output=reply(answer))
+    open_rig.begin()
+
+    result = open_rig.delegate()
+    content = json.dumps(result, default=str)
+
+    assert len(content.encode("utf-8")) <= MAX_RESULT_BYTES
+    assert result["shortened"] is True and "start of the answer" in result["note"]
+    assert result["from"] == "Claude (Anthropic)"
+    assert answer.startswith(result["answer"]) and result["answer"]
+
+    # After the context authority's own clip it is still the whole
+    # result, not a broken excerpt of it.
+    fitted = ContextAuthority().fit_tools([
+        {"role": "user", "content": "now"},
+        {"role": "tool", "tool_name": "work_delegate", "content": content},
+    ])
+    seen = json.loads(fitted[-1]["content"])
+
+    assert "excerpt" not in seen
+    assert seen["answer"] == result["answer"]
+    assert seen["_context"]["truncated"] is False
+
+
+def test_the_owner_sees_the_whole_answer_under_the_routes_name(open_rig):
+    from freya.delegation.presentation import reply_publisher
+
+    shown = []
+    open_rig.cloud.dispatcher._on_reply = reply_publisher(
+        lambda kind, **fields: shown.append((kind, fields)),
+    )
+    answer = "I am ChatGPT, not Claude. " + "y" * 9000
+    open_rig.behave(output=reply(answer))
     open_rig.begin()
 
     result = open_rig.delegate()
 
-    assert len(result["answer"]) == MAX_ANSWER_CHARACTERS
-    assert "cut" in result["note"]
-    assert result["from"] == "Claude (Anthropic)"
+    assert [kind for kind, _ in shown] == ["source_response"]
+    card = shown[0][1]
+    # The card holds all of it; the model's copy is the shortened one.
+    assert card["text"] == answer and len(result["answer"]) < len(answer)
+    # The label comes from the route, whatever the answer claims.
+    assert card["source"]["name"] == "Claude"
+    assert card["source"]["provider"] == "anthropic"
+    assert "do not repeat it" in result["shown_to_user"].lower()
+
+
+def test_a_failed_send_shows_no_card(open_rig):
+    from freya.delegation.presentation import reply_publisher
+
+    shown = []
+    open_rig.cloud.dispatcher._on_reply = reply_publisher(
+        lambda kind, **fields: shown.append(kind),
+    )
+    open_rig.behave(output=json.dumps({"is_error": True, "result": "no"}), exit=1)
+    open_rig.begin()
+
+    with pytest.raises(DelegationRefused):
+        open_rig.delegate()
+
+    assert shown == []
+
+
+def test_a_spoken_turn_is_told_to_say_only_her_own_interpretation(open_rig):
+    open_rig.begin(origin="voice")
+    spoken = open_rig.delegation.hint()
+    open_rig.delegation.end_turn(open_rig.delegation.current_turn)
+    open_rig.begin(origin="typed")
+    typed = open_rig.delegation.hint()
+
+    assert "read aloud" in spoken and "only your own short interpretation" in spoken
+    assert "read aloud" not in typed
+    assert "do not repeat it" in typed
+
+
+def measure(rig, model, passed, route="ollama-local", kind="reasoning"):
+    from freya.evaluation.delegation_tasks import suite_version
+
+    rig.cloud.record.add_report({
+        "route": route,
+        "model": model,
+        "settings": {} if route != "ollama-local" else {
+            "think": "default", "context_tokens": 16384, "output_tokens": 8192,
+        },
+        "suite": suite_version(),
+        "created_at": "2026-10-11T00:00:00+00:00",
+        "summary": {kind: {
+            "attempts": 20, "graded": 20, "passed": passed, "errors": 0,
+            "median_seconds": 3.0, "mean_tokens": 400,
+        }},
+    })
+
+
+def test_an_unmeasured_route_is_said_to_be_unmeasured(open_rig):
+    open_rig.answers = ["send"]
+    open_rig.begin(origin="voice")
+
+    result = open_rig.delegate()
+
+    assert "has not been measured on reasoning work" in result["measured"]
+    assert any(
+        "has not been measured" in line for line in open_rig.asked[0]["lines"]
+    )
+
+
+def test_local_work_that_measures_good_enough_is_said_and_not_refused(open_rig):
+    from freya.config import MODEL
+
+    measure(open_rig, MODEL, 19)
+    open_rig.cloud.local_identities = lambda: {}
+    open_rig.answers = ["send"]
+    open_rig.begin(origin="voice")
+
+    result = open_rig.delegate()
+
+    # It informs; it does not stop the hand-over the model asked for.
+    assert result["answer"]
+    assert "good enough for ordinary work" in result["measured"]
+    assert any(
+        "may not be needed" in line for line in open_rig.asked[0]["lines"]
+    )
+    # The description of what is sent still comes first, unchanged.
+    assert open_rig.asked[0]["lines"][0].startswith("To ")
+
+
+def test_a_measured_route_gives_its_figure_and_changes_nothing_sent(open_rig):
+    measure(open_rig, None, 18, route="anthropic-plan")
+    open_rig.begin()
+
+    result = open_rig.delegate()
+
+    assert "Claude (Anthropic) passed 90% of the test tasks" in result["measured"]
+    assert "passed" not in open_rig.seen()["brief"]
+
+
+def test_what_she_reads_about_herself_says_whether_she_can_hand_work_over(rig):
+    assert "cannot send work" in rig.cloud.abilities()["sending_work"]
+
+    rig.open_everything()
+    rig.begin()
+
+    assert "You can hand one piece of work" in rig.cloud.abilities()["sending_work"]
+
+    # No window to ask the owner in: she cannot, and is told so.
+    rig.window = False
+    assert "cannot send work" in rig.cloud.abilities()["sending_work"]
+
+
+def test_advice_that_fails_does_not_stop_a_delegation(open_rig):
+    def broken(kind, route):
+        raise RuntimeError("the record could not be read")
+
+    open_rig.delegation._measured = broken
+    open_rig.begin()
+
+    assert "measured" not in open_rig.delegate()
 
 
 def test_a_short_answer_has_no_note(open_rig):
     open_rig.begin()
 
-    assert "note" not in open_rig.delegate()
+    result = open_rig.delegate()
+
+    assert "note" not in result and "shortened" not in result
+    assert result["answer"] == "The total is 46."
 
 
 def test_the_answer_reaches_the_model_as_a_tool_result_it_is_told_to_distrust(open_rig):
