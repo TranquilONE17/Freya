@@ -365,9 +365,16 @@ holds amounts and times only, never prompts or replies.
   similar situations herself. This is about the order of her own work. It is in her
   standing instructions, and a conversation scenario (`prerequisite-first`) checks
   that the added requirement is dealt with at the start of her reply.
-  A dependency does not change how a hand-over is charged against the allowance:
-  going past the day's share still takes the owner's word (the controls, or "urgent"
-  or "a priority" in the message), never Freya's own judgement of her work.
+  **Going past the day's share (owner decision, 2026-10-11).** Any use beyond the
+  day's share of an allowance is approved by the owner, whatever the work's value and
+  however urgent. Freya may suggest it and never decides it. The owner is asked in
+  the limit prompt, which says when they marked the work urgent or a priority and,
+  when Freya's model said other work is waiting on this hand-over, that she suggests
+  going over and why. Her suggestion is a yes-or-no mark on the tool call, not prose,
+  and changes no limit. This replaces the earlier rule that high-value and urgent
+  work passed the day's share without asking. Value now changes two things only: low
+  value waits once half the day's share is used (unless urgent), and it sets the bar a
+  model must have measured at.
   *Not built:* ordering across several pieces of work running at once, which waits
   for Freya to be able to run more than one.
 - **Urgent.** A separate flag the owner sets: the task does not wait for a reset.

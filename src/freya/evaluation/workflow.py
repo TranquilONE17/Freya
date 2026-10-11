@@ -213,7 +213,7 @@ def run_trial(scenario, folder, model, embedding_model, request_timeout, backgro
 
                 offered = ["request", "turn-1"]
 
-                def delegate(kind, inputs=""):
+                def delegate(kind, inputs="", waited_on=""):
                     chosen = [part.strip() for part in str(inputs).split(",") if part.strip()]
                     if kind not in TASK_KINDS or any(name not in offered for name in chosen):
                         raise RuntimeError(

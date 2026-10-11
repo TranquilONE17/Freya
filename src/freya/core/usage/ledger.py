@@ -462,7 +462,7 @@ class UsageLedger:
             worst.verdict,
             worst.reason,
             worst.limit,
-            over_share=over_share and worst.verdict == GO,
+            over_share=over_share,
             near=tuple(near),
         )
 
@@ -497,10 +497,7 @@ class UsageLedger:
 
         beyond_share = status.used_today + estimate > status.today_share
 
-        if value == VALUE_HIGH or urgent:
-            return GO, "", beyond_share
-
-        if value == VALUE_LOW:
+        if value == VALUE_LOW and not urgent:
             # Low-value work only uses allowance that is plentiful:
             # half of today's share at most.
             if status.used_today + estimate > status.today_share // 2:
@@ -508,7 +505,10 @@ class UsageLedger:
             return GO, "", False
 
         if beyond_share:
-            return ASK, f"This would use more than today's share of {label}.", False
+            # Whatever the work is worth and however urgent, going past
+            # the day's share is the owner's to approve (owner decision,
+            # 2026-10-11). Freya may suggest it; she may not decide it.
+            return ASK, f"This would use more than today's share of {label}.", True
 
         return GO, "", False
 

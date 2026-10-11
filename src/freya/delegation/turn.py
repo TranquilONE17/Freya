@@ -158,6 +158,16 @@ WORK_DELEGATE_PARAMETERS = {
         "max_length": 400,
         "optional": True,
     },
+    "waited_on": {
+        "description": (
+            "Say yes only when other work in this conversation cannot "
+            "be finished until this is done. Otherwise leave it out. "
+            "It lets you suggest going past the day's allowance; the "
+            "user decides."
+        ),
+        "max_length": 3,
+        "optional": True,
+    },
 }
 
 
@@ -216,6 +226,8 @@ class DelegationTurn:
         # How much this work matters, as the owner set it.
         self.value = VALUE_NORMAL
         self.urgent = False
+        # Whether the model said other work waits on this hand-over.
+        self.waited_on = False
         # What a spoken request asked for, waiting for a click.
         self.said: Optional[Tuple[str, bool]] = None
 
@@ -480,7 +492,7 @@ class TurnDelegation:
 
     # -- the tool --------------------------------------------------
 
-    def delegate(self, kind, inputs="") -> dict:
+    def delegate(self, kind, inputs="", waited_on="") -> dict:
         """
         Hand one piece of work over, as the model asked. Raises
         DelegationRefused, with fixed wording, whenever it does not.
@@ -489,6 +501,11 @@ class TurnDelegation:
 
         if turn is None:
             raise DelegationRefused("There is no turn to hand work over from.")
+
+        # Her own view that other work waits on this. It is shown to
+        # the owner as her suggestion if they are asked about going
+        # over; it decides nothing and changes no limit.
+        turn.waited_on = str(waited_on).strip().lower() == "yes"
         if turn.delegated:
             raise DelegationRefused(
                 "Work was already handed over in this turn. "
@@ -759,7 +776,7 @@ class TurnDelegation:
                         self._decline(turn)
                 elif assessment is not None and assessment.verdict == VERDICT_ASK:
                     answer = self._ask(
-                        self._limit_prompt(provider, brief, assessment)
+                        self._limit_prompt(provider, brief, assessment, turn)
                     )
 
                     if answer == EXCEED:
@@ -917,9 +934,23 @@ class TurnDelegation:
             choices, reason=reason, matches=matches,
         )
 
-    def _limit_prompt(self, provider, brief, assessment) -> dict:
+    def _limit_prompt(self, provider, brief, assessment, turn=None) -> dict:
+        reason = assessment.reason
+
+        if turn is not None:
+            if turn.urgent or turn.value == VALUE_HIGH:
+                reason += (
+                    " You marked this as "
+                    f"{value_words(turn.value, turn.urgent)}."
+                )
+            if turn.waited_on:
+                reason += (
+                    " Freya suggests going over: she says other work in "
+                    "this conversation cannot be finished until this is done."
+                )
+
         return self._prompt(
             "limit", provider, brief.review, brief.text, self._SENT_LABEL,
             [(EXCEED, "Go over this once"), (CANCEL, "Cancel")],
-            reason=assessment.reason,
+            reason=reason,
         )

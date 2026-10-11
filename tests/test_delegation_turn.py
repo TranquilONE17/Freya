@@ -201,8 +201,13 @@ def test_the_tool_takes_a_kind_and_optional_ids_and_nothing_else(open_rig):
 
     schema = definition["parameters"]
 
-    assert set(schema["properties"]) == {"kind", "inputs"}
+    # None of them is a place to write a sentence: a kind from a
+    # list, ids, and a yes of at most three letters.
+    assert set(schema["properties"]) == {"kind", "inputs", "waited_on"}
     assert schema["required"] == ["kind"]
+    from freya.delegation.turn import WORK_DELEGATE_PARAMETERS
+
+    assert WORK_DELEGATE_PARAMETERS["waited_on"]["max_length"] == 3
 
 
 # 2 -- refused plans ----------------------------------------------------
@@ -1434,3 +1439,37 @@ def test_only_plain_words_about_value_are_taken_as_asking(sentence, expected):
     from freya.delegation.turn import said_value
 
     assert said_value(sentence) == expected
+
+
+def test_going_past_the_days_share_is_asked_even_for_urgent_work(open_rig):
+    # The week's allowance is ample; today's share of it is not.
+    now = datetime.now(timezone.utc)
+    open_rig.cloud.ledger.set_limit(
+        ANTHROPIC_PLAN_PROVIDER, "week", SCOPE_PERIOD, "tokens", 7_000,
+        period_seconds=7 * 86400, resets_at=now + timedelta(days=7),
+        hard=True, now=now,
+    )
+    seen = passed_on(open_rig)
+    open_rig.begin(request="This is urgent. " + REQUEST, origin="window")
+    open_rig.answers = ["cancel"]
+
+    with pytest.raises(DelegationRefused):
+        open_rig.delegation.delegate("reasoning", "request", "yes")
+
+    prompt = open_rig.asked[0]
+
+    assert open_rig.kinds_asked() == ["limit"]
+    assert "today's share" in prompt["reason"]
+    assert "You marked this as urgent" in prompt["reason"]
+    assert "Freya suggests going over" in prompt["reason"]
+    assert not open_rig.ran()
+    assert seen[0] == ("normal", True)
+
+
+def test_her_suggestion_alone_sends_nothing_and_is_not_shown_unasked(open_rig):
+    open_rig.begin(origin="window")
+    open_rig.delegation.delegate("reasoning", "request", "yes")
+
+    # Within the day's share there is nothing to ask, so nothing to suggest.
+    assert open_rig.asked == []
+    assert open_rig.ran()

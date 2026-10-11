@@ -156,7 +156,10 @@ dispatcher described below.
 
 Usage ledger: `freya.core.usage.UsageLedger` records what each route (one way of
 reaching one model) has used and decides whether more fits: go, ask the owner, wait
-for a reset, or refuse. Limits are per call, per task, or per period; a period longer
+for a reset, or refuse. Going past the day's share of a paced allowance always asks
+the owner, whatever the value or urgency (owner decision, 2026-10-11): never make a
+value, an urgent flag or a model's mark pass it. Freya's model may mark a hand-over as
+waited on (`waited_on`), which only adds her suggestion to that question. Limits are per call, per task, or per period; a period longer
 than a day is paced across the days left, counted back from the provider's reset. A
 route with no limit recorded is refused, and a zero cap cannot be overridden. It lives
 in its own database, `data/freya_usage.db`, through `ControlStore(path,
