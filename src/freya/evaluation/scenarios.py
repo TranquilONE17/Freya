@@ -83,6 +83,14 @@ SCENARIOS = (
     Scenario("general-no-tool", (
         Turn("What is the capital of France?", answer_patterns=(r"(?i)\bParis\b",)),
     )),
+    # A requirement added to unfinished work, which the rest depends
+    # on, is to be settled first (owner decision, 2026-10-11). The
+    # check is only that the new capability is dealt with near the
+    # start of the reply; whether the design is good is for a reader.
+    Scenario("prerequisite-first", (
+        Turn("Design a simple system for backing up my photos to a second drive. Give me only a short outline for now.", rubric="A short outline."),
+        Turn("One more thing it has to do: prove that a restored photo is identical to the original. I don't know how that is done. Now finish the design.", answer_patterns=(r"(?is)\A.{0,700}\b(checksums?|hash(?:es|ing)?|SHA|digest)\b",), rubric="Work out how identity is proved (a checksum or hash) before finishing the rest of the design, and say that it comes first."),
+    )),
     Scenario("explain-no-tool", (
         Turn("Explain what RAM does in two short sentences.", rubric="Explain temporary working memory without claiming to have checked this computer."),
     )),

@@ -359,10 +359,17 @@ holds amounts and times only, never prompts or replies.
   The owner saying so also raises it: the controls beside the chat box, or the words
   "urgent" or "a priority" in the message itself. Typed words count as they stand;
   spoken words count after the click every spoken hand-over already needs.
-  *Not built, and one point is open:* the raise from a dependency. Nothing in Freya
-  today holds one action waiting on another except a reply waiting on its own
-  hand-over, and treating that as a dependency would make every hand-over urgent and
-  switch daily pacing off.
+  What a dependency means (the owner's example): asked to design a system and then
+  told it must include a particular capability, Freya works out that capability and
+  how it would be done before she finishes the design, and she is to recognise
+  similar situations herself. This is about the order of her own work. It is in her
+  standing instructions, and a conversation scenario (`prerequisite-first`) checks
+  that the added requirement is dealt with at the start of her reply.
+  A dependency does not change how a hand-over is charged against the allowance:
+  going past the day's share still takes the owner's word (the controls, or "urgent"
+  or "a priority" in the message), never Freya's own judgement of her work.
+  *Not built:* ordering across several pieces of work running at once, which waits
+  for Freya to be able to run more than one.
 - **Urgent.** A separate flag the owner sets: the task does not wait for a reset.
   An urgent task may also use more than one cloud route at the same time. The usual
   way is splitting: independent parts go to different providers. Comparing, where two
