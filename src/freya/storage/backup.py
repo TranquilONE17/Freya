@@ -161,18 +161,54 @@ def back_up(
         entry["bytes"] = path.stat().st_size
         entry["sha256"] = _sha256(path)
 
-    (folder / "manifest.json").write_text(
+    temporary = folder / "manifest.tmp"
+    temporary.write_text(
         json.dumps(
             {"made": stamp, "from": str(data_dir), "copied": copied}, indent=2,
         ),
         encoding="utf-8",
     )
 
+    os.replace(temporary, folder / "manifest.json")
+
     return folder
 
 
+def _completed(folder: Path) -> bool:
+    # The manifest is published last. Older backups use the same schema.
+    try:
+        manifest = json.loads((folder / "manifest.json").read_text("utf-8"))
+        if not isinstance(manifest, dict) or manifest.get("made") != folder.name:
+            return False
+        entries = manifest.get("copied")
+        if not isinstance(entries, list) or not entries:
+            return False
+        seen = set()
+        for entry in entries:
+            if not isinstance(entry, dict):
+                return False
+            name = entry.get("name")
+            if not isinstance(name, str) or name not in DATABASES + FILES or name in seen:
+                return False
+            seen.add(name)
+            expected_kind = "database" if name in DATABASES else "file"
+            size, digest = entry.get("bytes"), entry.get("sha256")
+            if entry.get("kind") != expected_kind or type(size) is not int or size < 0:
+                return False
+            if not isinstance(digest, str) or len(digest) != 64 or any(
+                character not in "0123456789abcdef" for character in digest
+            ):
+                return False
+            copied = folder / name
+            if not copied.is_file() or copied.stat().st_size != size:
+                return False
+        return True
+    except (OSError, ValueError, TypeError):
+        return False
+
+
 def latest(target_root) -> Optional[datetime]:
-    """When the newest backup in a folder was made, from its name."""
+    """When the newest completed backup was made; ignore partial attempts."""
     newest = None
 
     try:
@@ -185,7 +221,7 @@ def latest(target_root) -> Optional[datetime]:
             made = datetime.strptime(entry.name, STAMP_FORMAT)
         except ValueError:
             continue
-        if entry.is_dir() and (newest is None or made > newest):
+        if entry.is_dir() and _completed(entry) and (newest is None or made > newest):
             newest = made
 
     return newest

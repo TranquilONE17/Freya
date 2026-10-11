@@ -2,6 +2,7 @@
 #include "CoreMinimal.h"
 #include "Components/ActorComponent.h"
 #include "TimerManager.h"
+#include "FreyaSpeechTiming.h"
 #include "FreyaAudioProbeComponent.generated.h"
 
 class FFreyaLink;
@@ -132,6 +133,7 @@ private:
     float SpeechVolume = 1.0f;
     int64 SpeechSamples = 0;
     double SpeechStartedAt = 0.0;
+    FFreyaSpeechTiming SpeechTiming;
     bool bVoiceStarted = false;
     bool bSpeechOpen = false;
     bool bSpeechInputEnded = false;

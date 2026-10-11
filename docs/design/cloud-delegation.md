@@ -227,9 +227,18 @@ refused without `--owner-approved-cloud-run`. No reply is executed.
 The record and the choice are built (`freya.delegation.record`): `ModelRecord`
 takes in evaluation reports and keeps counts and timings per entry and kind in
 `data/model_record.json`; `choose` applies the rules above to the candidates it is
-given; the bars are in `CloudSettings` and validated when changed. Nothing calls
-`choose` yet: the part that gathers the allowed candidates, checks the ledger and
-sends the brief is not built.
+given; the bars are in `CloudSettings` and validated when changed.
+`python -m freya.evaluation.record_reports` puts finished reports in the record,
+grading their stored replies again with the current checks first.
+
+Freya can read the record (`freya.delegation.abilities`, capability
+`model.record.read`, offered to the model): her own model's counts by kind, the same
+for each cloud route, where `choose` would send a task of each kind and value among
+this machine's models and the cloud routes whose provider is on, and the kinds of
+work no task covers. This is how she answers what she is good at and whether another
+model would do better: from measurement, with unmeasured reported as unknown. It is
+advice only. The part that checks the ledger and sends the brief on that advice is
+not built.
 
 ## What may leave the machine
 

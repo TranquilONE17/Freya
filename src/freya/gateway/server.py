@@ -17,6 +17,7 @@ from websockets.http11 import Response
 from websockets.sync.server import serve
 
 from freya.gateway.speech_relay import SpeechRelay
+from freya.gateway.answer_media import media_document
 
 
 DEFAULT_PORT = 8770
@@ -57,6 +58,7 @@ STATIC_FILES = {
     "/": ("index.html", "text/html; charset=utf-8"),
     "/app.js": ("app.js", "text/javascript; charset=utf-8"),
     "/app.css": ("app.css", "text/css; charset=utf-8"),
+    "/rich-chat.js": ("rich-chat.js", JAVASCRIPT),
     # The 3D preview of avatar models, and the libraries it uses.
     # Each file is listed: nothing else under static/ is served.
     "/media.js": ("media.js", JAVASCRIPT),
@@ -118,7 +120,7 @@ def content_security_policy() -> str:
     return (
         f"default-src 'none'; script-src {script}; style-src 'self'; "
         "img-src 'self' blob:; media-src 'self'; "
-        "connect-src 'self' blob:; frame-src https://www.youtube-nocookie.com; base-uri 'none'; "
+        "connect-src 'self' blob:; frame-src 'self' https://www.youtube-nocookie.com; base-uri 'none'; "
         "form-action 'none'; frame-ancestors 'none'"
     )
 
@@ -131,7 +133,7 @@ SECURITY_HEADERS = {
 }
 
 
-def _response(status, body=b"", content_type="text/plain; charset=utf-8", extra=None):
+def _response(status, body=b"", content_type="text/plain; charset=utf-8", extra=None, security_policy=None):
     if isinstance(body, str):
         body = body.encode("utf-8")
 
@@ -141,7 +143,8 @@ def _response(status, body=b"", content_type="text/plain; charset=utf-8", extra=
     headers["Connection"] = "close"
 
     for name, value in SECURITY_HEADERS.items():
-        headers[name] = value
+        # Only trusted endpoint code supplies a distinct document policy.
+        headers[name] = security_policy if name == "Content-Security-Policy" and security_policy is not None else value
 
     for name, value in (extra or {}).items():
         headers[name] = value
@@ -423,6 +426,16 @@ class Gateway:
         if url.path == "/ws":
             # Continue with the WebSocket handshake.
             return None
+
+        if url.path == "/answer-media":
+            parameters = urllib.parse.parse_qs(url.query, keep_blank_values=True)
+            if set(parameters) != {"kind", "url"} or any(len(values) != 1 for values in parameters.values()):
+                return _response(400, "That media address could not be read.")
+            document = media_document(parameters["kind"][0], parameters["url"][0])
+            if document is None:
+                return _response(400, "That media address is not supported.")
+            body, policy = document
+            return _response(200, body, "text/html; charset=utf-8", security_policy=policy)
 
         if url.path in STATIC_FILES:
             name, content_type = STATIC_FILES[url.path]

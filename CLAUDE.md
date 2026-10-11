@@ -219,7 +219,22 @@ for the task's value (`CloudSettings.bars`, 70/85/95% to start). Keep these rule
 only measured results count, never a model's own claim; fewer than 15 graded attempts
 is unmeasured; an unmeasured entry is used only when no measured one qualifies and is
 labelled so; when every candidate is measured and none qualifies, nothing is chosen.
-Nothing calls `choose` yet.
+`python -m freya.evaluation.record_reports <reports>` is what fills the record: it
+grades each report's stored replies again with today's checks (reading them, never
+running them) before recording the counts.
+
+What Freya knows about her own ability: `freya.delegation.abilities` reads the record
+for the model she answers with and for each cloud route, and `model.record.read`
+(provider `model-record-local`, policy seed `alpha-model-record`, a model tool with
+no arguments) gives it to her: passes out of attempts by kind, the value of work each
+is good enough for under the owner's bars, where `choose` would send a task of each
+kind and value, and `NOT_MEASURED`, the work no task covers. Keep these rules: it
+reports measurements only, never an opinion of a model, Claude's included; an
+unmeasured model is unknown, not better or worse; a cloud route is advised only
+while its provider is switched on; a line leaves `NOT_MEASURED` only when tasks for
+it exist and have been run. It reads and advises; it sends nothing and no turn
+delegates on it yet. Her replies name no thinking setting, which the record holds as
+`default`; figures for other settings are labelled as such.
 
 Claude plan route: `providers/model/claude_plan.py` sends one brief to Claude by
 running the owner's own signed-in Claude Code program (`claude.exe` from the desktop

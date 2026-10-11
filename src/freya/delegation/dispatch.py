@@ -1,5 +1,6 @@
 import hashlib
 import json
+import logging
 import os
 import threading
 import time
@@ -13,6 +14,7 @@ from freya.delegation.compose import ComposedBrief, assemble_brief
 from freya.delegation.material import CloudSettings, review_brief
 from freya.delegation.screening import (
     MATCH_ALWAYS_PRIVATE,
+    MATCH_UNAVAILABLE,
     Corrections,
     ScreeningResult,
     screen_brief,
@@ -50,6 +52,7 @@ class Route:
     ask: Callable[[str], object]
     unit: str = "tokens"
     estimate: Callable[[str], int] = estimate_tokens
+    source_name: str = ""
 
 
 class DispatchRefused(Exception):
@@ -145,6 +148,7 @@ class Dispatcher:
         corrections: Optional[Corrections] = None,
         closeness=None,
         clock: Callable[[], float] = time.monotonic,
+        on_reply: Optional[Callable[[Route, object], None]] = None,
     ):
         self._settings = settings
         self._ledger = ledger
@@ -154,6 +158,7 @@ class Dispatcher:
         self._corrections = corrections
         self._closeness = closeness
         self._clock = clock
+        self._on_reply = on_reply
         self._lock = threading.Lock()
         self._serial = 0
         self._open: Dict[int, Authorization] = {}
@@ -198,6 +203,12 @@ class Dispatcher:
 
         if not screening.held:
             return
+
+        if any(match.kind == MATCH_UNAVAILABLE for match in screening.matches):
+            raise DispatchRefused(
+                "Screening corrections are unreadable; recover them before sending.",
+                screening=screening,
+            )
 
         fixed = any(
             match.kind == MATCH_ALWAYS_PRIVATE for match in screening.matches
@@ -395,5 +406,13 @@ class Dispatcher:
         else:
             # No usable figure came back, so the estimate stands.
             self._ledger.mark_unknown(authorization.event_id)
+
+        if self._on_reply is not None:
+            try:
+                self._on_reply(route, reply)
+            except Exception:
+                # Display failure cannot turn an already completed send into
+                # a retry or change its accounting. Never log reply content.
+                logging.getLogger(__name__).warning("The worker response could not be displayed.")
 
         return reply

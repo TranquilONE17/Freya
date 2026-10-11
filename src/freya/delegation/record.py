@@ -198,9 +198,37 @@ class ModelRecord:
 
         return key
 
+    def refresh(self) -> None:
+        """
+        Read the file again, for figures an evaluation added while
+        Freya was running. An unreadable file changes nothing.
+        """
+        with self._lock:
+            self._load()
+
     def entries(self) -> List[str]:
         with self._lock:
             return sorted(self._entries)
+
+    def about(self, entry: str) -> Optional[dict]:
+        """
+        Which route, model and settings an entry is, and the kinds of
+        task it has figures for.
+        """
+        with self._lock:
+            found = self._entries.get(entry)
+
+            if found is None:
+                return None
+
+            settings = found.get("settings")
+
+            return {
+                "route": found.get("route"),
+                "model": found.get("model"),
+                "settings": dict(settings) if isinstance(settings, dict) else {},
+                "kinds": sorted(found["kinds"]),
+            }
 
     def result(self, entry: str, kind: str) -> Optional[KindResult]:
         with self._lock:

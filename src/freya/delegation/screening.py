@@ -12,6 +12,7 @@ CORRECTIONS_PATH = DATA_DIR / "screening_corrections.json"
 
 # How a brief matched something private.
 MATCH_ALWAYS_PRIVATE = "always-private"
+MATCH_UNAVAILABLE = "screening-unavailable"
 MATCH_PHRASE = "phrase"
 MATCH_NAME = "name"
 MATCH_MEANING = "meaning"
@@ -107,8 +108,8 @@ class Corrections:
     one memory, and wins over a not-private entry. Entries are made by
     the owner; nothing here is changed by a model.
 
-    An unreadable file means no corrections, so screening is at its
-    strictest.
+    A new missing file means no corrections. An unreadable existing
+    file blocks cloud screening and edits until the file is recovered.
     """
 
     _LISTS = (
@@ -122,26 +123,34 @@ class Corrections:
         self.path = Path(path)
         self._lock = threading.Lock()
         self._lists: Dict[str, List[str]] = {name: [] for name in self._LISTS}
+        self.available = True
         self._load()
 
     def _load(self):
         try:
             data = json.loads(self.path.read_text(encoding="utf-8"))
+        except FileNotFoundError:
+            return
         except (OSError, ValueError):
+            self.available = False
             return
 
-        if not isinstance(data, dict):
+        if not isinstance(data, dict) or any(
+            not isinstance(data.get(name, []), list)
+            or any(not isinstance(entry, str) or not entry for entry in data.get(name, []))
+            for name in self._LISTS
+        ):
+            self.available = False
             return
 
-        for name in self._LISTS:
-            stored = data.get(name)
-            if isinstance(stored, list):
-                self._lists[name] = [
-                    entry for entry in stored
-                    if isinstance(entry, str) and entry
-                ]
+        self._lists = {name: list(data.get(name, [])) for name in self._LISTS}
+
+    def _require_available(self):
+        if not self.available:
+            raise ValueError("Screening corrections must be recovered before editing.")
 
     def _save(self):
+        self._require_available()
         self.path.parent.mkdir(parents=True, exist_ok=True)
         temporary = self.path.with_suffix(".tmp")
         temporary.write_text(
@@ -154,6 +163,7 @@ class Corrections:
         if not entry:
             raise ValueError("There is nothing to mark.")
         with self._lock:
+            self._require_available()
             if entry not in self._lists[name]:
                 self._lists[name].append(entry)
                 self._save()
@@ -176,6 +186,7 @@ class Corrections:
         if list_name not in self._LISTS:
             raise ValueError(f"Unknown list: {list_name!r}")
         with self._lock:
+            self._require_available()
             if entry in self._lists[list_name]:
                 self._lists[list_name].remove(entry)
                 self._save()
@@ -202,6 +213,10 @@ def screen_brief(
     This is a filter, not a proof: it catches copied words, names and
     close restatement. A loose paraphrase can pass.
     """
+    if corrections is not None and not corrections.available:
+        return ScreeningResult((Match(
+            MATCH_UNAVAILABLE, "Screening corrections are unreadable; recover them before sending.",
+        ),))
     lists = corrections.listing() if corrections is not None else {
         name: [] for name in Corrections._LISTS
     }
