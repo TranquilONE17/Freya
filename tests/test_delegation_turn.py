@@ -479,6 +479,22 @@ def test_always_allow_makes_a_rule_for_exactly_what_was_shown(open_rig):
     assert open_rig.kinds_asked() == ["approval", "approval"]
 
 
+def test_a_rule_still_counts_when_something_else_has_to_be_asked(open_rig):
+    # A rule covers the conversation; the tool result is asked about.
+    # Saying yes to that must not lose what the rule already allowed.
+    open_rig.cloud.settings.add_rule(VENDOR, "reasoning", ["conversation"])
+    turn = open_rig.begin(messages=EARLIER)
+    turn._accepts = lambda tool_name: True
+    assert turn.add_tool_result("system_gpu", '{"made_up_reading": 41}') == "tool-1"
+    open_rig.answers = ["once"]
+
+    open_rig.delegate("reasoning", "request, turn-1, tool-1")
+
+    assert open_rig.kinds_asked() == ["approval"]
+    assert "lighthouse cat" in open_rig.seen()["brief"]
+    assert "made_up_reading" in open_rig.seen()["brief"]
+
+
 def test_a_rule_does_not_cover_a_held_brief_or_a_spoken_turn(open_rig):
     open_rig.cloud.settings.add_rule(VENDOR, "rewriting", ["conversation"])
 

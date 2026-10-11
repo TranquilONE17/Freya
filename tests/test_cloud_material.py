@@ -316,3 +316,27 @@ def test_stored_rules_that_are_not_understood_are_dropped(settings):
     settings.path.write_text(json.dumps(data), "utf-8")
 
     assert CloudSettings(settings.path).rules == []
+
+
+def test_a_change_that_could_not_be_saved_is_not_in_force(enabled, monkeypatch):
+    kept = enabled.add_rule(VENDOR, "planning", [KIND_CODE])
+
+    def broken(*args, **kwargs):
+        raise OSError("the disk is full")
+
+    monkeypatch.setattr("freya.delegation.material.os.replace", broken)
+
+    for change in (
+        lambda: enabled.add_rule(VENDOR, "reasoning", [KIND_CONVERSATION]),
+        lambda: enabled.remove_rule(kept["id"]),
+        lambda: enabled.set_material(KIND_CONVERSATION, ALLOWED),
+        lambda: enabled.set_provider("another-provider", True),
+        lambda: enabled.set_provider(VENDOR, False),
+    ):
+        with pytest.raises(OSError):
+            change()
+
+    assert enabled.rules == [kept]
+    assert enabled.rule_kinds(VENDOR, "reasoning") == frozenset()
+    assert enabled.setting_for(KIND_CONVERSATION) == ASK
+    assert enabled.enabled_providers() == [VENDOR]

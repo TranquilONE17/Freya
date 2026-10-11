@@ -546,11 +546,13 @@ class TurnDelegation:
 
     def _compose(self, plan, turn, provider, approved=None):
         if approved is None:
-            # What the owner allowed for this conversation, and what
-            # their standing rules allow a task of this kind.
-            approved = self._approved.get(
-                provider, frozenset()
-            ) | self._cloud.settings.rule_kinds(provider, plan.kind)
+            approved = self._approved.get(provider, frozenset())
+
+        # Whatever else was allowed, the owner's standing rules for a
+        # task of this kind apply as well.
+        approved = frozenset(approved) | self._cloud.settings.rule_kinds(
+            provider, plan.kind,
+        )
 
         try:
             return compose_brief(

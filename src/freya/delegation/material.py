@@ -167,6 +167,26 @@ class CloudSettings:
             kept = [_clean_rule(entry) for entry in rules[:MAX_RULES]]
             self._rules = [rule for rule in kept if rule is not None]
 
+    def _held(self):
+        """The choices as they stand, to go back to if saving fails."""
+        return (
+            dict(self._material), dict(self._providers),
+            dict(self._bars), list(self._rules),
+        )
+
+    def _save_or_undo(self, before):
+        """
+        Save, and if that fails put the choices back as they were. A
+        change the owner was told failed must not be in force anyway:
+        a rule or a switch that was never written would otherwise let
+        work leave until Freya closed.
+        """
+        try:
+            self._save()
+        except Exception:
+            self._material, self._providers, self._bars, self._rules = before
+            raise
+
     def _save(self):
         self._revision += 1
         self.path.parent.mkdir(parents=True, exist_ok=True)
@@ -205,8 +225,9 @@ class CloudSettings:
 
         with self._lock:
             if self._material[kind] != setting:
+                before = self._held()
                 self._material[kind] = setting
-                self._save()
+                self._save_or_undo(before)
 
     @property
     def rules(self) -> List[dict]:
@@ -254,8 +275,9 @@ class CloudSettings:
                 "material": material,
                 "made": datetime.now(timezone.utc).isoformat(timespec="seconds"),
             }
+            before = self._held()
             self._rules.append(rule)
-            self._save()
+            self._save_or_undo(before)
 
             return dict(rule)
 
@@ -266,8 +288,9 @@ class CloudSettings:
             if len(kept) == len(self._rules):
                 raise ValueError("That rule could not be found.")
 
+            before = self._held()
             self._rules = kept
-            self._save()
+            self._save_or_undo(before)
 
     def rule_kinds(self, provider: str, task: str) -> FrozenSet[str]:
         """
@@ -305,8 +328,9 @@ class CloudSettings:
 
         with self._lock:
             if bars != self._bars:
+                before = self._held()
                 self._bars = bars
-                self._save()
+                self._save_or_undo(before)
 
         return dict(bars)
 
@@ -327,11 +351,12 @@ class CloudSettings:
         with self._lock:
             if self._providers.get(provider, False) == enabled:
                 return
+            before = self._held()
             if enabled:
                 self._providers[provider] = True
             else:
                 del self._providers[provider]
-            self._save()
+            self._save_or_undo(before)
 
 
 @dataclass(frozen=True)
