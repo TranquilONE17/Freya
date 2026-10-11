@@ -198,7 +198,9 @@ def cloud_window_request(
             delegation = getattr(cloud, "turn_delegation", None)
             if delegation is None:
                 raise CloudRequestRefused("Work cannot be handed over just now.")
-            delegation.set_next(message.get("value"), message.get("urgent"))
+            delegation.set_next(
+                message.get("value"), message.get("urgent"), message.get("text"),
+            )
         elif action in CHANGES:
             change(message)
         elif action != "state":

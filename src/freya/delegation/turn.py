@@ -364,22 +364,26 @@ class TurnDelegation:
         # Kinds the owner allowed for the rest of this conversation,
         # by provider. They are kept in memory only.
         self._approved: Dict[str, FrozenSet[str]] = {}
-        self._next: Optional[Tuple[str, bool]] = None
+        self._next: Optional[Tuple[str, bool, str]] = None
 
     # -- the turn --------------------------------------------------
 
-    def set_next(self, value, urgent) -> None:
+    def set_next(self, value, urgent, text) -> None:
         """
-        The owner's choice, made in the window, for the next message
-        typed there. It is used for that one message and then forgotten.
+        The owner's choice, made in the window, for one message typed
+        there, which is named by its text. It is used for that message
+        and no other: a message that never becomes a turn here (an
+        image request, say) must not pass its choice to the next one.
         """
         if value not in TASK_VALUES:
             raise ValueError("The value is low, normal or high.")
         if not isinstance(urgent, bool):
             raise ValueError("Urgent is either on or off.")
+        if not isinstance(text, str) or not text.strip():
+            raise ValueError("The choice needs the message it is for.")
 
         with self._lock:
-            self._next = (value, urgent)
+            self._next = (value, urgent, text.strip())
 
     def begin_turn(self, user_input: str, messages, origin: str) -> DelegationTurn:
         turn = DelegationTurn(
@@ -389,11 +393,18 @@ class TurnDelegation:
         )
 
         with self._lock:
-            chosen, self._next = self._next, None
+            chosen = None
+
+            if origin == ORIGIN_WINDOW:
+                # Only a window's turn takes the choice or clears it; a
+                # spoken or console turn that starts first leaves it
+                # for the message it was made for.
+                chosen, self._next = self._next, None
+
             self._current = turn
 
-        if origin == ORIGIN_WINDOW and chosen is not None:
-            turn.value, turn.urgent = chosen
+        if chosen is not None and chosen[2] == str(user_input).strip():
+            turn.value, turn.urgent = chosen[0], chosen[1]
         elif origin == ORIGIN_VOICE:
             turn.said = said_value(user_input)
 
@@ -520,7 +531,11 @@ class TurnDelegation:
             if answer == SEND_AS_SAID and turn.said is not None:
                 # The click is what makes the spoken words count.
                 turn.value, turn.urgent = turn.said
-            elif answer != SEND:
+            elif answer == SEND:
+                # The latest click decides, whatever an earlier one
+                # in this turn chose.
+                turn.value, turn.urgent = VALUE_NORMAL, False
+            else:
                 turn.declined = True
                 raise DelegationRefused(
                     "The user did not confirm sending this, so nothing was sent."

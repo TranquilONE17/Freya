@@ -235,11 +235,12 @@ function isQuitWord(text) {
 
 // How much the next message matters for cloud work, when the owner
 // set it to something other than the usual. It is sent just ahead of
-// the message, on the same connection, and the controls go back to
-// normal so that a choice is never carried over by accident.
+// the message, on the same connection and naming the message it is
+// for, and the controls go back to normal so that a choice is never
+// carried over by accident.
 let cloudValueRequests = 0;
 
-function sendCloudValue() {
+function sendCloudValue(text) {
   const value = document.getElementById("chat-value");
   const urgent = document.getElementById("chat-urgent");
 
@@ -253,6 +254,7 @@ function sendCloudValue() {
     request: "v" + cloudValueRequests,
     value: value.value,
     urgent: urgent.checked,
+    text,
   });
   value.value = "normal";
   urgent.checked = false;
@@ -267,7 +269,7 @@ function submitText(text) {
   }
 
   if (!isCommand(text)) {
-    sendCloudValue();
+    sendCloudValue(text);
     return send({ type: "say", text });
   }
 

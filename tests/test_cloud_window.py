@@ -168,18 +168,18 @@ def test_the_window_can_say_how_much_its_next_message_matters(cloud):
     class Delegation:
         chosen = None
 
-        def set_next(self, value, urgent):
+        def set_next(self, value, urgent, text):
             if value not in ("low", "normal", "high") or not isinstance(urgent, bool):
                 raise ValueError("no")
-            self.chosen = (value, urgent)
+            self.chosen = (value, urgent, text)
 
     cloud.turn_delegation = Delegation()
     before = len(changes(cloud))
 
     assert "error" not in cloud.window_request(
-        {"action": "next", "value": "high", "urgent": True},
+        {"action": "next", "value": "high", "urgent": True, "text": "Check this."},
     )
-    assert cloud.turn_delegation.chosen == ("high", True)
+    assert cloud.turn_delegation.chosen == ("high", True, "Check this.")
     assert cloud.window_request(
         {"action": "next", "value": "highest", "urgent": True},
     )["error"]

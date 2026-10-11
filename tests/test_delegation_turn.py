@@ -1279,7 +1279,7 @@ def passed_on(rig):
 
 def test_the_owners_choice_in_the_window_is_used_for_one_message(open_rig):
     seen = passed_on(open_rig)
-    open_rig.delegation.set_next("high", True)
+    open_rig.delegation.set_next("high", True, REQUEST)
     open_rig.begin(origin="window")
     open_rig.delegate()
 
@@ -1289,17 +1289,37 @@ def test_the_owners_choice_in_the_window_is_used_for_one_message(open_rig):
     assert seen == [("high", True), ("normal", False)]
 
 
-def test_a_choice_made_in_the_window_is_not_used_by_another_kind_of_turn(open_rig):
+def test_a_choice_is_used_only_for_the_message_it_was_made_for(open_rig):
+    # The message it was for never became a turn here (an image
+    # request does not). The next message must not inherit it.
     seen = passed_on(open_rig)
-    open_rig.delegation.set_next("high", True)
-    open_rig.begin(origin="typed")
-    open_rig.delegate()
-
-    # And it was dropped, not left for a later message.
+    open_rig.delegation.set_next("high", True, "draw a made-up cat")
     open_rig.begin(origin="window")
     open_rig.delegate()
 
-    assert seen == [("normal", False), ("normal", False)]
+    assert seen == [("normal", False)]
+
+
+def test_a_spoken_turn_that_starts_first_leaves_the_choice_for_its_message(open_rig):
+    seen = passed_on(open_rig)
+    open_rig.delegation.set_next("high", False, REQUEST)
+    open_rig.begin(origin="voice")
+    open_rig.answers = ["send"]
+    open_rig.delegate()
+
+    open_rig.begin(origin="window")
+    open_rig.delegate()
+
+    assert seen == [("normal", False), ("high", False)]
+
+
+def test_a_choice_made_in_the_window_is_not_used_by_another_kind_of_turn(open_rig):
+    seen = passed_on(open_rig)
+    open_rig.delegation.set_next("high", True, REQUEST)
+    open_rig.begin(origin="typed")
+    open_rig.delegate()
+
+    assert seen == [("normal", False)]
 
 
 @pytest.mark.parametrize("value, urgent", [
@@ -1307,7 +1327,11 @@ def test_a_choice_made_in_the_window_is_not_used_by_another_kind_of_turn(open_ri
 ])
 def test_a_choice_that_is_not_one_is_refused(rig, value, urgent):
     with pytest.raises(ValueError):
-        rig.delegation.set_next(value, urgent)
+        rig.delegation.set_next(value, urgent, REQUEST)
+
+    for text in ("", "   ", None, 7):
+        with pytest.raises(ValueError):
+            rig.delegation.set_next("high", False, text)
 
 
 def test_spoken_words_about_urgency_count_only_after_a_click(open_rig):
@@ -1330,6 +1354,18 @@ def test_spoken_words_about_urgency_count_only_after_a_click(open_rig):
     open_rig.delegate()
 
     assert seen == [("normal", False), ("normal", True)]
+
+
+def test_send_as_normal_undoes_an_earlier_click_in_the_same_turn(open_rig):
+    # As if a first attempt had been confirmed as urgent and then
+    # stopped by a later check: the second click, for normal, decides.
+    seen = passed_on(open_rig)
+    turn = open_rig.begin(request="This is urgent. " + REQUEST, origin="voice")
+    turn.value, turn.urgent = turn.said
+    open_rig.answers = ["send"]
+    open_rig.delegate()
+
+    assert seen == [("normal", False)]
 
 
 def test_a_spoken_request_that_asks_for_nothing_is_offered_nothing(open_rig):
