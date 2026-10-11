@@ -754,6 +754,74 @@ def test_a_failed_send_shows_no_card(open_rig):
     assert shown == []
 
 
+def test_after_a_limit_notice_nothing_more_is_sent_until_the_owner_says_try_again(open_rig):
+    open_rig.behave(
+        output=json.dumps({
+            "is_error": True,
+            "result": "5-hour limit reached - resets 3pm. made-up vendor words",
+        }),
+        exit=1,
+    )
+    open_rig.begin()
+
+    with pytest.raises(DelegationRefused) as first:
+        open_rig.delegate()
+
+    assert "usage limit is reached" in str(first.value)
+    assert "received but not answered" in str(first.value)
+    assert "made-up vendor words" not in str(first.value)
+    assert "made-up vendor words" not in open_rig.audit_text()
+
+    # Claude would answer now, but is not asked, and neither is the user.
+    (open_rig.folder / "seen.json").unlink()
+    open_rig.behave(output=reply("The total is 46."))
+    open_rig.asked.clear()
+    open_rig.begin()
+
+    with pytest.raises(DelegationRefused) as second:
+        open_rig.delegate()
+
+    assert "usage limit is reached" in str(second.value)
+    assert "Nothing was sent" in str(second.value)
+    assert not open_rig.ran() and open_rig.asked == []
+
+    # Switching the provider off is how the owner says "try again".
+    open_rig.cloud.lock(VENDOR)
+    open_rig.begin()
+
+    assert "46" in open_rig.delegate()["answer"]
+
+
+def test_a_limit_notice_with_no_time_holds_for_an_hour(rig):
+    from freya.providers.model.claude_plan import LimitNotice
+
+    now = datetime(2026, 10, 10, 12, 0, tzinfo=timezone.utc)
+    rig.cloud.note_limit(VENDOR, LimitNotice(False), now)
+
+    assert rig.cloud.hold_reason(VENDOR, now + timedelta(minutes=59))
+    assert rig.cloud.hold_reason(VENDOR, now + timedelta(minutes=61)) is None
+    assert rig.cloud.holds == {}
+
+
+def test_a_weekly_notice_moves_the_ledgers_week_to_the_providers_reset(open_rig):
+    from freya.providers.model.claude_plan import LimitNotice
+
+    now = datetime.now(timezone.utc)
+    reset = (now + timedelta(days=2)).replace(microsecond=0)
+    open_rig.cloud.note_limit(VENDOR, LimitNotice(True, reset), now)
+    week = open_rig.cloud.ledger.status(ANTHROPIC_PLAN_PROVIDER, now)[0]
+
+    assert week.resets_at == reset
+    assert week.remaining == 0
+
+    # A notice for a shorter limit leaves the week alone.
+    open_rig.cloud.lock(VENDOR)
+    sooner = (now + timedelta(hours=3)).replace(microsecond=0)
+    open_rig.cloud.note_limit(VENDOR, LimitNotice(False, sooner), now)
+
+    assert open_rig.cloud.ledger.status(ANTHROPIC_PLAN_PROVIDER, now)[0].resets_at == reset
+
+
 def test_a_spoken_turn_is_told_to_say_only_her_own_interpretation(open_rig):
     open_rig.begin(origin="voice")
     spoken = open_rig.delegation.hint()

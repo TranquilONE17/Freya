@@ -75,6 +75,9 @@ DEFAULT_WEEKLY_TOKENS = 500_000
 WEEKLY_LIMIT = "week"
 WEEK_SECONDS = 7 * 86400
 MAX_WEEKLY_TOKENS = 1_000_000_000
+# How long a provider is left alone after a limit notice with no
+# time in it that Freya could read.
+UNREAD_NOTICE_HOLD = timedelta(hours=1)
 
 
 @dataclass(frozen=True)
@@ -117,6 +120,10 @@ class CloudDelegation:
     context_tokens: Optional[int] = CONTEXT_WINDOW_TOKENS
     # The digest of each installed local model, asked when she reads.
     local_identities: Callable[[], dict] = installed_digests
+    # Providers that said their plan's limit is reached, and until
+    # when. Kept only while Freya runs: after a restart the worst case
+    # is one more brief the provider turns away.
+    holds: dict = field(default_factory=dict)
 
     @property
     def available_providers(self) -> Tuple[str, ...]:
@@ -151,12 +158,51 @@ class CloudDelegation:
         if self.weekly_limit(provider, now) is None:
             self.set_weekly_limit(provider, DEFAULT_WEEKLY_TOKENS, now)
 
+    def note_limit(self, provider: str, notice, now=None) -> None:
+        """
+        A provider said its plan's limit is reached. Nothing more is
+        sent to it until the time it gave, or for an hour when it gave
+        none Freya could read. A weekly notice with a time also moves
+        the ledger's week to the provider's own reset (owner decision,
+        2026-10-09: reset times follow the provider's).
+        """
+        now = now or datetime.now(timezone.utc)
+        self.holds[provider] = notice.resets_at or now + UNREAD_NOTICE_HOLD
+        route = self.routes.get(provider)
+
+        if notice.weekly and notice.resets_at is not None and route is not None:
+            try:
+                self.ledger.note_limit_reached(
+                    route.route_id, WEEKLY_LIMIT, notice.resets_at, now,
+                )
+            except (KeyError, ValueError):
+                pass
+
+    def hold_reason(self, provider: str, now=None) -> Optional[str]:
+        """Why this provider cannot be asked just now, or None."""
+        until = self.holds.get(provider)
+
+        if until is None:
+            return None
+
+        if (now or datetime.now(timezone.utc)) >= until:
+            self.holds.pop(provider, None)
+            return None
+
+        return (
+            f"{PROVIDER_LABELS.get(provider, provider)} said the plan's usage "
+            "limit is reached. It should be available again at about "
+            f"{until.astimezone():%H:%M on %d %B}."
+        )
+
     def lock(self, provider: str) -> None:
         """
         Take away what the switch gave. A rule the owner added by hand
         is not the switch's to remove; the switch being off still
-        stops every brief.
+        stops every brief. Switching off also forgets a provider's
+        limit notice, which is how the owner says "try again".
         """
+        self.holds.pop(provider, None)
         route = self.routes.get(provider)
 
         if route is None:
@@ -361,10 +407,14 @@ def build_cloud_delegation(
         corrections,
         closeness,
         on_reply=reply_publisher(publish) if publish is not None else None,
+        held=lambda provider: cloud.hold_reason(provider),
     )
 
     def note_failure(error: PlanRouteError):
         last_failure["sent"] = error.sent
+
+        if error.limit is not None:
+            cloud.note_limit(ANTHROPIC_PLAN_VENDOR, error.limit)
 
     control_plane.providers.register(
         create_claude_plan_provider(claude_program)

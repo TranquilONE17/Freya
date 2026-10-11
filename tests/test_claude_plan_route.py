@@ -307,6 +307,84 @@ def test_a_failed_exit_is_an_error_even_with_a_tidy_answer(fake):
         ask_claude_plan("A brief.", fake.program)
 
 
+def test_a_limit_notice_is_recognised_and_its_words_stay_out_of_the_message(fake):
+    fake.behave(
+        output=json.dumps({
+            "is_error": True,
+            "result": "Weekly limit reached - resets Oct 14, 9am",
+        }),
+        exit=1,
+    )
+
+    with pytest.raises(PlanRouteError) as error:
+        ask_claude_plan("A brief.", fake.program)
+
+    assert str(error.value) == "Claude's plan has reached its usage limit."
+    assert error.value.limit is not None and error.value.limit.weekly
+    assert error.value.sent is True
+
+
+def test_another_error_is_not_a_limit_notice(fake):
+    fake.behave(
+        output=json.dumps({"is_error": True, "result": "Something went wrong."}),
+        exit=1,
+    )
+
+    with pytest.raises(PlanRouteError) as error:
+        ask_claude_plan("A brief.", fake.program)
+
+    assert error.value.limit is None
+
+
+# The vendor's wording is not documented. These are forms its program
+# has used; none was captured from a real refusal on this machine.
+@pytest.mark.parametrize("said, weekly, expected", [
+    ("Claude AI usage limit reached|1791720000", False, "epoch"),
+    ("5-hour limit reached - resets 3pm", False, (10, 15, 0)),
+    ("You've hit your session limit, resets 3:45pm (Europe/London)", False, (10, 15, 45)),
+    ("You have reached your limit. Resets at 9am.", False, (11, 9, 0)),
+    ("Weekly limit reached - resets Oct 14, 9am", True, (14, 9, 0)),
+    ("Weekly limit reached - resets Oct 14 at 9:30 a.m.", True, (14, 9, 30)),
+    # Recognised, but with no time that can be read.
+    ("Usage limit reached. Try again later.", False, None),
+    ("Weekly limit reached - resets soon", True, None),
+    # A time too far off to be a plan's reset was misread.
+    ("Limit reached - resets Mar 3, 9am", False, None),
+])
+def test_reset_times_are_read_from_the_forms_seen_so_far(said, weekly, expected):
+    from datetime import datetime, timezone
+
+    from freya.providers.model.claude_plan import read_limit_notice
+
+    # Noon, local time, on 10 October 2026.
+    now = datetime(2026, 10, 10, 12, 0).astimezone()
+    notice = read_limit_notice(said, now)
+
+    assert notice is not None and notice.weekly is weekly
+
+    if expected is None:
+        assert notice.resets_at is None
+    elif expected == "epoch":
+        assert notice.resets_at == datetime.fromtimestamp(1791720000, timezone.utc)
+    else:
+        local = notice.resets_at.astimezone()
+        assert (local.day, local.hour, local.minute) == expected
+        assert local > now
+
+
+@pytest.mark.parametrize("said", [
+    "Something went wrong.",
+    "The reply was limited to 200 words.",
+    "",
+    None,
+    42,
+])
+def test_other_words_are_not_a_limit_notice(said):
+    from freya.providers.model.claude_plan import read_limit_notice
+
+    assert read_limit_notice(said) is None
+
+
 def test_a_slow_worker_is_stopped(fake):
     fake.behave(output=reply(), sleep=20)
 

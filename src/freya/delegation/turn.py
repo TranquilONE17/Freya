@@ -410,6 +410,12 @@ class TurnDelegation:
             raise DelegationRefused("No outside model is switched on.")
 
         provider, route = chosen
+        waiting = self._cloud.hold_reason(provider)
+
+        if waiting:
+            # Said before the user is asked anything: there is no
+            # point in a prompt for a brief that cannot go.
+            raise DelegationRefused(f"{waiting} Nothing was sent.")
 
         # What the record says about this kind of work. It informs the
         # owner and the model; it does not refuse or redirect, and it
@@ -452,6 +458,12 @@ class TurnDelegation:
             turn.delegated = False
             raise DelegationRefused(f"{refused.reason} Nothing was sent.")
         except Exception as error:
+            waiting = self._cloud.hold_reason(provider)
+
+            if waiting:
+                raise DelegationRefused(
+                    f"{waiting} The request was received but not answered."
+                )
             if getattr(error, "sent", True) is False:
                 raise DelegationRefused(
                     "Claude could not be asked. The request was not sent."

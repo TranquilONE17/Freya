@@ -281,7 +281,12 @@ environment; before sending it asks the program how it is signed in and refuses
 anything but a Claude subscription served by Anthropic; Freya never reads the
 program's sign-in files; the vendor's error text goes in `PlanRouteError.detail`,
 never in the message, because the message reaches the audit log; never add a
-`--dangerously-` flag. `ask_claude_plan` sends whatever it is given: do not register
+`--dangerously-` flag. When the program's error says the plan's limit is reached
+(`read_limit_notice`; the vendor's wording is undocumented, so it reads only the forms
+seen so far), `CloudDelegation.note_limit` stops further briefs to that provider until
+the stated reset, or for an hour when no time could be read; the hold is kept in
+memory only, and switching the provider off clears it. A weekly notice also moves the
+ledger's week to the provider's reset. `ask_claude_plan` sends whatever it is given: do not register
 the route in the control plane until one sending boundary checks every brief. The provider
 `anthropic-plan` and capability `cloud.anthropic_plan.ask` exist but are not
 registered by `build_local_control_plane`, are in no policy seed, and are not model

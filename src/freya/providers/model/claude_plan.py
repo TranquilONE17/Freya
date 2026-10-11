@@ -1,9 +1,11 @@
 import json
 import os
+import re
 import subprocess
 import tempfile
 import time
 from dataclasses import dataclass, field
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Dict, List, Optional, Sequence
 
@@ -81,6 +83,83 @@ WORKER_SETTINGS = {
 }
 
 
+@dataclass(frozen=True)
+class LimitNotice:
+    """
+    The vendor's program saying the plan's allowance is used up.
+    `resets_at` is None when it gave no time Freya could read.
+    """
+
+    weekly: bool
+    resets_at: Optional[datetime] = None
+
+
+# The vendor does not document these words and has changed them
+# between versions, so this reads the forms seen so far and nothing
+# cleverer: "...limit reached|1760000000", "5-hour limit reached,
+# resets 3pm", "Weekly limit reached, resets Oct 14, 9am". A notice
+# it recognises but cannot find a time in is still a notice.
+_LIMIT_WORDS = re.compile(
+    r"(?is)\blimit\b.{0,40}\b(?:reached|hit|exceeded)\b"
+    r"|\b(?:reached|hit|exceeded)\b.{0,40}\blimit\b"
+)
+_RESET_EPOCH = re.compile(r"\|\s*(\d{10})\b")
+_MONTHS = ("jan", "feb", "mar", "apr", "may", "jun",
+           "jul", "aug", "sep", "oct", "nov", "dec")
+_RESET_TIME = re.compile(
+    r"(?i)\bresets?\s+(?:at\s+|on\s+)?"
+    r"(?:(" + "|".join(_MONTHS) + r")[a-z]*\.?\s+(\d{1,2})(?:,|\s+at)?\s*)?"
+    r"(\d{1,2})(?::(\d{2}))?\s*([ap])\.?m\b"
+)
+# A reset further off than this is not a plan's, so it was misread.
+_FURTHEST_RESET = timedelta(days=8)
+
+
+def read_limit_notice(text, now: Optional[datetime] = None) -> Optional[LimitNotice]:
+    """
+    Whether the vendor's error text says a usage limit is reached,
+    and when it says the limit resets. Times are read as this
+    machine's local time, which is how the program prints them.
+    """
+    if not isinstance(text, str) or not _LIMIT_WORDS.search(text[:2000]):
+        return None
+
+    text = text[:2000]
+    now = (now or datetime.now(timezone.utc)).astimezone()
+    weekly = "week" in text.lower()
+    resets_at = None
+    epoch = _RESET_EPOCH.search(text)
+    stated = _RESET_TIME.search(text)
+
+    try:
+        if epoch:
+            resets_at = datetime.fromtimestamp(int(epoch.group(1)), timezone.utc)
+        elif stated:
+            month, day, hour, minute, half = stated.groups()
+            hour = int(hour) % 12 + (12 if half.lower() == "p" else 0)
+            moment = now.replace(
+                hour=hour, minute=int(minute or 0), second=0, microsecond=0,
+            )
+
+            if month:
+                moment = moment.replace(
+                    month=_MONTHS.index(month.lower()) + 1, day=int(day),
+                )
+                if moment <= now:
+                    moment = moment.replace(year=moment.year + 1)
+            elif moment <= now:
+                moment += timedelta(days=1)
+
+            resets_at = moment
+    except (ValueError, OverflowError, OSError):
+        resets_at = None
+
+    if resets_at is not None and not now < resets_at <= now + _FURTHEST_RESET:
+        resets_at = None
+
+    return LimitNotice(weekly, resets_at)
+
+
 class PlanRouteError(RuntimeError):
     """
     The brief was not answered. The message is fixed wording that is
@@ -88,12 +167,14 @@ class PlanRouteError(RuntimeError):
     program said, which may repeat part of the brief, so it must be
     shown only to the owner and never written to the audit log.
     `sent` is False only when it is certain nothing left this machine.
+    `limit` is set when the vendor said the plan's allowance is used up.
     """
 
-    def __init__(self, message, sent=True, detail=""):
+    def __init__(self, message, sent=True, detail="", limit=None):
         super().__init__(message)
         self.sent = sent
         self.detail = detail
+        self.limit = limit
 
 
 @dataclass(frozen=True)
@@ -215,7 +296,9 @@ def check_plan_sign_in(program: Sequence[str], *, force=False) -> None:
         return
 
     try:
-        with tempfile.TemporaryDirectory(prefix="freya-worker-") as folder:
+        with tempfile.TemporaryDirectory(
+        prefix="freya-worker-", ignore_cleanup_errors=True,
+    ) as folder:
             code, output = _run(
                 [*program, "auth", "status", "--json"],
                 folder, b"", SIGN_IN_TIMEOUT_SECONDS,
@@ -283,7 +366,9 @@ def ask_claude_plan(
     if model:
         command += ["--model", model]
 
-    with tempfile.TemporaryDirectory(prefix="freya-worker-") as folder:
+    with tempfile.TemporaryDirectory(
+        prefix="freya-worker-", ignore_cleanup_errors=True,
+    ) as folder:
         try:
             code, output = _run(
                 command, folder, brief.encode("utf-8"), timeout,
@@ -316,9 +401,14 @@ def _parse_reply(code, output) -> WorkerReply:
     text = result.get("result")
 
     if result.get("is_error") or code != 0:
+        limit = read_limit_notice(text)
+
         raise PlanRouteError(
-            "Claude did not answer the brief.",
+            "Claude's plan has reached its usage limit."
+            if limit is not None
+            else "Claude did not answer the brief.",
             detail=text[:2000] if isinstance(text, str) else "",
+            limit=limit,
         )
 
     if not isinstance(text, str) or not text.strip():

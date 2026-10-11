@@ -149,7 +149,11 @@ class Dispatcher:
         closeness=None,
         clock: Callable[[], float] = time.monotonic,
         on_reply: Optional[Callable[[Route, object], None]] = None,
+        held: Optional[Callable[[str], Optional[str]]] = None,
     ):
+        # Says why a provider cannot be asked just now (its own notice
+        # that the plan's limit is reached), or None.
+        self._held = held
         self._settings = settings
         self._ledger = ledger
         self._routes: Dict[str, Route] = {r.route_id: r for r in routes}
@@ -277,6 +281,11 @@ class Dispatcher:
             raise DispatchRefused("The brief was composed for another provider.")
         if not self._settings.provider_enabled(route.provider):
             raise DispatchRefused(f"{route.provider} is turned off.")
+
+        waiting = self._held(route.provider) if self._held is not None else None
+
+        if waiting:
+            raise DispatchRefused(waiting)
 
         revision = self._settings.revision
         review = review_brief(
