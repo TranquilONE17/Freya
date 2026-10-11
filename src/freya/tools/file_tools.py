@@ -183,16 +183,34 @@ class FileReader:
         self._closed = [Path(place).resolve() for place in closed]
 
     def roots(self) -> List[Path]:
-        """The opened folders that exist, resolved."""
+        """
+        The opened folders that are still what the owner opened.
+
+        A folder was checked when it was opened, and is checked again
+        here every time. If its path now leads somewhere else, because
+        it was replaced by a link or a junction, it is no longer the
+        folder the owner agreed to and is left out: the place it now
+        leads to was never opened. A folder that has since become a
+        place that may not be opened is left out too.
+        """
         roots = []
 
         for folder in self._folders() or ():
             try:
                 resolved = Path(folder).resolve(strict=True)
+                named = Path(os.path.abspath(folder))
             except (OSError, TypeError, ValueError):
                 continue
 
-            if resolved.is_dir() and resolved not in roots:
+            if _key(resolved) != _key(named):
+                continue
+
+            try:
+                check_readable_folder(str(resolved), self._closed)
+            except ValueError:
+                continue
+
+            if resolved not in roots:
                 roots.append(resolved)
 
         return roots

@@ -185,6 +185,53 @@ def test_which_file_names_count_as_secrets(name, secret):
     assert file_tools.is_secret_name(name) is secret
 
 
+def test_an_opened_folder_replaced_by_a_link_is_no_longer_open(tree, tmp_path):
+    # The owner opened a folder. Later its path is made to lead to a
+    # folder of keys. What it leads to now was never opened.
+    keys = tmp_path / "home" / ".ssh"
+    keys.mkdir(parents=True)
+    (keys / "config").write_text("Host made-up\n", encoding="utf-8")
+    (keys / "known_hosts").write_text("made-up host key\n", encoding="utf-8")
+    opened = tmp_path / "project"
+    opened.mkdir()
+    (opened / "notes.txt").write_text("ordinary notes\n", encoding="utf-8")
+    reader = FileReader(lambda: [str(opened)])
+    assert reader.read("notes.txt")
+
+    (opened / "notes.txt").unlink()
+    opened.rmdir()
+
+    try:
+        os.symlink(keys, opened, target_is_directory=True)
+    except OSError:
+        made = subprocess.run(
+            ["cmd", "/c", "mklink", "/J", str(opened), str(keys)],
+            capture_output=True,
+        )
+        if made.returncode != 0:
+            pytest.skip("links cannot be made here")
+
+    assert reader.roots() == []
+    assert not reader.is_open()
+    for call in (
+        lambda: reader.read("config"),
+        lambda: reader.read(str(opened / "known_hosts")),
+        lambda: reader.list("."),
+    ):
+        with pytest.raises(FileAccessError):
+            call()
+
+
+def test_a_folder_that_may_no_longer_be_opened_is_left_out(tree, tmp_path):
+    inside_data = tree / "data" / "kept"
+    inside_data.mkdir(parents=True, exist_ok=True)
+
+    # As if it had been opened before that place was closed.
+    reader = FileReader(lambda: [str(inside_data), str(tree)], closed=[tree / "data"])
+
+    assert reader.roots() == [tree.resolve()]
+
+
 def test_a_link_inside_an_opened_folder_cannot_lead_out_of_it(reader, tree):
     target = tree.parent / "beside"
 
