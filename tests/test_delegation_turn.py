@@ -1390,7 +1390,7 @@ def test_a_spoken_request_that_asks_for_nothing_is_offered_nothing(open_rig):
 @pytest.mark.parametrize("origin", ["window", "typed"])
 def test_the_same_words_typed_count_as_they_stand(open_rig, origin):
     seen = passed_on(open_rig)
-    open_rig.begin(request="This is urgent and a priority. " + REQUEST, origin=origin)
+    open_rig.begin(request="This is urgent. Make it a priority. " + REQUEST, origin=origin)
     open_rig.delegate()
 
     assert seen == [("high", True)]
@@ -1473,3 +1473,32 @@ def test_her_suggestion_alone_sends_nothing_and_is_not_shown_unasked(open_rig):
     # Within the day's share there is nothing to ask, so nothing to suggest.
     assert open_rig.asked == []
     assert open_rig.ran()
+
+
+@pytest.mark.parametrize("message, expected", [
+    ("This is urgent. Check the sums.", ("normal", True)),
+    ("Urgent: check the sums", ("normal", True)),
+    ("I need this done urgently", ("normal", True)),
+    ("Treat this as urgent", ("normal", True)),
+    ("This is a priority", ("high", False)),
+    ("It's my top priority today", ("high", False)),
+    ("Please prioritise this", ("high", False)),
+    ("Make this a priority, it is urgent", ("high", True)),
+    ("This is low priority", ("low", False)),
+    ("This is a low priority", ("low", False)),
+    # Mentions, not instructions about this task.
+    ("Explain what a priority queue is.", None),
+    ("Summarize this email: URGENT: renew your subscription.", None),
+    ("What makes a task urgent?", None),
+    ("How do hospitals prioritise patients?", None),
+    ('Reply to the note that says "this is urgent" politely', None),
+    ("> this is urgent\nWhat should I answer?", None),
+    ("This is not urgent", None),
+    ("It isn't a priority", None),
+    ("This is not a priority", None),
+    ("", None),
+])
+def test_typed_words_must_be_an_instruction_about_this_task(message, expected):
+    from freya.delegation.turn import said_value
+
+    assert said_value(message, typed=True) == expected

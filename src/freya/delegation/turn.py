@@ -78,25 +78,64 @@ _SAID_HIGH = re.compile(
 _SAID_LOW = re.compile(r"(?i)\blow[- ](?:value|priority)\b")
 # "Not urgent" and "isn't a priority" say the opposite.
 _SAID_NOT = re.compile(r"(?i)(?:\bnot|\bno|n't|\bnever|\bhardly)\s+(?:\w+\s+){0,2}$")
-# A typed message may hold pasted text that uses these words about
-# something else, so only its opening is read.
+# Typed words count without a click, so there they must be an
+# instruction about this task, not a mention: "explain a priority
+# queue" and "summarise this email: URGENT: renew now" ask for
+# nothing. Only the opening of the message is read, and nothing
+# inside quotation marks or on a quoted line.
 TYPED_OPENING = 300
+_THIS = r"\b(?:this|it|that)(?:'s| is| one is| task is| request is)(?: \w+)?"
+_AS = r"\b(?:make|treat|mark|handle|consider) (?:this|it|that)(?: as)?"
+_TYPED_URGENT = re.compile(
+    r"(?im)" + _THIS + r" urgent\b"
+    r"|" + _AS + r" urgent\b"
+    r"|\b(?:need|want) (?:this|it|that)(?: \w+){0,2} urgently\b"
+    r"|\A\s*urgent\b\s*[:,.!-]"
+)
+_PRIORITY = r" (?:a |my |the )?(?:high |top |highest |first )?priority\b"
+_TYPED_HIGH = re.compile(
+    r"(?im)" + _THIS + _PRIORITY
+    + r"|" + _AS + _PRIORITY
+    + r"|\bprioriti[sz]e (?:this|it|that)\b"
+    r"|\A\s*(?:high |top )?priority\b\s*[:,.!-]"
+)
+_TYPED_LOW = re.compile(
+    r"(?im)" + _THIS + r" (?:a )?low[- ]priority\b"
+    r"|" + _AS + r" (?:a )?low[- ]priority\b"
+    r"|\A\s*low[- ]priority\b\s*[:,.!-]"
+)
+_QUOTED = re.compile(r'(?m)"[^"]*"|\u201c[^\u201d]*\u201d|^\s*>.*$')
+_DENIED = re.compile(r"(?i)\b(?:not|no|never|hardly)\b|n't")
 
 
 def _says(pattern, text) -> bool:
     return any(
         not _SAID_NOT.search(text[:found.start()])
+        and not _DENIED.search(found.group(0))
         for found in pattern.finditer(text)
     )
 
 
-def said_value(text) -> Optional[Tuple[str, bool]]:
-    """The value and urgency the owner's sentence asks for, or None."""
+def said_value(text, typed=False) -> Optional[Tuple[str, bool]]:
+    """
+    The value and urgency the owner's sentence asks for, or None.
+    `typed` reads it strictly, as an instruction about this task;
+    a spoken sentence is read loosely, because a click follows.
+    """
     if not isinstance(text, str):
         return None
 
-    urgent = _says(_SAID_URGENT, text)
-    high, low = _says(_SAID_HIGH, text), _says(_SAID_LOW, text)
+    if typed:
+        text = _QUOTED.sub(" ", text[:TYPED_OPENING])
+        urgent = _says(_TYPED_URGENT, text)
+        high, low = _says(_TYPED_HIGH, text), _says(_TYPED_LOW, text)
+
+        if high and low:
+            # "This is a low priority" also reads as "a ... priority".
+            high = False
+    else:
+        urgent = _says(_SAID_URGENT, text)
+        high, low = _says(_SAID_HIGH, text), _says(_SAID_LOW, text)
 
     if high and low:
         # It says both, so it says neither.
@@ -438,7 +477,7 @@ class TurnDelegation:
         elif origin == ORIGIN_VOICE:
             turn.said = said_value(user_input)
         elif origin in SELF_CONFIRMING_ORIGINS:
-            typed = said_value(str(user_input)[:TYPED_OPENING])
+            typed = said_value(str(user_input), typed=True)
 
             if typed is not None:
                 turn.value, turn.urgent = typed
