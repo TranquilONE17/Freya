@@ -220,7 +220,10 @@ def delegation_hint(input_ids, spoken=False) -> str:
         "When you used delegated work, say in your reply that part "
         "of the answer came from another model, and name it. The user "
         "is shown that model's answer in full under its own name, so "
-        "do not repeat it: add what you make of it."
+        "do not repeat it: add what you make of it. "
+        "When the user says, or it is plain, that other work cannot be "
+        "finished until this piece is done, pass waited_on as yes; "
+        "otherwise leave waited_on out."
         + (
             " This turn was spoken, and your reply will be read aloud: "
             "give only your own short interpretation."

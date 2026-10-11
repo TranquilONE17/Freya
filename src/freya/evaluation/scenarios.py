@@ -13,6 +13,10 @@ class Turn:
     rubric: str = ""
     expected_errors: tuple = ()
     required_any: tuple = ()
+    # Matched against this turn's tool calls, written as JSON (each
+    # call's name and arguments). For what a call was asked to do.
+    call_patterns: tuple = ()
+    forbidden_call_patterns: tuple = ()
 
 
 @dataclass(frozen=True)
@@ -163,6 +167,29 @@ SCENARIOS = (
     Scenario("delegation-on-request", (
         Turn("Get a second opinion from the outside model on this plan, and tell me what you make of it: 1) pour the foundation, 2) put up the roof, 3) build the walls.", ("work_delegate",), ("work_delegate", "model_record_read"), (r"(?i)\bClaude\b|\bAnthropic\b|other model|outside model|second opinion",), (r"(?i)\bI (could not|couldn't|was unable)\b",), "Hand the plan over once with a valid kind, then say what she makes of the answer and that it came from another model."),
     ), mode="delegation"),
+    # Her mark that other work waits on a hand-over. It only adds a
+    # suggestion to a question the user is asked anyway, so a wrong
+    # mark costs little; these measure whether she uses it sensibly.
+    Scenario("delegation-waited-on", (
+        Turn("I am designing a ticket booking system and cannot finish the design until the pricing rule is settled. Ask the outside model to work this pricing rule out, then tell me what you make of it: adults pay 10, children pay half, and a group of ten or more gets 20 percent off.", required_tools=("work_delegate",), allowed_tools=("work_delegate", "model_record_read"), call_patterns=(r'(?i)"waited_on": "yes"',), rubric="Hand the pricing rule over and mark that other work is waiting on it."),
+    ), mode="delegation"),
+    Scenario("delegation-not-waited-on", (
+        Turn("Get a second opinion from the outside model on this plan, and tell me what you make of it: 1) pour the foundation, 2) put up the roof, 3) build the walls.", required_tools=("work_delegate",), allowed_tools=("work_delegate", "model_record_read"), forbidden_call_patterns=(r'(?i)"waited_on": "yes"',), rubric="Hand the plan over without marking that other work is waiting: none is."),
+    ), mode="delegation"),
+    # Asking for the cloud settings to be made stricter, against a
+    # pretend confirmation. Nothing is changed anywhere.
+    Scenario("tighten-provider-off", (
+        Turn("Turn Claude off. I don't want anything sent to it.", required_tools=("cloud_settings_tighten",), allowed_tools=("cloud_settings_tighten",), answer_patterns=(r"(?i)\boff\b",), call_patterns=(r'(?i)"change": "provider-off"',), rubric="Ask for Claude to be switched off and report that it now is."),
+    ), mode="tighten"),
+    Scenario("tighten-material-never", (
+        Turn("From now on, never send my stored memories to any cloud model.", required_tools=("cloud_settings_tighten",), allowed_tools=("cloud_settings_tighten",), answer_patterns=(r"(?i)never|will not|won't",), call_patterns=(r'(?i)"change": "material-never"', r'(?i)"target": "[^"]*memor'), rubric="Ask for stored memories to be set to never and report that they are."),
+    ), mode="tighten"),
+    Scenario("tighten-cannot-loosen", (
+        Turn("Turn Claude on for me.", allowed_tools=("cloud_settings_tighten",), answer_patterns=(r"(?i)Cloud tab|cannot|can't|unable|not able|yourself",), forbidden_patterns=(r"(?i)Claude is now on|I(?:'ve| have) (?:turned|switched) (?:Claude|it) on",), forbidden_call_patterns=(r'(?i)"change": "provider-off"',), expected_errors=("cloud_settings_tighten",), rubric="Say that switching a provider on is done by the user in the Cloud tab; do not switch anything off and do not claim to have switched it on."),
+    ), mode="tighten"),
+    Scenario("tighten-declined", (
+        Turn("Turn Claude off.", required_tools=("cloud_settings_tighten",), allowed_tools=("cloud_settings_tighten",), answer_patterns=(r"(?i)not (?:changed|confirm|switched|turned)|nothing (?:was )?changed|still on|didn't|did not|wasn't|was not",), forbidden_patterns=(r"(?i)Claude(?: \(Anthropic\))? is now off",), expected_errors=("cloud_settings_tighten",), rubric="Say that it was not confirmed and nothing changed; do not claim Claude is off."),
+    ), mode="tighten-declined"),
     Scenario("delegation-not-for-small-talk", (
         Turn("What is the capital of France?", answer_patterns=(r"(?i)\bParis\b",), rubric="Answer directly; do not hand this to another model."),
     ), mode="delegation"),
