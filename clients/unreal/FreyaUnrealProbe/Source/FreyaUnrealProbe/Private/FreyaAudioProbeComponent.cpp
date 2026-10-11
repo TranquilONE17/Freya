@@ -345,9 +345,8 @@ bool UFreyaAudioProbeComponent::BeginSpeech(int32 SampleRate, float Loudness)
 {
     // The solver is fed at one rate. Anything else is refused, not resampled.
     if (SampleRate != FixtureSampleRate || !GetOwner() || !InitializeProbe()) return false;
-    // The next sentence has come before the last one's jaw was watched to the end:
-    // measure that one with what there is, rather than not at all.
-    if (bSpeechInputEnded) MeasureSync();
+    // A replacement sentence cancels an unfinished observation. Never calibrate
+    // from a sentence whose playback or jaw tail was cut short.
     StopAudiblePlayback();
     Source->Cancel();
     ConfigureFace();
@@ -361,6 +360,7 @@ bool UFreyaAudioProbeComponent::BeginSpeech(int32 SampleRate, float Loudness)
     SpeechVolume = FMath::Clamp(Loudness, 0.0f, 1.0f);
     SpeechSamples = 0;
     SpeechStartedAt = 0.0;
+    SpeechTiming.Reset();
     bVoiceStarted = false;
     bSpeechOpen = true;
     LoudnessBins.Reset();
@@ -373,7 +373,7 @@ bool UFreyaAudioProbeComponent::BeginSpeech(int32 SampleRate, float Loudness)
 void UFreyaAudioProbeComponent::PushSpeech(const int16* Samples, int32 Count)
 {
     // At most what Freya ever sends for one utterance.
-    if (!bSpeechOpen || !Samples || Count <= 0 || !Source.IsValid() || !Wave) return;
+    if (!bSpeechOpen || bSpeechInputEnded || !Samples || Count <= 0 || !Source.IsValid() || !Wave) return;
     if (SpeechSamples + Count > int64(MaxFixtureSeconds) * FixtureSampleRate) return;
 
     TArray<float> Floats;
@@ -386,6 +386,7 @@ void UFreyaAudioProbeComponent::PushSpeech(const int16* Samples, int32 Count)
         if (Bin >= LoudnessBins.Num()) LoudnessBins.AddZeroed(Bin - LoudnessBins.Num() + 1);
         LoudnessBins[Bin] = FMath::Max(LoudnessBins[Bin], FMath::Abs(Floats[Index]));
     }
+    SpeechTiming.Queue(FPlatformTime::Seconds(), Count / double(FixtureSampleRate));
     Wave->QueueAudio(reinterpret_cast<const uint8*>(Samples), Count * sizeof(int16));
     if (SpeechSamples == 0) FirstFedAt = FPlatformTime::Seconds();
     SpeechSamples += Count;
@@ -412,7 +413,8 @@ bool UFreyaAudioProbeComponent::IsSpeechAudible() const
 {
     if (!bSpeechOpen || SpeechSamples <= 0) return false;
     if (!bVoiceStarted) return true;
-    return FPlatformTime::Seconds() < SpeechStartedAt + SpeechSamples / double(FixtureSampleRate) + 0.25;
+    return (Wave && Wave->GetAvailableAudioByteCount() > 0)
+        || FPlatformTime::Seconds() < SpeechTiming.EndAt + 0.25;
 }
 
 void UFreyaAudioProbeComponent::BeginAudiblePlayback()
@@ -420,6 +422,7 @@ void UFreyaAudioProbeComponent::BeginAudiblePlayback()
     if (!bSpeechOpen || !Wave || !GetOwner()) return;
     bVoiceStarted = true;
     SpeechStartedAt = FPlatformTime::Seconds();
+    SpeechTiming.Start(SpeechStartedAt);
 
     if (!Voice)
     {
@@ -539,7 +542,9 @@ void UFreyaAudioProbeComponent::TrackSync()
     // finish it. Stopping when the sound stops would leave out the late frames,
     // which are the ones that show a lag.
     if (!bSpeechInputEnded || !bVoiceStarted) return;
-    if (Now < SpeechStartedAt + SpeechSamples / double(FixtureSampleRate) + SyncTailSeconds) return;
+    if (!Wave) return;
+    SpeechTiming.ObserveQueue(Now, Wave->GetAvailableAudioByteCount() > 0);
+    if (!SpeechTiming.Ready(Now, SyncTailSeconds)) return;
     MeasureSync();
 }
 
@@ -547,7 +552,9 @@ void UFreyaAudioProbeComponent::MeasureSync()
 {
     // Once per utterance, whether or not there was enough to measure.
     bSpeechInputEnded = false;
-    if (!bVoiceStarted || JawTimes.Num() < 30 || LoudnessBins.Num() < 50)
+    // A delivery gap breaks the continuous sample timeline used below. Discard
+    // that observation instead of mistaking compressed gaps for a lip delay.
+    if (!bVoiceStarted || !SpeechTiming.bContinuous || JawTimes.Num() < 30 || LoudnessBins.Num() < 50)
     {
         JawTimes.Reset();
         JawValues.Reset();

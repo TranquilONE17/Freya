@@ -1,7 +1,7 @@
 "use strict";
 
-// Everything Freya sends is shown with textContent, never as HTML: her
-// replies and tool results are not trusted markup.
+// Model text is placed in text nodes. Rich display uses a restricted renderer;
+// replies and tool results are never trusted HTML.
 
 const $ = (id) => document.getElementById(id);
 
@@ -94,6 +94,7 @@ function finishReply() {
   if (currentReply) {
     currentReply.bubble.classList.remove("is-writing");
     if (!currentReply.body.textContent.trim()) currentReply.bubble.remove();
+    else FreyaRichChat.render(currentReply.body, currentReply.body.textContent);
     currentReply = null;
   }
 }
@@ -122,6 +123,11 @@ function showEvent(event) {
 
     case "assistant_end":
       finishReply();
+      break;
+
+    case "source_response":
+      finishReply();
+      FreyaRichChat.sourceMessage(event, addToChat);
       break;
 
     case "notice":

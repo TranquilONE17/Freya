@@ -856,7 +856,10 @@ def test_policy_allows_the_import_map_by_hash_and_nothing_looser(gateway):
     assert directives["connect-src"] == "'self' blob:"
     assert directives["style-src"] == "'self'"
     assert directives["media-src"] == "'self'"
-    assert directives["frame-src"] == "https://www.youtube-nocookie.com"
+    # The page may frame its own sandboxed media document (answer_media,
+    # which carries its own policy and the sandbox directive) and the
+    # one video host, and nothing else.
+    assert directives["frame-src"] == "'self' https://www.youtube-nocookie.com"
     assert policy == content_security_policy()
 
     for loose in ("unsafe-inline", "unsafe-eval", "data:", "http:", "https:", "*"):

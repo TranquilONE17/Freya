@@ -1080,6 +1080,8 @@ def main(window_only=False):
 
             ],
 
+            publish=EVENTS.publish,
+
         )
 
     except Exception as exc:

@@ -17,6 +17,7 @@ from freya.delegation.abilities import (
 from freya.delegation.dispatch import Dispatcher, Route, SentBriefs
 from freya.delegation.material import CloudSettings
 from freya.delegation.record import ModelRecord
+from freya.delegation.presentation import reply_publisher
 from freya.delegation.screening import Corrections
 from freya.delegation.compose import TASK_KINDS
 from freya.delegation.turn import TurnDelegation
@@ -251,6 +252,7 @@ def build_cloud_delegation(
     claude_program=None,
     closeness=None,
     claude_model=None,
+    publish=None,
 ) -> CloudDelegation:
     """
     Assemble cloud delegation on a control plane and register the
@@ -312,11 +314,12 @@ def build_cloud_delegation(
     dispatcher = Dispatcher(
         settings,
         ledger,
-        [Route(ANTHROPIC_PLAN_PROVIDER, ANTHROPIC_PLAN_VENDOR, ask)],
+        [Route(ANTHROPIC_PLAN_PROVIDER, ANTHROPIC_PLAN_VENDOR, ask, source_name="Claude")],
         memories,
         sent,
         corrections,
         closeness,
+        on_reply=reply_publisher(publish) if publish is not None else None,
     )
 
     def note_failure(error: PlanRouteError):
