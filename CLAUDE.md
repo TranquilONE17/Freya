@@ -511,6 +511,20 @@ administrator. SQLite durability settings are provisional pending ADR-015; each 
 invocation currently costs roughly 30–60 ms in synchronous writes. Default policy rules
 are applied once per named seed (`policy_seed` table), so removed rules stay removed.
 
+Code sandbox: `freya.sandbox` is the contract for running code a model wrote
+(`contract.py`) and the capability `code.run` on provider `code-sandbox-local`
+(`service.py`). There is no real sandbox yet, only a stand-in in the tests, and
+`build_local_control_plane` does not register it; a test checks that. The design,
+`docs/design/code-sandbox.md`, is a proposal that is not adopted: a Linux container
+in WSL2, because this PC runs Windows 11 Home, which has no Hyper-V. Keep these
+rules: a sandbox must state no network, none of this machine's files, no
+credentials, and nothing kept between runs, or it cannot be registered; a run is
+bounded text files and a command from a fixed list, never a command line; only
+made-up material goes in, never anything from `data/`; output is untrusted text;
+`SandboxError.detail` never goes in the message, because the message reaches the
+audit log; `code.run` is in no policy seed and is not a model tool. Describe the
+container profile as holding mistakes, not a determined attack.
+
 `python -m freya.evaluation.delegation` measures a model on 91 synthetic delegated
 tasks in eight kinds (`evaluation/delegation_tasks.py`), each with a deterministic
 check. Twenty-eight of them (`STRETCH_TASKS`) are the hardest, added when the best
