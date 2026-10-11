@@ -212,9 +212,10 @@ and never a model's. In the window it is set beside the chat box and sent just a
 the message (`cloud` request `next`, `TurnDelegation.set_next`); it applies to that one
 message and is not a setting. A spoken request may ask for a setting change, but the
 change is made only by a click on a confirmation shown on the device that recorded the
-request (owner decision, 2026-10-11). So far that covers only value and urgency: words
-found in the owner's transcribed sentence by code (`said_value`) add a choice to the
-prompt a spoken hand-over always shows. The model can also ask, with
+request (owner decision, 2026-10-11). The owner saying "urgent" or "a priority" in a
+message also raises it (`said_value`, code not a model): typed words count as they
+stand, read from the message's opening only; spoken words add a choice to the prompt a
+spoken hand-over always shows and count after that click. Everything else is normal. The model can also ask, with
 `cloud.settings.tighten` (`delegation/tighten.py`, seed `alpha-cloud-tighten`), for a
 provider to be switched off or a kind of material to be set to never; the owner's
 click makes the change through `cloud.settings.change`. That tool must only ever

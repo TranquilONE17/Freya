@@ -356,11 +356,13 @@ holds amounts and times only, never prompts or replies.
   unless one action is required before another can complete; that dependency raises
   the urgency of the action being waited on. The raise comes from the dependency
   itself, established by Freya's code, never from a model's opinion of its own work.
-  *Not built, and two points are open:* nothing in Freya today holds one action
-  waiting on another except a reply waiting on its own hand-over, and treating that
-  as a dependency would make every hand-over urgent and switch daily pacing off; and
-  whether the owner's own controls (the value choice and Urgent box beside the chat
-  box, and spoken "urgent") stay as an override or are removed.
+  The owner saying so also raises it: the controls beside the chat box, or the words
+  "urgent" or "a priority" in the message itself. Typed words count as they stand;
+  spoken words count after the click every spoken hand-over already needs.
+  *Not built, and one point is open:* the raise from a dependency. Nothing in Freya
+  today holds one action waiting on another except a reply waiting on its own
+  hand-over, and treating that as a dependency would make every hand-over urgent and
+  switch daily pacing off.
 - **Urgent.** A separate flag the owner sets: the task does not wait for a reset.
   An urgent task may also use more than one cloud route at the same time. The usual
   way is splitting: independent parts go to different providers. Comparing, where two

@@ -61,25 +61,42 @@ SEND = "send"
 SEND_AS_SAID = "send_as_said"
 
 # How much a piece of work matters is the owner's to say, never a
-# model's. In the window it is set beside the chat box for the next
-# message. A spoken request can ask for it in these words; that is a
-# request to change a setting, so it counts only after a click on the
-# prompt shown on the device that heard it (owner decision,
-# 2026-10-11). The words are looked for in the owner's own transcribed
-# sentence by this code, not by a model.
+# model's. Everything is normal unless the owner says otherwise (owner
+# decisions, 2026-10-11): by the controls beside the chat box, or by
+# saying in the message itself that it is urgent or a priority. Typed
+# words count as they stand, because typing is the owner at the
+# keyboard. Spoken words are a request to change a setting, so they
+# count only after a click on the prompt shown on the device that
+# heard them. The words are looked for in the owner's own sentence by
+# this code, not by a model.
 TASK_VALUES = (VALUE_LOW, VALUE_NORMAL, VALUE_HIGH)
 _SAID_URGENT = re.compile(r"(?i)\burgent(?:ly)?\b")
-_SAID_HIGH = re.compile(r"(?i)\b(?:high|top)[- ](?:value|priority)\b")
+_SAID_HIGH = re.compile(
+    r"(?i)\b(?:a|my|high|top|highest|first)[- ](?:value|priority)\b"
+    r"|\bprioriti[sz]e\b"
+)
 _SAID_LOW = re.compile(r"(?i)\blow[- ](?:value|priority)\b")
+# "Not urgent" and "isn't a priority" say the opposite.
+_SAID_NOT = re.compile(r"(?i)(?:\bnot|\bno|n't|\bnever|\bhardly)\s+(?:\w+\s+){0,2}$")
+# A typed message may hold pasted text that uses these words about
+# something else, so only its opening is read.
+TYPED_OPENING = 300
+
+
+def _says(pattern, text) -> bool:
+    return any(
+        not _SAID_NOT.search(text[:found.start()])
+        for found in pattern.finditer(text)
+    )
 
 
 def said_value(text) -> Optional[Tuple[str, bool]]:
-    """The value and urgency a spoken sentence asks for, or None."""
+    """The value and urgency the owner's sentence asks for, or None."""
     if not isinstance(text, str):
         return None
 
-    urgent = bool(_SAID_URGENT.search(text))
-    high, low = bool(_SAID_HIGH.search(text)), bool(_SAID_LOW.search(text))
+    urgent = _says(_SAID_URGENT, text)
+    high, low = _says(_SAID_HIGH, text), _says(_SAID_LOW, text)
 
     if high and low:
         # It says both, so it says neither.
@@ -404,9 +421,15 @@ class TurnDelegation:
             self._current = turn
 
         if chosen is not None and chosen[2] == str(user_input).strip():
+            # The controls beside the chat box, when used, decide.
             turn.value, turn.urgent = chosen[0], chosen[1]
         elif origin == ORIGIN_VOICE:
             turn.said = said_value(user_input)
+        elif origin in SELF_CONFIRMING_ORIGINS:
+            typed = said_value(str(user_input)[:TYPED_OPENING])
+
+            if typed is not None:
+                turn.value, turn.urgent = typed
 
         return turn
 

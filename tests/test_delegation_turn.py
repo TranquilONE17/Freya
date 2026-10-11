@@ -1382,13 +1382,33 @@ def test_a_spoken_request_that_asks_for_nothing_is_offered_nothing(open_rig):
     assert seen == [] and not open_rig.ran()
 
 
-def test_the_same_words_typed_change_nothing(open_rig):
+@pytest.mark.parametrize("origin", ["window", "typed"])
+def test_the_same_words_typed_count_as_they_stand(open_rig, origin):
     seen = passed_on(open_rig)
-    open_rig.begin(request="This is urgent and top priority. " + REQUEST, origin="window")
+    open_rig.begin(request="This is urgent and a priority. " + REQUEST, origin=origin)
+    open_rig.delegate()
+
+    assert seen == [("high", True)]
+    assert open_rig.asked == []
+
+
+def test_the_controls_decide_over_words_in_the_message(open_rig):
+    seen = passed_on(open_rig)
+    message = "This is urgent. " + REQUEST
+    open_rig.delegation.set_next("low", False, message)
+    open_rig.begin(request=message, origin="window")
+    open_rig.delegate()
+
+    assert seen == [("low", False)]
+
+
+def test_only_the_opening_of_a_typed_message_is_read_for_these_words(open_rig):
+    # As if a pasted letter used the word about something else.
+    seen = passed_on(open_rig)
+    open_rig.begin(request=REQUEST + " " + "x" * 300 + " this is urgent", origin="window")
     open_rig.delegate()
 
     assert seen == [("normal", False)]
-    assert open_rig.asked == []
 
 
 @pytest.mark.parametrize("sentence, expected", [
@@ -1399,6 +1419,12 @@ def test_the_same_words_typed_change_nothing(open_rig):
     ("Low priority, but have a look", ("low", False)),
     ("a low value task", ("low", False)),
     ("Is this high priority or low priority?", None),
+    ("This is a priority", ("high", False)),
+    ("Please prioritise this, it's my priority today", ("high", False)),
+    ("This is not urgent", None),
+    ("It isn't really urgent", None),
+    ("This is not a priority, but it is urgent", ("normal", True)),
+    ("No priority on this one", None),
     ("What is the most important point here?", None),
     ("Check the sums", None),
     ("", None),
