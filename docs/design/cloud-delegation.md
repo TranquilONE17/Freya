@@ -352,6 +352,15 @@ holds amounts and times only, never prompts or replies.
   exceed the day's share, and the owner is told. The level comes from the owner when
   asking, or from the matching standing rule, or is normal. Freya and models never
   raise it.
+- **Priority by default (owner decision, 2026-10-11).** Everything is normal priority
+  unless one action is required before another can complete; that dependency raises
+  the urgency of the action being waited on. The raise comes from the dependency
+  itself, established by Freya's code, never from a model's opinion of its own work.
+  *Not built, and two points are open:* nothing in Freya today holds one action
+  waiting on another except a reply waiting on its own hand-over, and treating that
+  as a dependency would make every hand-over urgent and switch daily pacing off; and
+  whether the owner's own controls (the value choice and Urgent box beside the chat
+  box, and spoken "urgent") stay as an override or are removed.
 - **Urgent.** A separate flag the owner sets: the task does not wait for a reset.
   An urgent task may also use more than one cloud route at the same time. The usual
   way is splitting: independent parts go to different providers. Comparing, where two
