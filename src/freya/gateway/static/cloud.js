@@ -221,6 +221,7 @@
     confirmation: (who) => "Send your spoken request to " + who + "?",
     hold: () => "This request matches something private",
     limit: () => "This would go over a usage limit",
+    setting: () => "Change this cloud setting?",
   };
 
   function closePrompt() {

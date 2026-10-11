@@ -214,7 +214,12 @@ message and is not a setting. A spoken request may ask for a setting change, but
 change is made only by a click on a confirmation shown on the device that recorded the
 request (owner decision, 2026-10-11). So far that covers only value and urgency: words
 found in the owner's transcribed sentence by code (`said_value`) add a choice to the
-prompt a spoken hand-over always shows. Do not let spoken words change anything
+prompt a spoken hand-over always shows. The model can also ask, with
+`cloud.settings.tighten` (`delegation/tighten.py`, seed `alpha-cloud-tighten`), for a
+provider to be switched off or a kind of material to be set to never; the owner's
+click makes the change through `cloud.settings.change`. That tool must only ever
+tighten: anything that switches on, allows, raises a limit or makes a rule stays in
+the Cloud tab. Do not let spoken words change anything
 without that click, and send the prompt only to the device that heard them once more
 than one can listen.
 The tab must never be able to send a brief or write any other

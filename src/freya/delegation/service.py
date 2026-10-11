@@ -22,6 +22,13 @@ from freya.delegation.record import ModelRecord
 from freya.delegation.presentation import reply_publisher
 from freya.delegation.screening import Corrections
 from freya.delegation.compose import TASK_KINDS
+from freya.delegation.tighten import (
+    CLOUD_SETTINGS_TIGHTEN,
+    TIGHTEN_DESCRIPTION,
+    TIGHTEN_PARAMETERS,
+    TIGHTEN_SEED,
+    SettingTightener,
+)
 from freya.delegation.turn import (
     WORK_DELEGATE_DESCRIPTION,
     WORK_DELEGATE_PARAMETERS,
@@ -587,7 +594,7 @@ def build_turn_delegation(
         ProviderDefinition(
             provider_id=DELEGATION_PROVIDER,
             name="Handing work to an outside model",
-            capabilities=[WORK_DELEGATE],
+            capabilities=[WORK_DELEGATE, CLOUD_SETTINGS_TIGHTEN],
             start_handler=lambda: None,
             health_handler=lambda: True,
         )
@@ -619,6 +626,39 @@ def build_turn_delegation(
         WORK_DELEGATE_SEED,
         LOCAL_OWNER.actor,
         [WORK_DELEGATE],
+    )
+
+    # Asking, by voice or in a message, for the cloud settings to be
+    # made stricter. The model may only ask: the owner's click makes
+    # the change, through the same audited capability as the Cloud tab.
+    tightener = SettingTightener(
+        cloud,
+        ask_owner,
+        window_connected,
+        lambda request: broker.invoke(CLOUD_SETTINGS_CHANGE, request).success,
+    )
+    cloud.tightener = tightener
+    capabilities.register(
+        CapabilityDefinition(
+            name=CLOUD_SETTINGS_TIGHTEN,
+            description=TIGHTEN_DESCRIPTION,
+            provider=DELEGATION_PROVIDER,
+            handler=tightener.tighten,
+            category="cloud",
+            metadata={
+                MODEL_TOOL: True,
+                TOOL_PARAMETERS: TIGHTEN_PARAMETERS,
+            },
+        )
+    )
+    control_plane.model_tools.add_offer_condition(
+        CLOUD_SETTINGS_TIGHTEN, tightener.available,
+    )
+    seed_alpha_policy(
+        control_plane.policy,
+        TIGHTEN_SEED,
+        LOCAL_OWNER.actor,
+        [CLOUD_SETTINGS_TIGHTEN],
     )
 
     return delegation

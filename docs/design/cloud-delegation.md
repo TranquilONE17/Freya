@@ -311,8 +311,17 @@ made only when the owner chooses it there. Today the only microphone is this PC'
 the prompt appears in its window; when other devices can listen, the prompt must go to
 the one that heard the request and to no other. Built so far: a spoken request that
 says "urgent", "high priority" or "low priority" (or "value") offers that choice in the
-confirmation prompt a spoken hand-over always shows. Not built: changing any other
-setting by voice, which needs a tool with its own permission first.
+confirmation prompt a spoken hand-over always shows.
+
+Which settings a request may ask to change (owner decision, 2026-10-11): those that
+only tighten. A request, spoken or typed, can ask for a provider to be switched off or
+for a kind of material to be set to never. Freya's model passes the request on with a
+tool of its own (`cloud.settings.tighten`), the owner is shown exactly what would
+change, and only their click makes it. Everything that loosens (switching a provider
+on, allowing a kind of material, raising an allowance, making a standing rule) is done
+by the owner in the Cloud tab and cannot be asked for this way. A typed request is
+asked in the same way as a spoken one, because the model that read it may have been
+steered by something else it read.
 
 ## Limits and pacing
 
