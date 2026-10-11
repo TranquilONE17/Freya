@@ -111,6 +111,17 @@ class WorldViewError(RuntimeError):
     """A failure that can be told to the user as it is."""
 
 
+class _NoRedirects(urllib.request.HTTPRedirectHandler):
+    """
+    A redirect could send a question on to another computer, so none is
+    followed: the program's answer is the one it gives at its own
+    address.
+    """
+
+    def redirect_request(self, *args, **kwargs):
+        return None
+
+
 def _is_local(url: str) -> bool:
     parts = urllib.parse.urlsplit(url)
 
@@ -187,9 +198,10 @@ class WorldView:
         self._running = False
         self._checked_at: Optional[float] = None
         # Other programs' proxy settings must not carry a local call
-        # off this machine.
+        # off this machine, and neither must a redirect.
         self._opener = urllib.request.build_opener(
-            urllib.request.ProxyHandler({})
+            urllib.request.ProxyHandler({}),
+            _NoRedirects(),
         )
 
     # Talking to the program.
@@ -198,9 +210,11 @@ class WorldView:
         request = urllib.request.Request(
             self.url + "/mcp",
             data=json.dumps(payload).encode("utf-8"),
+            # One JSON document is asked for and read; a stream of
+            # events is not, and would be reported as unreadable.
             headers={
                 "Content-Type": "application/json",
-                "Accept": "application/json, text/event-stream",
+                "Accept": "application/json",
             },
         )
 

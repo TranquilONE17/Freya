@@ -22,6 +22,9 @@ class FakeProgram:
         self.calls = []
         self.answers = {}
         self.errors = {}
+        self.accepts = []
+        self.redirect_to = None
+        self.raw_reply = None
         handler = self._handler()
         self.server = ThreadingHTTPServer(("127.0.0.1", 0), handler)
         self.url = f"http://127.0.0.1:{self.server.server_address[1]}"
@@ -37,6 +40,22 @@ class FakeProgram:
             def do_POST(self):
                 length = int(self.headers.get("Content-Length", 0))
                 asked = json.loads(self.rfile.read(length))
+                program.accepts.append(self.headers.get("Accept"))
+
+                if program.redirect_to:
+                    self.send_response(302)
+                    self.send_header("Location", program.redirect_to)
+                    self.send_header("Content-Length", "0")
+                    self.end_headers()
+                    return
+
+                if program.raw_reply is not None:
+                    self.send_response(200)
+                    self.send_header("Content-Type", "text/event-stream")
+                    self.send_header("Content-Length", str(len(program.raw_reply)))
+                    self.end_headers()
+                    self.wfile.write(program.raw_reply)
+                    return
 
                 if asked["method"] == "tools/list":
                     result = {"tools": [{"name": "get_earthquakes"}]}
@@ -196,6 +215,32 @@ def test_a_program_that_is_not_running_is_said_plainly(program, opened):
     program.stop()
 
     with pytest.raises(WorldViewError, match="not running"):
+        view.aircraft("Testville")
+
+
+def test_a_redirect_to_another_computer_is_not_followed(program, view):
+    elsewhere = FakeProgram()
+    elsewhere.answers["aircraft_in_area"] = ("From somewhere else.", {"rows": []})
+    program.redirect_to = elsewhere.url + "/mcp"
+
+    try:
+        with pytest.raises(WorldViewError, match="not running"):
+            view.aircraft("Testville")
+
+        assert elsewhere.calls == [] and elsewhere.accepts == []
+        assert WorldView(program.url).is_running() is False
+    finally:
+        elsewhere.stop()
+
+
+def test_one_json_answer_is_asked_for_and_a_stream_is_not_read(program, view):
+    view.aircraft("Testville")
+
+    assert program.accepts == ["application/json"]
+
+    program.raw_reply = b'event: message\ndata: {"jsonrpc":"2.0","id":1,"result":{}}\n\n'
+
+    with pytest.raises(WorldViewError, match="could not be read"):
         view.aircraft("Testville")
 
 
