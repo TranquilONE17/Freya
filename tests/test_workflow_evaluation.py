@@ -310,11 +310,9 @@ def test_the_ability_scenarios_use_a_made_up_record(tmp_path, monkeypatch, fake_
     told = result["tool_calls"][0]["result"]
 
     assert result["status"] == "passed"
-    assert told["you"]["measured"][0]["kinds"]["planning"] == {
-        "passed": 11, "attempts": 21, "good_enough_for": "none",
-    }
-    assert "claude-made-up" in told["where_work_should_go"]["planning"]["high"]
-    assert "this machine" in told["where_work_should_go"]["code-review"]["high"]
+    assert told["you"]["measured"][0]["kinds"]["planning"] == "11/21 none"
+    assert "claude-made-up" in told["where_work_should_go"]["planning"]
+    assert told["where_work_should_go"]["code-review"] == "any value: you (100%)"
     assert (tmp_path / "model_record.json").exists()
 
 

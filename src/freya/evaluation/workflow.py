@@ -184,7 +184,7 @@ def run_trial(scenario, folder, model, embedding_model, request_timeout, backgro
             ))
             # What she is told about her own ability comes from a
             # made-up record, never from the owner's.
-            from freya.delegation.abilities import MODEL_RECORD_DESCRIPTION, describe_abilities
+            from freya.delegation.abilities import MODEL_RECORD_DESCRIPTION, abilities_for_model
             from freya.delegation.record import ModelRecord
             from freya.evaluation.scenarios import RECORD_CLOUD_ROUTE, record_reports
 
@@ -195,7 +195,7 @@ def run_trial(scenario, folder, model, embedding_model, request_timeout, backgro
             registry.register(CapabilityDefinition(
                 name="model.record.read", provider=SYSTEM_TOOLS_PROVIDER,
                 description=MODEL_RECORD_DESCRIPTION,
-                handler=lambda: describe_abilities(
+                handler=lambda: abilities_for_model(
                     measured, model, [model], {RECORD_CLOUD_ROUTE: True},
                 ),
                 metadata={MODEL_TOOL: True},

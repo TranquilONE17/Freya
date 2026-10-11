@@ -318,7 +318,10 @@ def choose(
         raise ValueError(f"Unknown task value: {value!r}")
 
     bar = bars[value]
-    ordered = sorted(candidates, key=lambda c: (c.tier, c.cost, c.entry))
+    # Equal candidates keep the caller's order, which puts the model
+    # already loaded first: an arbitrary tie-break would advise loading
+    # another model for no measured reason.
+    ordered = sorted(candidates, key=lambda c: (c.tier, c.cost))
     qualified, unmeasured = [], []
 
     for candidate in ordered:
