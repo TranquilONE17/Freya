@@ -84,7 +84,9 @@ _SAID_NOT = re.compile(r"(?i)(?:\bnot|\bno|n't|\bnever|\bhardly)\s+(?:\w+\s+){0,
 # nothing. Only the opening of the message is read, and nothing
 # inside quotation marks or on a quoted line.
 TYPED_OPENING = 300
-_THIS = r"\b(?:this|it|that)(?:'s| is| one is| task is| request is)(?: \w+)?"
+# One word may come between ("this is really urgent"), but not "low":
+# "this is low priority" must not also read as "this is ... priority".
+_THIS = r"\b(?:this|it|that)(?:'s| is| one is| task is| request is)(?: (?!low\b)\w+)?"
 _AS = r"\b(?:make|treat|mark|handle|consider) (?:this|it|that)(?: as)?"
 _TYPED_URGENT = re.compile(
     r"(?im)" + _THIS + r" urgent\b"
@@ -99,6 +101,10 @@ _TYPED_HIGH = re.compile(
     + r"|\bprioriti[sz]e (?:this|it|that)\b"
     r"|\A\s*(?:high |top )?priority\b\s*[:,.!-]"
 )
+# "This is urgent and a priority" says both in one breath; the second
+# half counts only when the first was an instruction.
+_AND_PRIORITY = re.compile(r"(?i)\burgent\b,? (?:and|&) (?:also )?" + _PRIORITY.strip())
+_AND_URGENT = re.compile(r"(?i)\bpriority\b,? (?:and|&) (?:also )?urgent\b")
 _TYPED_LOW = re.compile(
     r"(?im)" + _THIS + r" (?:a )?low[- ]priority\b"
     r"|" + _AS + r" (?:a )?low[- ]priority\b"
@@ -130,9 +136,10 @@ def said_value(text, typed=False) -> Optional[Tuple[str, bool]]:
         urgent = _says(_TYPED_URGENT, text)
         high, low = _says(_TYPED_HIGH, text), _says(_TYPED_LOW, text)
 
-        if high and low:
-            # "This is a low priority" also reads as "a ... priority".
-            high = False
+        if urgent and not high:
+            high = _says(_AND_PRIORITY, text)
+        elif high and not urgent:
+            urgent = _says(_AND_URGENT, text)
     else:
         urgent = _says(_SAID_URGENT, text)
         high, low = _says(_SAID_HIGH, text), _says(_SAID_LOW, text)

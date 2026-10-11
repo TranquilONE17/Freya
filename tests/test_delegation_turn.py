@@ -1390,7 +1390,7 @@ def test_a_spoken_request_that_asks_for_nothing_is_offered_nothing(open_rig):
 @pytest.mark.parametrize("origin", ["window", "typed"])
 def test_the_same_words_typed_count_as_they_stand(open_rig, origin):
     seen = passed_on(open_rig)
-    open_rig.begin(request="This is urgent. Make it a priority. " + REQUEST, origin=origin)
+    open_rig.begin(request="This is urgent and a priority. " + REQUEST, origin=origin)
     open_rig.delegate()
 
     assert seen == [("high", True)]
@@ -1486,6 +1486,12 @@ def test_her_suggestion_alone_sends_nothing_and_is_not_shown_unasked(open_rig):
     ("Make this a priority, it is urgent", ("high", True)),
     ("This is low priority", ("low", False)),
     ("This is a low priority", ("low", False)),
+    ("This is urgent and a priority. Check the sums.", ("high", True)),
+    ("This is a top priority and urgent", ("high", True)),
+    ("This is urgent. Make it a priority.", ("high", True)),
+    # Two instructions that disagree say neither.
+    ("This is high priority. This is low priority.", None),
+    ("How urgent and a priority is this, really?", None),
     # Mentions, not instructions about this task.
     ("Explain what a priority queue is.", None),
     ("Summarize this email: URGENT: renew your subscription.", None),
