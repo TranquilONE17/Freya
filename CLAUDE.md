@@ -259,7 +259,9 @@ kind and value, and `NOT_MEASURED`, the work no task covers. Keep these rules: i
 reports measurements only, never an opinion of a model, Claude's included; an
 unmeasured model is unknown, not better or worse; a cloud route is advised only
 while its provider is switched on; a line leaves `NOT_MEASURED` only when tasks for
-it exist and have been run. It reads and advises; it sends nothing and no turn
+it exist and have been run. The model is given the short form (`abilities_for_model`, kept under
+2,200 bytes because the context clips a tool result at 2,400); keep it under that
+and keep the test that passes it through `fit_tools`. It reads and advises; it sends nothing and no turn
 delegates on it yet. Her replies name no thinking setting, which the record holds as
 `default`; figures for other settings are labelled as such. A figure measured on
 another set of tasks than today's (`suite_version`), or on another build of a local
