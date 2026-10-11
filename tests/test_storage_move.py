@@ -197,6 +197,55 @@ def test_it_can_be_switched_off_and_never_raises(closing, monkeypatch):
     assert back_up_on_close(folder, NOW, {}) is None
 
 
+def test_a_failed_backup_is_told_at_the_next_start(closing, monkeypatch):
+    from freya.storage.backup import startup_warning
+
+    folder, environ, target = closing
+    assert startup_warning(folder, NOW, environ) == []      # nothing noted yet
+
+    def broken(*args, **kwargs):
+        raise OSError("the drive went away")
+
+    monkeypatch.setattr(backup, "back_up", broken)
+    assert back_up_on_close(folder, NOW, environ) is None
+
+    warning = startup_warning(folder, NOW, environ)
+    assert len(warning) == 1
+    assert "did not work" in warning[0] and "the drive went away" in warning[0]
+
+
+def test_a_good_backup_is_silent_until_it_is_old(closing):
+    from freya.storage.backup import startup_warning
+
+    folder, environ, target = closing
+    back_up_on_close(folder, NOW, environ)
+
+    assert startup_warning(folder, NOW + timedelta(days=1), environ) == []
+    old = startup_warning(folder, NOW + timedelta(days=5), environ)
+    assert len(old) == 1 and "5 days old" in old[0]
+
+
+def test_no_second_drive_is_noted_and_switched_off_is_silent(closing, monkeypatch):
+    from freya.storage.backup import startup_warning
+
+    folder, environ, target = closing
+    monkeypatch.setattr(backup, "default_target", lambda data_dir: None)
+
+    back_up_on_close(folder, NOW, {})
+
+    assert "no second drive" in startup_warning(folder, NOW, {})[0]
+    assert startup_warning(folder, NOW, {"FREYA_BACKUP": "0"}) == []
+
+
+def test_a_damaged_note_is_no_warning(closing):
+    from freya.storage.backup import startup_warning
+
+    folder, environ, target = closing
+    (folder / "backup_status.json").write_text("not json", "utf-8")
+
+    assert startup_warning(folder, NOW, environ) == []
+
+
 def test_folders_that_are_not_backups_are_ignored(closing):
     folder, environ, target = closing
     (target / "notes").mkdir(parents=True)

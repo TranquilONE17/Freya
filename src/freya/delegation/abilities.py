@@ -474,3 +474,195 @@ def describe_abilities(
         report["where_work_should_go"][kind] = advice
 
     return report
+
+
+# What the model itself is given. A tool result longer than the
+# context's clip (2,400 bytes, `ContextAuthority.fit_tools`) reaches
+# the model as a broken excerpt, and the full description above is
+# over 4,000 bytes even with nothing recorded. This says the same
+# things in fewer words and is always under the limit; when something
+# has to be left out to stay there, it says what.
+MODEL_ANSWER_BYTES = 2_200
+
+EVIDENCE_SHORT = (
+    "Each figure is passes/attempts, then the highest value of work "
+    "that is good enough for (none: not good enough for any). Short "
+    "synthetic tasks, graded automatically, one brief, no tools: they "
+    "rank models and do not prove a pass rate. Unmeasured (under 15 "
+    "attempts) means unknown, not bad and not good. Nothing here is a "
+    "model's own claim."
+)
+NOT_MEASURED_SHORT = (
+    "writing or changing code; documents of real length; large bodies "
+    "of code; images; work of many steps or many tool calls"
+)
+NOBODY = "no measured model is good enough; ask the user before trying an unmeasured one"
+
+
+def _size(value) -> int:
+    return len(json.dumps(value, default=str).encode("utf-8"))
+
+
+def _short_kinds(kinds: dict) -> dict:
+    short = {}
+
+    for kind, figures in kinds.items():
+        standing = figures["good_enough_for"]
+
+        if figures.get("does_not_count"):
+            standing = "does not count: " + figures["does_not_count"]
+
+        short[kind] = f"{figures['passed']}/{figures['attempts']} {standing}"
+
+    return short
+
+
+def _short_entry(entry: dict, own_model: Optional[str] = None) -> dict:
+    what = entry["what"]
+
+    if own_model is not None:
+        # Her own entries differ only in how thinking was set.
+        what = what.split(", ")[-1] if ", thinking " in what else "as run"
+
+    short = {"what": what}
+
+    if entry.get("measured_on") and entry["kinds"]:
+        short["measured_on"] = entry["measured_on"]
+
+    if "switched_on" in entry:
+        short["switched_on"] = entry["switched_on"]
+
+    if entry["kinds"]:
+        short["kinds"] = _short_kinds(entry["kinds"])
+
+    if entry.get("note"):
+        short["note"] = entry["note"]
+
+    return short
+
+
+def _destination(choice: Choice, record, model: str) -> str:
+    if choice.entry is None:
+        return NOBODY
+
+    about = record.about(choice.entry)
+    who = _whose(choice, record)
+
+    if about is None:
+        # A candidate with no figures at all.
+        route, named, _ = json.loads(choice.entry)
+        about = {"route": route, "model": named, "settings": {}}
+
+    if about["route"] == LOCAL_ROUTE and about["model"] == model:
+        think = about["settings"].get("think")
+        who = "you" if think in (None, REPLY_THINKING) else f"you, thinking {think}"
+
+    if choice.pass_rate is None:
+        return f"{who} (unmeasured on it)"
+
+    return f"{who} ({_percent(choice.pass_rate)})"
+
+
+def _short_routing(record, model, local_models, open_routes, bars, kinds) -> dict:
+    """Kinds that get the same advice share a line, and so do values."""
+    lines: Dict[str, List[str]] = {}
+
+    for kind in kinds:
+        runs: List[list] = []
+
+        for value in VALUES:
+            where = _destination(
+                advise(record, kind, value, local_models, open_routes, bars),
+                record,
+                model,
+            )
+
+            if runs and runs[-1][1] == where:
+                runs[-1][0].append(value)
+            else:
+                runs.append([[value], where])
+
+        if len(runs) == 1:
+            line = "any value: " + runs[0][1]
+        else:
+            line = "; ".join(f"{', '.join(values)}: {where}" for values, where in runs)
+
+        lines.setdefault(line, []).append(kind)
+
+    return {", ".join(same): line for line, same in lines.items()}
+
+
+def abilities_for_model(
+    record: ModelRecord,
+    model: str,
+    local_models: Sequence[str],
+    cloud_routes: Optional[Dict[str, bool]] = None,
+    bars=None,
+    context_tokens: Optional[int] = None,
+    kinds: Sequence[str] = KINDS,
+    suite: Optional[str] = None,
+    identities: Optional[Dict[str, str]] = None,
+    can_delegate: bool = False,
+    limit: int = MODEL_ANSWER_BYTES,
+) -> dict:
+    """
+    `describe_abilities` as the model is given it: the same figures
+    and advice, short enough to pass the context's clip whole.
+    """
+    full = describe_abilities(
+        record, model, local_models, cloud_routes, bars, context_tokens,
+        kinds, suite, identities, can_delegate,
+    )
+    current = CurrentFigures(record, suite, identities)
+    bars = validate_bars(DEFAULT_BARS if bars is None else bars)
+    everyone = list(dict.fromkeys([model, *local_models]))
+    open_routes = [route for route, on in (cloud_routes or {}).items() if on]
+
+    you = {
+        "model": model,
+        "measured": [_short_entry(entry, model) for entry in full["you"]["measured"]],
+    }
+
+    for key in ("context_tokens", "note"):
+        if key in full["you"]:
+            you[key] = full["you"][key]
+
+    answer = {
+        "how_to_read": EVIDENCE_SHORT,
+        "pass_rate_needed": ", ".join(
+            f"{value} {share}" for value, share in full["pass_rate_needed"].items()
+        ),
+        "you": you,
+        "other_models": [_short_entry(entry) for entry in full["other_models"]],
+        "sending_work": full["sending_work"],
+        "where_work_should_go": _short_routing(
+            current, model, everyone, open_routes, bars, kinds,
+        ),
+        "never_measured_for_any_model": NOT_MEASURED_SHORT,
+    }
+
+    # Keep it under the limit, saying what was left out. The advice on
+    # where work should go still names a model whose figures were.
+    left_out = 0
+
+    while _size(answer) > limit and answer["other_models"]:
+        answer["other_models"].pop()
+        left_out += 1
+        answer["left_out"] = (
+            f"The figures of {left_out} other model(s) did not fit here. "
+            "Say so if asked about one of them."
+        )
+
+    while _size(answer) > limit and len(you["measured"]) > 1:
+        you["measured"].pop()
+        answer["left_out_of_you"] = (
+            "Figures for some of your other thinking settings did not fit here."
+        )
+
+    while _size(answer) > limit and len(answer["where_work_should_go"]) > 1:
+        answer["where_work_should_go"].popitem()
+        answer["advice_left_out"] = (
+            "Advice for some kinds of task did not fit here. Say so if asked about one."
+        )
+
+    return answer

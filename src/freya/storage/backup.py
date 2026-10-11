@@ -227,25 +227,53 @@ def latest(target_root) -> Optional[datetime]:
     return newest
 
 
+STATUS_NAME = "backup_status.json"
+# A newest backup older than this is worth telling the owner about.
+STALE_DAYS = 3
+
+
+def _note(data_dir, moment, ok, reason="", target=None) -> None:
+    """Remember how the last attempt went, for the next start to read."""
+    try:
+        path = Path(data_dir) / STATUS_NAME
+        temporary = path.with_suffix(".tmp")
+        temporary.write_text(
+            json.dumps({
+                "at": moment.strftime(STAMP_FORMAT),
+                "ok": bool(ok),
+                "reason": str(reason)[:300],
+                "target": str(target) if target is not None else None,
+            }, indent=2),
+            encoding="utf-8",
+        )
+        os.replace(temporary, path)
+    except OSError:
+        pass
+
+
 def back_up_on_close(data_dir=DATA_DIR, now: Optional[datetime] = None, environ=None):
     """
     The backup Freya makes as she closes. Returns the new folder, or
     None when none was made, which is never an error: closing must
-    not fail or wait because a backup could not be made.
+    not fail or wait because a backup could not be made. How it went
+    is noted, so that the next start can tell the owner of a failure.
     """
     environ = os.environ if environ is None else environ
 
     if environ.get(AUTOMATIC_VARIABLE) == "0":
         return None
 
+    moment = now or datetime.now()
+    target = None
+
     try:
         named = environ.get(TARGET_VARIABLE)
         target = Path(named) if named else default_target(data_dir)
 
         if target is None:
+            _note(data_dir, moment, False, "There is no second drive to keep a backup on.")
             return None
 
-        moment = now or datetime.now()
         newest = latest(target)
 
         if newest is not None and (moment - newest).total_seconds() < (
@@ -253,9 +281,51 @@ def back_up_on_close(data_dir=DATA_DIR, now: Optional[datetime] = None, environ=
         ):
             return None
 
-        return back_up(data_dir, target, moment)
-    except Exception:
+        folder = back_up(data_dir, target, moment)
+        _note(data_dir, moment, True, target=target)
+        return folder
+    except Exception as failure:
+        _note(data_dir, moment, False, failure, target)
         return None
+
+
+def startup_warning(data_dir=DATA_DIR, now: Optional[datetime] = None, environ=None) -> List[str]:
+    """
+    What the owner should be told about backups as Freya starts: the
+    last one failed, or the newest is old. It reads only the note the
+    last attempt left; it starts no program and touches no drive.
+    """
+    environ = os.environ if environ is None else environ
+
+    if environ.get(AUTOMATIC_VARIABLE) == "0":
+        return []
+
+    try:
+        status = json.loads(
+            (Path(data_dir) / STATUS_NAME).read_text(encoding="utf-8")
+        )
+        made = datetime.strptime(status["at"], STAMP_FORMAT)
+    except (OSError, ValueError, KeyError, TypeError):
+        # No attempt has been noted yet; the first close will make one.
+        return []
+
+    if status.get("ok") is not True:
+        reason = str(status.get("reason") or "no reason was recorded")[:300]
+        return [
+            "The backup Freya tried to make when she last closed did not "
+            f"work: {reason} Your databases have no recent copy on another "
+            "drive until one succeeds."
+        ]
+
+    age = (now or datetime.now()) - made
+
+    if age.days >= STALE_DAYS:
+        return [
+            f"The newest backup of Freya's databases is {age.days} days old. "
+            "One is made each time she closes."
+        ]
+
+    return []
 
 
 def check(folder) -> List[str]:

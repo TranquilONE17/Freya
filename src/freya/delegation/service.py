@@ -12,6 +12,7 @@ from freya.core.providers import ProviderDefinition
 from freya.core.usage import SCOPE_PERIOD, USAGE_MIGRATIONS, UsageLedger
 from freya.delegation.abilities import (
     MODEL_RECORD_DESCRIPTION,
+    abilities_for_model,
     describe_abilities,
     delegation_notes,
 )
@@ -228,7 +229,7 @@ class CloudDelegation:
             identities=self.local_identities(),
         )
 
-    def abilities(self) -> dict:
+    def abilities(self, describe=describe_abilities) -> dict:
         """
         What has been measured about Freya's own model and the models
         she could hand work to, read fresh from the record. A cloud
@@ -237,7 +238,7 @@ class CloudDelegation:
         """
         self.record.refresh()
 
-        return describe_abilities(
+        return describe(
             self.record,
             self.local_models[0],
             self.local_models,
@@ -251,6 +252,10 @@ class CloudDelegation:
             identities=self.local_identities(),
             can_delegate=self.can_delegate(),
         )
+
+    def abilities_for_model(self) -> dict:
+        """The same, as the model is given it: short enough to arrive whole."""
+        return self.abilities(abilities_for_model)
 
     def can_delegate(self) -> bool:
         """Whether a turn could hand work over right now."""
@@ -410,7 +415,7 @@ def build_cloud_delegation(
             name=MODEL_RECORD_READ,
             description=MODEL_RECORD_DESCRIPTION,
             provider=MODEL_RECORD_PROVIDER,
-            handler=cloud.abilities,
+            handler=cloud.abilities_for_model,
             category="model",
             metadata={MODEL_TOOL: True},
         )

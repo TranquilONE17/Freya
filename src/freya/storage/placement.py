@@ -42,6 +42,7 @@ DATA_KINDS = (
     DataKind("freya_usage.db", FAST, "What each model route has used"),
     DataKind("freya_settings.json", FAST, "Names Freya answers to and her volume", True),
     DataKind("storage_locations.json", FAST, "Where bulk data is kept"),
+    DataKind("backup_status.json", FAST, "How the last backup attempt went"),
     DataKind("cloud_settings.json", FAST, "The owner's cloud choices"),
     DataKind("screening_corrections.json", FAST, "The not-private and always-private lists", True),
     DataKind("sent_briefs.jsonl", FAST, "The record of what was sent to cloud models", True),

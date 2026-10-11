@@ -72,6 +72,27 @@ at all and the question was dropped from the conversation. A fix on its own bran
 to allow her more output is the owner's choice: every token reserved for output is
 one fewer for the conversation in a 16,384-token window.
 
+### Measured on 2026-10-11: a middle limit buys almost nothing
+
+The same 153 attempts were run at two limits in between, in a 20,480-token window so
+that the conversation kept its room (about 21.4 GB of video memory, against about 19):
+
+| Output allowed | Passed | Empty replies | Reasoning | Code review | Planning | Analysis |
+|---|---|---|---|---|---|---|
+| 2,048 tokens | 139 of 153 | 13 | 38/39 | 30/33 | 23/33 | 48/48 |
+| 3,072 tokens | 142 of 153 | 11 | 39/39 | 30/33 | 25/33 | 48/48 |
+| 4,096 tokens | 142 of 153 | 11 | 39/39 | 30/33 | 25/33 | 48/48 |
+| 8,192 tokens | 147 of 153 | 4 | 39/39 | 30/33 | 30/33 | 48/48 |
+
+Doubling the limit recovers three attempts. The empty replies are the same four or
+five tasks every time (the counter without a lock, and the planning tasks that ask
+for a best possible plan), and on those the model thinks until whatever limit it is
+given runs out; the slowest took 53 seconds to return nothing. So the limit stays at
+2,048 and the window at 16,384. Work of that kind is what handing over to a stronger
+model is for, and an empty reply is already reported to the owner as one. One run at
+each limit: differences of two or three attempts are within what a second run would
+move.
+
 ## The conversation suite, with four scenarios about her own ability
 
 The suite gained four scenarios that give Freya a made-up model record: asked how she

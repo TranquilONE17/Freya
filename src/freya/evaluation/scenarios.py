@@ -45,8 +45,8 @@ UNMEASURED = (
     r"(?i)(unmeasured|not (?:been |yet )?(?:measured|tested|graded|evaluated)"
     r"|never (?:been )?(?:measured|tested|graded|evaluated)"
     r"|(?:hasn't|haven't|isn't|wasn't|aren't) (?:been )?(?:measured|tested|graded|evaluated)"
-    r"|no (?:measurement|figure|data|evidence|record|result)s?"
-    r"|(?:nobody|no one|neither) (?:of us )?(?:has |have )?(?:been )?(?:measured|tested|graded)"
+    r"|no (?:real |actual |reliable |hard )?(?:measurement|figure|data|evidence|record|result)s?"
+    r"|(?:nobody|no one|neither) (?:of us )?(?:has |have )?(?:actually |ever |yet )?(?:been )?(?:measured|tested|graded)"
     r"|unknown)"
 )
 

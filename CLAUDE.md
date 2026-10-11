@@ -150,9 +150,9 @@ comparing and ranking memories, summaries, media summaries). Both use `MODEL` un
 `FREYA_BACKGROUND_MODEL` names another installed Ollama model. Only then are
 `llm.background.chat` and `llm.background.chat_stream` registered and allowed (policy
 seed `alpha-model-background`), so each model's use is separately audited, and both
-models are checked for health and warmed. There is no cloud route yet: sending anything
-to an outside model is escalation under ESC-001 to ESC-006 and needs its own provider,
-a deny-by-default capability, and an owner decision first.
+models are checked for health and warmed. Cloud routes are separate: sending anything
+to an outside model is escalation under ESC-001 to ESC-006 and goes only through the
+dispatcher described below.
 
 Usage ledger: `freya.core.usage.UsageLedger` records what each route (one way of
 reaching one model) has used and decides whether more fits: go, ask the owner, wait
@@ -160,7 +160,7 @@ for a reset, or refuse. Limits are per call, per task, or per period; a period l
 than a day is paced across the days left, counted back from the provider's reset. A
 route with no limit recorded is refused, and a zero cap cannot be overridden. It lives
 in its own database, `data/freya_usage.db`, through `ControlStore(path,
-USAGE_MIGRATIONS)`. Nothing calls it yet; the design it serves is
+USAGE_MIGRATIONS)`. The dispatcher reserves and settles against it; the design it serves is
 `docs/design/cloud-delegation.md`, a proposal that is not adopted.
 
 Cloud material settings: `freya.delegation` holds the owner's choices about cloud
@@ -170,7 +170,7 @@ on (all off to start) and, for each kind of material, allowed, ask first, or nev
 provider would receive without showing the text. Keep these properties: a damaged
 file means the strict defaults; a part of unknown kind never leaves; an approval
 cannot release a kind set to never; nothing is sendable to a provider that is off.
-Nothing sends a brief yet.
+Briefs are sent only by the dispatcher, below.
 
 Composing and sending briefs: the main model, which sees memories, never writes a
 cloud brief. It returns a plan in a fixed form (`compose.parse_plan`: a kind and value
@@ -207,13 +207,18 @@ Delegation inside a turn: `delegation/turn.py` (`TurnDelegation`, built by
 `alpha-work-delegate`, which lets the model *ask*; it allows no cloud call). Arguments are
 a `kind` (at most 20 characters, from the fixed list) and `inputs` (at most 400, ids
 separated by commas, may be empty); there is no prose field. Freya's code offers the ids
-before the model is called: `request`, `turn-1` to `turn-3` (the last exchanges) and
+before the model is called: `request`, `turn-1` to `turn-3` (what the owner said in the last exchanges, never
+Freya's replies, which can restate memories) and
 `tool-N` (the Nth tool result of the turn, only from tools that read this PC). Memories,
 summaries, recalled passages and media are never offered, whatever the settings say; do
 not add a source without deciding that first. The tool is offered only while a turn is
 under way, a provider is switched on and a window is connected. One delegation a turn;
 `Dispatcher.authorize` gets value `normal` and urgent `False`, never the model's. The
-answer is an untrusted tool result cut to 8,000 characters. Every question to the owner
+answer is an untrusted tool result kept under 2,000 bytes so it survives the context's
+clip as valid JSON (`"shortened": true` when cut); the owner sees the whole answer in a
+card published by the dispatcher's `on_reply`, labelled from the route and never from the
+answer's text. What the model record says about the kind of work is added to the prompts
+and the result (`abilities.delegation_notes`); it informs and never refuses. Every question to the owner
 (approval for ask-first material, confirmation for a spoken turn, screening hold, usage
 limit) goes through `gateway/prompts.py` (`OwnerPrompts`), never the event bus, whose
 history is replayed to new windows; a question is shown only to windows connected at the
@@ -230,8 +235,8 @@ owner's "not private" and "always private" phrases and memories. Keep these rule
 always-private wins over not-private; a not-private entry clears one phrase or one
 memory, never a kind; a damaged file means no corrections; entries are made only by
 the owner. It is a filter, not a guarantee, and a test records a paraphrase that
-passes so nobody claims otherwise. Tests use made-up memories only. Nothing calls it
-yet.
+passes so nobody claims otherwise. Tests use made-up memories only. The dispatcher
+screens every brief when it is authorized and again when it is sent.
 
 Model record: `freya.delegation.record.ModelRecord` keeps, in
 `data/model_record.json`, what evaluation reports measured for each entry (a route, a
@@ -254,7 +259,9 @@ kind and value, and `NOT_MEASURED`, the work no task covers. Keep these rules: i
 reports measurements only, never an opinion of a model, Claude's included; an
 unmeasured model is unknown, not better or worse; a cloud route is advised only
 while its provider is switched on; a line leaves `NOT_MEASURED` only when tasks for
-it exist and have been run. It reads and advises; it sends nothing and no turn
+it exist and have been run. The model is given the short form (`abilities_for_model`, kept under
+2,200 bytes because the context clips a tool result at 2,400); keep it under that
+and keep the test that passes it through `fit_tools`. It reads and advises; it sends nothing and no turn
 delegates on it yet. Her replies name no thinking setting, which the record holds as
 `default`; figures for other settings are labelled as such. A figure measured on
 another set of tasks than today's (`suite_version`), or on another build of a local

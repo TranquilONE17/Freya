@@ -11,8 +11,12 @@ from freya.delegation.abilities import (
     NOT_MEASURED,
     advise,
     candidates,
+    MODEL_ANSWER_BYTES,
+    abilities_for_model,
     describe_abilities,
 )
+from freya.delegation.compose import TASK_KINDS
+from freya.kernel.context.authority import ContextAuthority
 from freya.delegation.record import MEASURED, UNMEASURED, ModelRecord, entry_id
 from freya.delegation.service import (
     MODEL_RECORD_READ,
@@ -231,7 +235,93 @@ def test_figures_added_while_she_runs_are_seen_at_the_next_reading(freya):
 
     measured = json.loads(plane.model_tools.run("model_record_read"))["you"]["measured"]
 
-    assert measured[0]["kinds"]["extraction"]["passed"] == 20
+    assert measured[0]["kinds"]["extraction"].startswith("20/20 ")
+
+
+def through_the_context(answer):
+    """What the model receives of a tool result, as Freya's context passes it."""
+    fitted = ContextAuthority().fit_tools([
+        {"role": "user", "content": "How good are you?"},
+        {"role": "tool", "content": json.dumps(answer, default=str)},
+    ])
+
+    return json.loads(fitted[-1]["content"])
+
+
+def test_what_the_model_is_given_arrives_whole_even_with_nothing_recorded(freya):
+    plane, cloud, _ = freya
+    raw = plane.model_tools.run("model_record_read")
+    received = through_the_context(json.loads(raw))
+
+    assert len(raw.encode("utf-8")) <= MODEL_ANSWER_BYTES
+    assert "excerpt" not in received
+    assert received["_context"]["truncated"] is False
+    assert "unknown" in received["you"]["note"]
+    assert received["never_measured_for_any_model"].startswith("writing or changing code")
+    assert "cannot send work" in received["sending_work"]
+
+
+def test_what_the_model_is_given_says_what_the_full_account_says(record):
+    record.add_report(report(OWN, 20))
+    record.add_report(report(OWN, 10, kind="planning"))
+    record.add_report(report("", 20, kind="planning", route=CLOUD))
+    arguments = (record, OWN, [OWN], {CLOUD: True})
+    full = describe_abilities(*arguments, kinds=["extraction", "planning"])
+    short = abilities_for_model(*arguments, kinds=["extraction", "planning"])
+
+    assert short["you"]["measured"][0]["kinds"] == {
+        "extraction": "20/20 high", "planning": "10/20 none",
+    }
+    assert short["other_models"][0]["kinds"] == {"planning": "20/20 high"}
+    assert short["other_models"][0]["switched_on"] is True
+    assert short["where_work_should_go"] == {
+        "extraction": "any value: you, thinking off (100%)",
+        "planning": "any value: anthropic-plan, the route's own model (100%)",
+    }
+    assert full["where_work_should_go"]["planning"]["high"].startswith("anthropic-plan")
+    assert short["sending_work"] == full["sending_work"]
+
+
+def test_a_figure_that_does_not_count_is_marked_so_for_the_model(record):
+    stale = report(OWN, 20)
+    stale["suite"] = "an-older-set"
+    record.add_report(stale)
+
+    short = abilities_for_model(record, OWN, [OWN], suite="todays-set", kinds=["extraction"])
+
+    assert OTHER_TASKS in short["you"]["measured"][0]["kinds"]["extraction"]
+    assert "unmeasured" in short["where_work_should_go"]["extraction"]
+
+
+def test_an_unmeasured_kind_is_advised_to_the_model_already_loaded(record):
+    # Nothing separates two unmeasured local models, so nothing is a
+    # reason to load the other one.
+    short = abilities_for_model(record, "zz-own", ["zz-own", "aa-other"], kinds=["planning"])
+
+    assert short["where_work_should_go"]["planning"].startswith(
+        "low, normal: you (unmeasured on it); high: no measured model"
+    )
+
+
+def test_a_large_record_still_arrives_whole_and_says_what_was_left_out(record):
+    others = [f"made-up-model-{number}:70b" for number in range(12)]
+
+    for kind in TASK_KINDS:
+        record.add_report(report(OWN, 15, kind=kind, think="default"))
+        record.add_report(report(OWN, 19, kind=kind, think="high"))
+
+        for number, other in enumerate(others):
+            record.add_report(report(other, 20 - number % 5, kind=kind))
+
+    short = abilities_for_model(record, OWN, [OWN, *others], {CLOUD: True, "another-plan": False})
+    received = through_the_context(short)
+
+    assert len(json.dumps(short).encode("utf-8")) <= MODEL_ANSWER_BYTES
+    assert "excerpt" not in received
+    assert "did not fit" in received["left_out"]
+    assert received["you"]["measured"]
+    assert received["where_work_should_go"]
+    assert received["never_measured_for_any_model"]
 
 
 def test_reading_the_record_is_refused_once_its_rule_is_removed(freya):
