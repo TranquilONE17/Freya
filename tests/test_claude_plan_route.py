@@ -341,13 +341,15 @@ def test_another_error_is_not_a_limit_notice(fake):
 @pytest.mark.parametrize("said, weekly, expected", [
     ("Claude AI usage limit reached|1791720000", False, "epoch"),
     ("5-hour limit reached - resets 3pm", False, (10, 15, 0)),
-    ("You've hit your session limit, resets 3:45pm (Europe/London)", False, (10, 15, 45)),
+    ("You've hit your session limit, resets 3:45pm", False, (10, 15, 45)),
     ("You have reached your limit. Resets at 9am.", False, (11, 9, 0)),
     ("Weekly limit reached - resets Oct 14, 9am", True, (14, 9, 0)),
     ("Weekly limit reached - resets Oct 14 at 9:30 a.m.", True, (14, 9, 30)),
     # Recognised, but with no time that can be read.
     ("Usage limit reached. Try again later.", False, None),
     ("Weekly limit reached - resets soon", True, None),
+    # A zone that cannot be looked up: the time is not guessed at.
+    ("5-hour limit reached - resets 3pm (Mars/Olympus)", False, None),
     # A time too far off to be a plan's reset was misread.
     ("Limit reached - resets Mar 3, 9am", False, None),
 ])
@@ -370,6 +372,20 @@ def test_reset_times_are_read_from_the_forms_seen_so_far(said, weekly, expected)
         local = notice.resets_at.astimezone()
         assert (local.day, local.hour, local.minute) == expected
         assert local > now
+
+
+def test_a_reset_time_is_read_in_the_zone_the_notice_names():
+    from datetime import datetime, timezone
+
+    from freya.providers.model.claude_plan import read_limit_notice
+
+    now = datetime(2026, 10, 10, 12, 0, tzinfo=timezone.utc)
+    tokyo = read_limit_notice("5-hour limit reached - resets 11pm (Asia/Tokyo)", now)
+    utc = read_limit_notice("Weekly limit reached - resets Oct 14, 9am (UTC)", now)
+
+    # 11pm in Tokyo is 14:00 UTC the same day.
+    assert tokyo.resets_at == datetime(2026, 10, 10, 14, 0, tzinfo=timezone.utc)
+    assert utc.resets_at == datetime(2026, 10, 14, 9, 0, tzinfo=timezone.utc)
 
 
 @pytest.mark.parametrize("said", [

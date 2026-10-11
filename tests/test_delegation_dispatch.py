@@ -429,6 +429,29 @@ def test_an_authorization_works_once(h):
     assert len(h.asked) == 1
 
 
+def test_a_provider_hold_stops_a_brief_at_both_checks(h):
+    # Two briefs are authorized; then the provider says its limit is
+    # reached. The second must not go, and its usage is given back.
+    waiting = {}
+    h.dispatcher._held = lambda provider: waiting.get(provider)
+    brief = h.compose()
+    first = h.dispatcher.authorize(brief, ROUTE, "task-1", now=NOW)
+    second = h.dispatcher.authorize(brief, ROUTE, "task-2", now=NOW)
+    h.dispatcher.send(first, brief.text)
+    used = h.used()
+    waiting[VENDOR] = "The plan's limit is reached."
+
+    with pytest.raises(DispatchRefused) as refused:
+        h.dispatcher.send(second, brief.text)
+
+    assert refused.value.reason == "The plan's limit is reached."
+    assert len(h.asked) == 1
+    assert h.used() < used
+
+    with pytest.raises(DispatchRefused):
+        h.dispatcher.authorize(brief, ROUTE, "task-3", now=NOW)
+
+
 def test_a_made_up_authorization_is_refused(h):
     brief = h.compose()
     real = h.dispatcher.authorize(brief, ROUTE, "task-1", now=NOW)

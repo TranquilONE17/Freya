@@ -8,6 +8,7 @@ from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Dict, List, Optional, Sequence
+from zoneinfo import ZoneInfo
 
 from freya.core.capabilities import CapabilityDefinition
 from freya.core.providers import ProviderDefinition
@@ -111,6 +112,8 @@ _RESET_TIME = re.compile(
     r"(?:(" + "|".join(_MONTHS) + r")[a-z]*\.?\s+(\d{1,2})(?:,|\s+at)?\s*)?"
     r"(\d{1,2})(?::(\d{2}))?\s*([ap])\.?m\b"
 )
+# A time zone the notice names after the time, as "(Europe/London)".
+_RESET_ZONE = re.compile(r"^\s*\(\s*([A-Za-z_]+(?:/[A-Za-z0-9_+\-]+)*)\s*\)")
 # A reset further off than this is not a plan's, so it was misread.
 _FURTHEST_RESET = timedelta(days=8)
 
@@ -118,8 +121,10 @@ _FURTHEST_RESET = timedelta(days=8)
 def read_limit_notice(text, now: Optional[datetime] = None) -> Optional[LimitNotice]:
     """
     Whether the vendor's error text says a usage limit is reached,
-    and when it says the limit resets. Times are read as this
-    machine's local time, which is how the program prints them.
+    and when it says the limit resets. A time is read in the zone
+    the notice names after it, or as this machine's local time when
+    it names none. A zone it names that cannot be looked up makes the
+    time unreadable: guessing would hold the provider to a wrong hour.
     """
     if not isinstance(text, str) or not _LIMIT_WORDS.search(text[:2000]):
         return None
@@ -136,6 +141,12 @@ def read_limit_notice(text, now: Optional[datetime] = None) -> Optional[LimitNot
             resets_at = datetime.fromtimestamp(int(epoch.group(1)), timezone.utc)
         elif stated:
             month, day, hour, minute, half = stated.groups()
+            zone = _RESET_ZONE.search(text[stated.end():])
+
+            if zone:
+                # An unknown name raises, and the time is then unread.
+                now = now.astimezone(ZoneInfo(zone.group(1)))
+
             hour = int(hour) % 12 + (12 if half.lower() == "p" else 0)
             moment = now.replace(
                 hour=hour, minute=int(minute or 0), second=0, microsecond=0,
@@ -151,7 +162,7 @@ def read_limit_notice(text, now: Optional[datetime] = None) -> Optional[LimitNot
                 moment += timedelta(days=1)
 
             resets_at = moment
-    except (ValueError, OverflowError, OSError):
+    except (ValueError, OverflowError, OSError, KeyError):
         resets_at = None
 
     if resets_at is not None and not now < resets_at <= now + _FURTHEST_RESET:

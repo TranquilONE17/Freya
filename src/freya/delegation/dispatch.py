@@ -373,6 +373,13 @@ class Dispatcher:
         except DispatchRefused as held:
             raise refuse(held.reason, screening=held.screening)
 
+        # A provider may have said its limit is reached since this
+        # brief was authorized, when another brief was sent.
+        waiting = self._held(route.provider) if self._held is not None else None
+
+        if waiting:
+            raise refuse(waiting)
+
         with self._lock:
             # The last look at the owner's settings and the mark that
             # this text is going are made together.
