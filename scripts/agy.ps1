@@ -79,15 +79,24 @@ foreach ($pair in @(@('--model', $Model), @('--effort', $Effort))) {
     }
 }
 
+# The state of the checkout: git's status, and the contents (by hash) of every file
+# that differs from the last commit, so a second edit to such a file shows too.
 function Get-Changes {
-    $lines = & git -C $folder status --porcelain --untracked-files=all 2>$null
+    $lines = @(& git -C $folder status --porcelain --untracked-files=all 2>$null)
     if ($LASTEXITCODE -ne 0) { return $null }
-    return @($lines) -join "`n"
+    $paths = @(& git -C $folder -c core.quotepath=off ls-files --modified --others --exclude-standard 2>$null)
+    foreach ($path in ($paths | Sort-Object -Unique)) {
+        $full = Join-Path $folder $path
+        if (Test-Path -LiteralPath $full -PathType Leaf) {
+            $lines += "$((Get-FileHash -LiteralPath $full -Algorithm SHA256).Hash) $path"
+        }
+    }
+    return $lines -join "`n"
 }
-$before = Get-Changes
+$before = if ($Edit) { $null } else { Get-Changes }
 
 $utf8 = New-Object System.Text.UTF8Encoding $false
-$start =New-Object System.Diagnostics.ProcessStartInfo
+$start = New-Object System.Diagnostics.ProcessStartInfo
 $start.FileName = $agy
 $start.Arguments = $arguments
 $start.WorkingDirectory = $folder
@@ -126,23 +135,29 @@ foreach ($line in $stdout.Result -split "`n") {
 $notices = $stderr.Result.Trim()
 if ($notices) { [Console]::Error.WriteLine($notices) }
 
+# Checked whether or not agy answered: a run that failed may still have written.
+$changed = $false
+if (-not $Edit) {
+    if ($null -eq $before) {
+        [Console]::Error.WriteLine("$folder is not a git checkout, so it was not checked for changed files.")
+    } else {
+        $after = Get-Changes
+        if ($after -ne $before) {
+            $changed = $true
+            [Console]::Error.WriteLine("agy changed files although asked not to. Before:`n$before`nNow:`n$after")
+        }
+    }
+}
+
 # agy exits 0 with no answer when a tool it wanted was refused, so check the answer.
 if (-not $result -or $result.status -ne 'SUCCESS' -or -not "$($result.response)".Trim()) {
     $why = if ($result -and $result.error) { $result.error } elseif ($result) { "status $($result.status), empty answer" } else { 'no result' }
     [Console]::Error.WriteLine("agy gave no answer: $why")
+    if ($changed) { exit 3 }
     if ($process.ExitCode -ne 0) { exit $process.ExitCode }
     exit 1
 }
 
-[Console]::Out.WriteLine("$($result.response)".TrimEnd())
-
-if (-not $Edit) {
-    $after = Get-Changes
-    if ($null -eq $before) {
-        [Console]::Error.WriteLine("$folder is not a git checkout, so it was not checked for changed files.")
-    } elseif ($after -ne $before) {
-        [Console]::Error.WriteLine("agy changed files although asked not to. git status now:`n$after")
-        exit 3
-    }
-}
+Write-Output "$($result.response)".TrimEnd()
+if ($changed) { exit 3 }
 exit 0
