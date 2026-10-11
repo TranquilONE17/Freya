@@ -69,6 +69,59 @@ _HOW_MATCHED = {
 }
 
 
+# What the main model is told the tool is for, and what it may pass.
+# The evaluation offers the same words, so it measures the tool Freya
+# really has. No argument is a place to write a sentence: only a kind
+# from a fixed list and the ids of offered inputs.
+WORK_DELEGATE_DESCRIPTION = (
+    "Hands one piece of work to a stronger outside model and "
+    "returns its answer. Use it for work you cannot do well "
+    "yourself: long analysis, careful reasoning, review. Do "
+    "not use it for conversation, for anything about the user "
+    "personally, or for what you can answer directly. Give "
+    "the kind of task and the ids of the inputs to send with "
+    "it. You do not write the request; it is written from the "
+    "inputs you choose. The answer comes from another model "
+    "and may be wrong."
+)
+WORK_DELEGATE_PARAMETERS = {
+    "kind": {
+        "description": (
+            "The kind of task, one of: " + ", ".join(TASK_KINDS) + "."
+        ),
+        "max_length": 20,
+    },
+    "inputs": {
+        "description": (
+            "The ids of the offered inputs to send with "
+            "the work, separated by commas. May be empty."
+        ),
+        "max_length": 400,
+        "optional": True,
+    },
+}
+
+
+def delegation_hint(input_ids, spoken=False) -> str:
+    """The sentence added to the tool hint for a turn that can delegate."""
+    return (
+        "Inputs you may send with delegated work: "
+        + ", ".join(input_ids)
+        + ". The Nth tool result you receive in this turn is tool-N, "
+        "and only results that read this PC can be sent. "
+        "When you used delegated work, say in your reply that part "
+        "of the answer came from another model, and name it. The user "
+        "is shown that model's answer in full under its own name, so "
+        "do not repeat it: add what you make of it."
+        + (
+            " This turn was spoken, and your reply will be read aloud: "
+            "give only your own short interpretation."
+            if spoken
+            else ""
+        )
+    )
+
+
 class DelegationRefused(Exception):
     """
     Work was not handed over. The message is fixed wording that is
@@ -318,22 +371,7 @@ class TurnDelegation:
         if turn is None or not self.available():
             return ""
 
-        return (
-            "Inputs you may send with delegated work: "
-            + ", ".join(turn.input_ids)
-            + ". The Nth tool result you receive in this turn is tool-N, "
-            "and only results that read this PC can be sent. "
-            "When you used delegated work, say in your reply that part "
-            "of the answer came from another model, and name it. The user "
-            "is shown that model's answer in full under its own name, so "
-            "do not repeat it: add what you make of it."
-            + (
-                " This turn was spoken, and your reply will be read aloud: "
-                "give only your own short interpretation."
-                if turn.origin == ORIGIN_VOICE
-                else ""
-            )
-        )
+        return delegation_hint(turn.input_ids, turn.origin == ORIGIN_VOICE)
 
     # -- the tool --------------------------------------------------
 
@@ -353,7 +391,7 @@ class TurnDelegation:
             )
         if turn.declined:
             raise DelegationRefused(
-                "The owner already said no to handing work over in this turn."
+                "The user already said no to handing work over in this turn."
             )
 
         try:
@@ -402,7 +440,7 @@ class TurnDelegation:
                 turn,
                 self._confirmation_prompt(provider, brief),
                 SEND,
-                "The owner did not confirm sending this, so nothing was sent.",
+                "The user did not confirm sending this, so nothing was sent.",
             )
 
         authorization = self._authorize(turn, provider, route, brief)
@@ -516,7 +554,7 @@ class TurnDelegation:
         if answer not in (ALLOW_ONCE, ALLOW_CONVERSATION):
             turn.declined = True
             raise DelegationRefused(
-                "The owner did not allow that material to be sent, "
+                "The user did not allow that material to be sent, "
                 "so nothing was sent."
             )
 
@@ -601,7 +639,7 @@ class TurnDelegation:
     def _decline(turn) -> None:
         turn.declined = True
         raise DelegationRefused(
-            "The owner chose not to send this, so nothing was sent."
+            "The user chose not to send this, so nothing was sent."
         )
 
     def _require(self, turn, prompt, wanted, refusal) -> None:

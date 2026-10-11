@@ -21,7 +21,11 @@ from freya.delegation.record import ModelRecord
 from freya.delegation.presentation import reply_publisher
 from freya.delegation.screening import Corrections
 from freya.delegation.compose import TASK_KINDS
-from freya.delegation.turn import TurnDelegation
+from freya.delegation.turn import (
+    WORK_DELEGATE_DESCRIPTION,
+    WORK_DELEGATE_PARAMETERS,
+    TurnDelegation,
+)
 from freya.delegation.window_requests import (
     PROVIDER_LABELS,
     apply_cloud_change,
@@ -525,42 +529,13 @@ def build_turn_delegation(
     capabilities.register(
         CapabilityDefinition(
             name=WORK_DELEGATE,
-            description=(
-                "Hands one piece of work to a stronger outside model and "
-                "returns its answer. Use it for work you cannot do well "
-                "yourself: long analysis, careful reasoning, review. Do "
-                "not use it for conversation, for anything about the user "
-                "personally, or for what you can answer directly. Give "
-                "the kind of task and the ids of the inputs to send with "
-                "it. You do not write the request; it is written from the "
-                "inputs you choose. The answer comes from another model "
-                "and may be wrong."
-            ),
+            description=WORK_DELEGATE_DESCRIPTION,
             provider=DELEGATION_PROVIDER,
             handler=delegation.delegate,
             category="cloud",
             metadata={
                 MODEL_TOOL: True,
-                # No argument is a place to write a sentence: only a
-                # kind from a fixed list and the ids of offered inputs.
-                TOOL_PARAMETERS: {
-                    "kind": {
-                        "description": (
-                            "The kind of task, one of: "
-                            + ", ".join(TASK_KINDS)
-                            + "."
-                        ),
-                        "max_length": 20,
-                    },
-                    "inputs": {
-                        "description": (
-                            "The ids of the offered inputs to send with "
-                            "the work, separated by commas. May be empty."
-                        ),
-                        "max_length": 400,
-                        "optional": True,
-                    },
-                },
+                TOOL_PARAMETERS: WORK_DELEGATE_PARAMETERS,
             },
         )
     )

@@ -88,6 +88,18 @@ code on `feat/delegation-turn` already meets it.
    `integration/2026-10-11`* (`abilities.delegation_notes`), except that Claude has
    still not been measured, so today the note says it is unmeasured.
 
+   **Measured on 2026-10-11, against a pretend outside model.** Four scenarios were
+   added to the conversation suite (`delegation-*`), offering `qwen3.8:27b` the real
+   tool's wording with a handler that checks the arguments and returns a made-up
+   answer, so nothing leaves the machine. Five trials of each, 20 in all: she handed
+   the plan over when asked, every time with a valid kind (`planning` or `analysis`)
+   and offered ids; never handed over small talk or a question about the user's
+   sister; and when the hand-over was refused, said so and invented no answer. All 20
+   passed once a check of mine that forbade reading her own record first was
+   corrected; she read it in about half the trials, which is reasonable. Median 8
+   seconds a trial. This shows she can drive the tool. It does not test the prompts,
+   the brief writer's quality, or a real answer.
+
 7. **Tests to add** (alongside those in "Tests that must exist and pass"):
    - A `conversation.recall` result and a media tool result in the turn are never
      offered; a system-tool result is.

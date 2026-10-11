@@ -200,6 +200,44 @@ def run_trial(scenario, folder, model, embedding_model, request_timeout, backgro
                 ),
                 metadata={MODEL_TOOL: True},
             ))
+            if scenario.mode.startswith("delegation"):
+                # A pretend outside model. Nothing leaves this machine:
+                # the handler checks the arguments the way the real
+                # tool does and returns a made-up answer.
+                from freya.delegation.compose import TASK_KINDS
+                from freya.delegation.turn import (
+                    WORK_DELEGATE_DESCRIPTION,
+                    WORK_DELEGATE_PARAMETERS,
+                    delegation_hint,
+                )
+
+                offered = ["request", "turn-1"]
+
+                def delegate(kind, inputs=""):
+                    chosen = [part.strip() for part in str(inputs).split(",") if part.strip()]
+                    if kind not in TASK_KINDS or any(name not in offered for name in chosen):
+                        raise RuntimeError(
+                            "The plan is not one Freya will act on. Kinds: "
+                            + ", ".join(TASK_KINDS) + ". Inputs offered: "
+                            + ", ".join(offered) + "."
+                        )
+                    if scenario.mode == "delegation-refused":
+                        raise RuntimeError("The user did not allow this, so nothing was sent.")
+                    return {
+                        "from": "Claude (Anthropic)",
+                        "model": "synthetic",
+                        "answer": "Step 2 depends on step 3, so the order is wrong: swap them. Otherwise the plan holds.",
+                        "shown_to_user": "The user sees this answer in full, under the name above. Do not repeat it; say what you make of it.",
+                    }
+
+                registry.register(CapabilityDefinition(
+                    name="work.delegate", provider=SYSTEM_TOOLS_PROVIDER,
+                    description=WORK_DELEGATE_DESCRIPTION, handler=delegate,
+                    metadata={MODEL_TOOL: True, TOOL_PARAMETERS: WORK_DELEGATE_PARAMETERS},
+                ))
+                delegation_sentence = " " + delegation_hint(offered)
+            else:
+                delegation_sentence = ""
             denied = {
                 "gpu-denied": ("system.gpu", "system.sensors"),
                 "record-denied": ("model.record.read",),
@@ -209,6 +247,7 @@ def run_trial(scenario, folder, model, embedding_model, request_timeout, backgro
                     policy.add_rule("local-owner", capability.name, "allow", "Synthetic evaluation only.")
 
             recorder = RecordingToolHost(ModelToolHost(registry, broker))
+            recorder.hint = recorder.hint + delegation_sentence
             assistant = FreyaAssistant(tool_host=recorder, broker=broker)
             registry.register(CapabilityDefinition(
                 name="conversation.recall", provider=SYSTEM_TOOLS_PROVIDER,
