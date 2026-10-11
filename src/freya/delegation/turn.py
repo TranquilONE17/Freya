@@ -54,6 +54,7 @@ MAX_CHECK_ROUNDS = 4
 # The answers each question offers.
 ALLOW_ONCE = "once"
 ALLOW_CONVERSATION = "conversation"
+ALLOW_ALWAYS = "always"
 DENY = "deny"
 SEND = "send"
 SEND_ANYWAY = "send_anyway"
@@ -300,7 +301,11 @@ class TurnDelegation:
         mark_not_private: Callable[[str], bool],
         accepts_tool_result: Callable[[str], bool] = lambda tool_name: False,
         measured: Callable[[str, str], List[str]] = lambda kind, route: [],
+        add_rule: Optional[Callable[[str, str, List[str]], bool]] = None,
     ):
+        # Records the owner's "allow permanently". Without it that
+        # answer is not offered.
+        self._add_rule = add_rule
         self._measured = measured
         self._cloud = cloud
         self._chat = chat
@@ -541,7 +546,11 @@ class TurnDelegation:
 
     def _compose(self, plan, turn, provider, approved=None):
         if approved is None:
-            approved = self._approved.get(provider, frozenset())
+            # What the owner allowed for this conversation, and what
+            # their standing rules allow a task of this kind.
+            approved = self._approved.get(
+                provider, frozenset()
+            ) | self._cloud.settings.rule_kinds(provider, plan.kind)
 
         try:
             return compose_brief(
@@ -561,9 +570,13 @@ class TurnDelegation:
         again with what the owner allowed.
         """
         kinds = frozenset(brief.review.ask)
-        answer = self._ask(self._approval_prompt(provider, brief))
+        answer = self._ask(self._approval_prompt(provider, brief, plan.kind))
+        offered = [ALLOW_ONCE, ALLOW_CONVERSATION]
 
-        if answer not in (ALLOW_ONCE, ALLOW_CONVERSATION):
+        if self._add_rule is not None:
+            offered.append(ALLOW_ALWAYS)
+
+        if answer not in offered:
             turn.declined = True
             raise DelegationRefused(
                 "The user did not allow that material to be sent, "
@@ -574,6 +587,14 @@ class TurnDelegation:
 
         if answer == ALLOW_CONVERSATION:
             self._approved[provider] = approved
+        elif answer == ALLOW_ALWAYS:
+            # Exactly what was shown: this provider, this kind of
+            # task, these kinds of material.
+            if not self._add_rule(provider, plan.kind, sorted(kinds)):
+                raise DelegationRefused(
+                    "That could not be recorded as always allowed. "
+                    "Nothing was sent."
+                )
 
         brief = self._compose(plan, turn, provider, approved)
 
@@ -699,8 +720,23 @@ class TurnDelegation:
 
     _SENT_LABEL = "The request exactly as it would be sent"
 
-    def _approval_prompt(self, provider, brief) -> dict:
+    def _approval_prompt(self, provider, brief, task="") -> dict:
         review = brief.review
+        choices = [
+            (ALLOW_ONCE, "Allow once"),
+            (ALLOW_CONVERSATION, "Allow for this conversation"),
+        ]
+
+        if self._add_rule is not None and task:
+            asked = ", ".join(
+                KIND_NAMES.get(kind, kind) for kind in sorted(review.ask)
+            )
+            choices.append((
+                ALLOW_ALWAYS,
+                f"Always allow for {task} tasks ({asked})",
+            ))
+
+        choices.append((DENY, "Deny"))
         shown = [
             part for part in brief.parts
             if part in review.send or part in review.waiting
@@ -715,11 +751,7 @@ class TurnDelegation:
             "approval", provider, review, material,
             "The material that would be sent. The task description is "
             "written after you answer.",
-            [
-                (ALLOW_ONCE, "Allow once"),
-                (ALLOW_CONVERSATION, "Allow for this conversation"),
-                (DENY, "Deny"),
-            ],
+            choices,
         )
 
     def _confirmation_prompt(self, provider, brief) -> dict:

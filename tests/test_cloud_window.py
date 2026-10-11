@@ -135,6 +135,30 @@ def test_the_tab_cannot_send_anything_or_write_policy_directly(cloud):
     assert not cloud.plane.policy.decide("local-owner", "cloud.anthropic_plan.ask").allow
 
 
+def test_the_tab_lists_and_removes_rules_but_cannot_make_one(cloud):
+    asked = cloud.window_request({
+        "action": "rule", "provider": "anthropic",
+        "task": "reasoning", "material": ["conversation"],
+    })
+
+    assert asked["error"] and asked["state"]["rules"] == []
+
+    rule = cloud.settings.add_rule("anthropic", "reasoning", ["conversation"])
+    shown = cloud.window_request({"action": "state"})["state"]["rules"]
+
+    assert shown == [{
+        "id": rule["id"], "provider": "Claude (Anthropic)", "task": "reasoning",
+        "material": ["this conversation"], "made": rule["made"],
+    }]
+
+    before = len(changes(cloud))
+    removed = cloud.window_request({"action": "unrule", "id": rule["id"]})
+
+    assert "error" not in removed and removed["state"]["rules"] == []
+    assert len(changes(cloud)) == before + 1
+    assert cloud.window_request({"action": "unrule", "id": rule["id"]})["error"]
+
+
 def test_switching_a_provider_on_unlocks_it_and_off_locks_it(cloud):
     capability = "cloud.anthropic_plan.ask"
 

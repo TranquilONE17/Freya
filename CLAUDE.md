@@ -199,7 +199,15 @@ the `cloud.settings.change` capability (seed `alpha-cloud-settings`), so each ch
 is audited without its content; its answers go only to the asking window. Switching a
 provider on in the tab unlocks it (owner decision): the switch, the policy rule for
 its route (reason `SWITCH_REASON`, removed again when switched off) and a starting
-weekly allowance. The tab must never be able to send a brief or write any other
+weekly allowance. Standing rules: answering an approval prompt with "Always allow" records a rule in the
+cloud settings (`CloudSettings.add_rule`: one provider, one kind of task, the ask-first
+kinds of material shown), and later tasks of that kind send that material without
+asking. Keep these rules: a rule is made only by that answer (the `rule` action of
+`cloud.settings.change`, which the tab's requests cannot reach; the tab lists and
+removes); it holds only kinds set to ask first and never brings back a kind set to
+never; it does not cover a held brief or a spoken turn's click; a stored rule that is
+not understood is dropped. A rule has no usage limit of its own yet.
+The tab must never be able to send a brief or write any other
 policy rule.
 
 Delegation inside a turn: `delegation/turn.py` (`TurnDelegation`, built by

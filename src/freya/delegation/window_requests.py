@@ -1,5 +1,6 @@
 from typing import Callable, Dict, List
 
+from freya.delegation.compose import TASK_KINDS
 from freya.delegation.material import KIND_NAMES, KINDS, SETTINGS
 from freya.delegation.screening import Corrections
 
@@ -7,7 +8,11 @@ from freya.delegation.screening import Corrections
 # What the Cloud tab may ask for. Reading shows the owner's own
 # choices; every other action changes one of them.
 READS = ("state", "sent")
-CHANGES = ("provider", "limit", "material", "bars", "mark", "unmark")
+CHANGES = ("provider", "limit", "material", "bars", "mark", "unmark", "unrule")
+# A rule is made only by the owner's answer to a prompt that showed
+# exactly what it covers, never by a request from the tab: the tab
+# may list rules and remove them.
+RULE = "rule"
 
 SENT_SHOWN = 50
 MAX_PHRASE = 200
@@ -76,6 +81,16 @@ def cloud_state(cloud) -> dict:
         "settings": list(SETTINGS),
         "bars": settings.bars,
         "corrections": cloud.corrections.listing(),
+        "rules": [
+            {
+                "id": rule["id"],
+                "provider": PROVIDER_LABELS.get(rule["provider"], rule["provider"]),
+                "task": rule["task"],
+                "material": [KIND_NAMES.get(kind, kind) for kind in rule["material"]],
+                "made": rule["made"],
+            }
+            for rule in settings.rules
+        ],
         "sent_count": len(cloud.sent.entries()),
     }
 
@@ -134,6 +149,22 @@ def apply_cloud_change(cloud, message) -> None:
         if name not in Corrections._LISTS or not isinstance(entry, str):
             raise CloudRequestRefused("That entry could not be found.")
         cloud.corrections.remove(name, entry)
+
+    elif action == RULE:
+        provider, task = message.get("provider"), message.get("task")
+        material = message.get("material")
+        if provider not in cloud.available_providers:
+            raise CloudRequestRefused("That is not a provider Freya can reach.")
+        if task not in TASK_KINDS:
+            raise CloudRequestRefused("That is not a kind of task.")
+        if not isinstance(material, list):
+            raise CloudRequestRefused("A rule needs the kinds of material it covers.")
+        cloud.settings.add_rule(provider, task, material)
+
+    elif action == "unrule":
+        if not isinstance(message.get("id"), str):
+            raise CloudRequestRefused("That rule could not be found.")
+        cloud.settings.remove_rule(message["id"])
 
     else:
         raise CloudRequestRefused("Freya did not expect that request.")
