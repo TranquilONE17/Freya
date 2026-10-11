@@ -1,14 +1,15 @@
-# Freya — guide for Codex
+# Freya — guide for Codex and Antigravity
 
 Read `CLAUDE.md` first. It is the project guide: the architecture documents, the
 repository layout, the known state, and the working rules. Everything in it applies
-to you as it does to Claude. This file adds only what differs for Codex.
+to you as it does to Claude. This file adds only what differs for a helper: OpenAI's
+Codex, or Google's Antigravity (`agy`).
 
 ## Rules that matter most
 
 - **Never open, list, print, or copy anything under `data/`.** It holds the owner's
   memories, conversations, voice recordings, and models under terms that forbid
-  passing them on. What you read is sent to OpenAI. If a task seems to need a file
+  passing them on. What you read is sent to your vendor (OpenAI or Google). If a task seems to need a file
   from `data/`, stop and say so instead.
 - Never read `.env` files, credentials, or anything under `.venv/`.
 - Work on a branch; never commit to `main`. Do not push, open or merge pull
@@ -40,8 +41,11 @@ folder it should work in, with the task on stdin:
 Claude needs the network and its own settings folder, which your sandbox blocks, so
 ask the owner to approve running that one command outside the sandbox. Never read or
 write `~/.claude` yourself. Do not start Claude from a task that Claude gave you.
+This is for Codex; Antigravity cannot run commands here.
 
 ## Running things
 
 - Tests: `python -m pytest` from the repository root, using `.venv` (Python 3.12).
+  Antigravity is started without permission to run commands: do not try, say in
+  your report that the tests were not run, and Claude will run them.
 - Files use LF line endings. Keep the existing code style and comment density.
