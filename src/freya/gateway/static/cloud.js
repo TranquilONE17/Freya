@@ -32,7 +32,7 @@
   function ask(action, fields, working) {
     requests += 1;
     if (send({type: "cloud", action, request: "c" + requests, ...(fields || {})})) {
-      say(working || "Saving…");
+      say(working === undefined ? "Saving…" : working);
     } else {
       say("Not connected to Freya.", true);
     }
@@ -203,9 +203,13 @@
   });
 
   window.addEventListener("freya-view", (event) => {
-    if (event.detail === "cloud" && !loaded) {
+    // Asked for on every visit, not only the first: an answer to one
+    // of Freya's questions can change these settings from outside
+    // this tab, and a stale switch would then do the opposite of what
+    // it shows.
+    if (event.detail === "cloud") {
+      ask("state", {}, loaded ? "" : "Loading…");
       loaded = true;
-      ask("state", {}, "Loading…");
     }
   });
 
@@ -236,6 +240,9 @@
     if (!asking) return;
     send({type: "cloud.answer", id: asking.id, choice});
     closePrompt();
+    // The answer may have changed a setting or made a rule. If the
+    // tab has been opened, bring it up to date once that is done.
+    if (loaded) window.setTimeout(() => ask("state", {}, ""), 1500);
   }
 
   function showPrompt(prompt) {
