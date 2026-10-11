@@ -47,6 +47,14 @@ SENSOR_URL = os.environ.get(
     "FREYA_SENSOR_URL"
 ) or "http://127.0.0.1:8085/data.json"
 
+# Live world data from a God's Eye View program on this machine. These
+# are the only tools whose answers come from the internet, so they are
+# off unless the owner sets FREYA_WORLD_VIEW=1.
+WORLD_VIEW_ENABLED = os.environ.get("FREYA_WORLD_VIEW", "0") == "1"
+WORLD_VIEW_URL = os.environ.get(
+    "FREYA_WORLD_VIEW_URL"
+) or "http://localhost:4173"
+
 SYSTEM_PROMPT = """
 You are Freya, a locally hosted personal AI assistant.
 
