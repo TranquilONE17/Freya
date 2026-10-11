@@ -4,6 +4,7 @@ from pathlib import Path
 from typing import List
 
 from freya import host_checks
+from freya.storage import backup
 from freya.config import AUDIT_CHECKPOINT_PATH
 from freya.config import BACKGROUND_MODEL
 from freya.config import COMFYUI_COMMAND
@@ -440,6 +441,8 @@ class ControlPlane:
         messages.extend(
             host_checks.startup_warnings(host_checks._read_smart_app_control)
         )
+        # A backup that failed at the last close, or an old one.
+        messages.extend(backup.startup_warning(self.store.path.parent))
 
         return messages
 
