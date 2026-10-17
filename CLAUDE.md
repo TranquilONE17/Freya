@@ -341,6 +341,13 @@ name matching, the listener, and the listening commands, using a fake Ollama cli
 - Ask before installing system software, enabling Windows features (e.g. Hyper-V), or
   changing ACLs or service accounts — these are owner actions.
 - Keep the existing code style; repository files use LF line endings.
+- `.claude/hooks/freya_guard.py` (wired in `.claude/settings.json`) enforces the rules
+  above that a text check can: it refuses edits to `data/`, database files, `uv.lock`,
+  the vendored browser libraries and shipped `MIGRATIONS` entries; commits or pushes
+  to `main` and force pushes; shell commands naming the memory or control databases;
+  and a `git commit` while the tests fail (`FREYA_SKIP_COMMIT_TESTS=1` skips that
+  check). It is a guard rail, not a security boundary. Other agents follow the same
+  rules from `AGENTS.md`; work delegated to Codex is in `docs/tasks/codex-delegation.md`.
 
 ## Next planned work (alpha step 1)
 
