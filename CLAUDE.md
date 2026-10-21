@@ -353,6 +353,27 @@ call returns a bounded amount. There is no tool that writes, and adding one is a
 separate decision. A spoken request can read an opened file aloud like a typed one;
 voice is not authentication, so open only folders that may be heard.
 
+Live world data: `tools/world_view.py` (`WorldView`) gives the model eleven tools,
+`world.overview`, `world.aircraft`, `world.ships`, `world.satellite_pass`,
+`world.earthquakes`, `world.fires`, `world.storms`, `world.launches`,
+`world.cameras`, `world.military` and `world.show` (provider `world-view-local`,
+policy seed `alpha-world-view`). They ask a God's Eye View program
+(github.com/bilawalsidhu/gods-eye-view, MIT, installed and started by the owner, not
+bundled) on its local endpoint; that program fetches the public feeds. These are
+the first tools whose answers come from the internet (owner decision 2026-10-11:
+public feeds only, every layer, spoken requests allowed), so they are registered
+only when `FREYA_WORLD_VIEW=1` and offered only while the program answers, asked
+again every few seconds. Keep these rules: the address (`FREYA_WORLD_VIEW_URL`,
+default `http://localhost:4173`) must be on this machine and is refused otherwise;
+only the few words a tool was given are sent, never memory or conversation text;
+every answer is bounded and carries a note that feeds may be late; a missing key is
+reported without naming it; `world.show` opens only an address of the program
+itself in the browser and changes nothing else; `world.cameras` reports where
+cameras are and never fetches a picture. Freya does not start or stop the program,
+does not handle its keys, and must never turn on its ChatGPT sign-in option, which
+reads another program's sign-in file. Adding a tool that fetches camera pictures,
+or that contacts a feed directly, is a separate decision.
+
 Conversation memory: one run of Freya is one conversation. Each exchange is stored
 as it happens (`conversation`, `conversation_turn`, and the `conversation_search`
 index in `data/freya_memory.db`), with how it arrived (typed, voice, window).
