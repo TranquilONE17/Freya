@@ -601,8 +601,9 @@ away.
 `tests/` covers the registries, tool modules, policy, audit, broker, model runtime,
 name matching, the listener, and the listening commands, using a fake Ollama client
 (`tests/conftest.py`) and scripted microphone blocks; `voice/stt_test.py` and
-`voice/tts_test.py` are manual scripts, not automated tests. `memory_manager.py` locates
-`data/` relative to the source tree, so it only works from an editable install.
+`voice/tts_test.py` are manual scripts, not automated tests. Without
+`FREYA_DATA_DIR`, `data/` is found relative to the source tree, so Freya only works from
+an editable install.
 
 ## Running locally (Windows)
 
@@ -610,6 +611,11 @@ name matching, the listener, and the listening commands, using a fake Ollama cli
 - `freya` is an installable package (src layout) and imports are absolute
   (e.g. `from freya.core.llm import ...`). It is installed in `.venv` in editable mode;
   run it from any directory with `freya` or `python -m freya`.
+- Freya's data is in the repository's `data/` unless `FREYA_DATA_DIR` names another
+  folder. `freya.paths.data_dir()` is the one place that decides; a module that keeps
+  data defines `DATA_DIR = data_dir()`, never a path of its own (`tests/test_paths.py`
+  checks every such module). Other overrides (`FREYA_BULK_DIR`,
+  `FREYA_AUDIT_CHECKPOINT_PATH` and the rest) still apply on top of it.
 - Requires Ollama on `127.0.0.1:11434` with `qwen3.8:27b` and `nomic-embed-text`.
   `FREYA_MODEL` names another installed model (`gpt-oss:20b` was the main model until
   2026-10-09; see `docs/design/model-benchmarks-2026-10-09.md`). `qwen3.8:27b` uses
