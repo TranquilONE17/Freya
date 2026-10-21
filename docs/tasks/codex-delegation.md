@@ -123,8 +123,7 @@ Acceptance:
 
 ### C-6 · Merge the two command paths
 
-Status: Waiting — do not start until the owner moves it to Ready. It touches
-`main.py`, which Claude is splitting in phase 0.
+Status: Taken by Claude at the owner's request (2026-10-21); do not start it.
 
 `main.py`'s loop and `window_commands.py` handle the same slash commands in separate
 code. Plan: one command table both use.

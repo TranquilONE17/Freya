@@ -8,7 +8,11 @@ from freya.console_tee import ConsoleOutput, ConsoleTee
 from freya.events import EventBus
 from freya.main import normalize_command
 from freya.settings import Settings
-from freya.window_commands import CommandContext, run_window_command
+from freya.window_commands import (
+    CommandContext,
+    run_shared_command,
+    run_window_command,
+)
 
 
 @pytest.fixture
@@ -216,3 +220,58 @@ def test_quit_closes_freya_only_when_there_is_no_terminal(
 
     assert context.quits == [1]
     assert notices(bus)[-1] == "Closing down."
+
+
+# The commands the terminal shares with the window.
+
+
+@pytest.mark.parametrize(
+    "line",
+    [
+        "hello Freya",
+        "exit",
+        "/terminal",
+        "/talk",
+        "/voice-file C:\\a.wav",
+        "/memories",
+        "/frobnicate",
+        "",
+    ],
+)
+def test_lines_the_terminal_keeps_are_not_shared(context, line):
+    assert run_shared_command(line, context) is None
+    assert context.voice.interrupted == 0
+    assert context.images == []
+
+
+def test_shared_commands_act_the_same_from_the_terminal(context, capsys):
+    assert run_shared_command("/interrupt", context) is True
+    assert context.voice.interrupted == 1
+
+    assert run_shared_command("/mute", context) is True
+    assert context.listener.muted is True
+
+    assert run_shared_command("/IMAGE a red fox", context) is False
+    assert context.images == ["a red fox"]
+
+    assert run_shared_command("/window", context) is True
+    assert run_shared_command("/help", context) is True
+    assert run_shared_command("/folders", context) is True
+
+    printed = capsys.readouterr().out
+    assert "Freya's window is open." in printed
+    assert "Commands: /names" in printed
+    assert "Folders cannot be opened from here." in printed
+
+
+def test_the_terminal_loop_uses_the_shared_commands():
+    import pathlib
+
+    import freya.main
+
+    source = pathlib.Path(freya.main.__file__).read_text(encoding="utf-8")
+
+    assert "run_shared_command(user_input, terminal_commands)" in source
+    # It no longer handles these itself.
+    assert "if user_input.lower() == INTERRUPT_COMMAND" not in source
+    assert "handle_listening_command(" not in source
