@@ -551,8 +551,15 @@ references are synthetic Kokoro recordings, and a real recording needs
 `--i-have-the-right`.
 
 Audit log: `data/freya_control.db` holds policy rules and the append-only, hash-chained
-`audit_event` table. It is verified at startup; if verification fails, the broker
-refuses every invocation. Checkpoints of the chain head go to the file named by
+`audit_event` table. It is verified at startup; if verification fails, or the log
+cannot be read, the broker refuses every invocation. The dispatch record must be
+written before a capability runs. A denial, unavailability decision, or outcome that
+cannot be written (the decision is made or the action has happened) is never dropped:
+it is logged, the result has `audit_recorded=False`, and the broker keeps it and
+refuses every new dispatch until it is written (at most 256 are kept; beyond that each
+loss is logged as critical and counted). Checkpoints are best effort and never decide
+whether a capability runs. `ControlStore.execute` returns rows already read under its
+lock, because the connection is shared between threads. Checkpoints of the chain head go to the file named by
 `FREYA_AUDIT_CHECKPOINT_PATH` when set, which only adds tamper evidence if that file is
 somewhere this machine cannot rewrite. This does not protect against a host
 administrator. SQLite durability settings are provisional pending ADR-015; each audited
