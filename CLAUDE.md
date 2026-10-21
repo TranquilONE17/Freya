@@ -733,3 +733,11 @@ the authenticated gateway); routing the voice, image, and memory paths through p
 the broker; authenticated sessions to replace the fixed `local-owner` principal; a
 dedicated Windows service identity and ACLs for the control database (owner action); an
 off-host checkpoint sink.
+
+Proposed, not started: lessons from the OpenRig review (`docs/design/openrig-lessons.md`,
+provisional NEW-AS to NEW-BD; `code-sandbox.md` holds NEW-AM to NEW-AR). Adopt
+addressable knowledge, situation-tagged context, a generated map of existing
+capabilities, read-time trust downgrading, lessons, and an evaluation of whether models
+reuse what exists. Rule out reachability as authorization, caller-asserted identity, and
+shared packages that raise privilege; NEW-AZ, NEW-BA and NEW-BC become acceptance
+criteria for the authenticated gateway. First step: the evaluation scenarios (NEW-AY).
