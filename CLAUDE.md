@@ -638,6 +638,29 @@ approves that command each time. Do not widen the sandbox to cover `~/.claude` (
 holds Claude's sign-in) and do not put a bypass flag in a script to avoid the
 approval.
 
+## Working with Antigravity
+
+Google's Antigravity command-line program (`agy`, signed in on the owner's Google
+account; it replaced Gemini CLI, which no longer serves personal accounts) is a second
+helper, called through `scripts/agy.ps1`. It also reads `AGENTS.md`. Codex stays the
+reviewer before a pull request and the helper for coding side tasks. Use Antigravity
+for a second opinion from a different vendor's model, or a read-and-report question
+over many files:
+
+    "<question>" | scripts/agy.ps1 -C <worktree>          (asked to read and advise only)
+    "<task>"     | scripts/agy.ps1 -C <worktree> -Edit    (may edit files there)
+
+Limits: `agy` reads and writes files in the folder it is started in without asking,
+and everything it reads is sent to Google. So it is only ever started in a git
+worktree outside this folder (the script refuses a folder holding `data`), and text
+from `data/` never goes in a prompt. Never pass `--dangerously-skip-permissions`, and
+do not add allow rules to its settings (`~/.gemini/antigravity-cli/settings.json`) to
+let it run commands: those are owner actions. It cannot run shell commands, so it
+cannot run the tests; run them yourself on anything it wrote. Without `-Edit` it is
+only asked not to change files, which is a request, not containment; the script
+reports any file that changed. It does not commit, push, or open pull requests, and
+its answers are advice to verify, as Codex's are.
+
 ## Next planned work (alpha step 1)
 
 Done: `pyproject.toml`, the lockfile, the package layout, tests for the registries, the
