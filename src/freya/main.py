@@ -38,6 +38,7 @@ from freya.media.setup import build_media_service
 from freya.window import build_status
 from freya.unreal_client import UnrealClient, configured_client
 from freya.console_tee import ConsoleOutput
+from freya.window_commands import HELP_COMMAND, TERMINAL_COMMANDS
 from freya.window_commands import CommandContext
 from freya.window_commands import run_shared_command
 from freya.window_commands import run_window_command
@@ -85,7 +86,7 @@ COMMANDS = (
 
     IMAGE_COMMAND,
 
-) + LISTENING_COMMANDS + FOLDER_COMMANDS + (WINDOW_COMMAND,)
+) + LISTENING_COMMANDS + FOLDER_COMMANDS + (WINDOW_COMMAND, HELP_COMMAND) + TERMINAL_COMMANDS
 
 
 

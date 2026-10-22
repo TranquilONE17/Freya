@@ -265,13 +265,21 @@ def test_shared_commands_act_the_same_from_the_terminal(context, capsys):
 
 
 def test_the_terminal_loop_uses_the_shared_commands():
-    import pathlib
-
     import freya.main
 
-    source = pathlib.Path(freya.main.__file__).read_text(encoding="utf-8")
+    # The loop reaches the shared handler and no longer imports the
+    # listening handler for itself (a source-text check would break
+    # the moment someone legitimately named that function in a
+    # comment or a string).
+    assert freya.main.run_shared_command is run_shared_command
+    assert not hasattr(freya.main, "handle_listening_command")
 
-    assert "run_shared_command(user_input, terminal_commands)" in source
-    # It no longer handles these itself.
-    assert "if user_input.lower() == INTERRUPT_COMMAND" not in source
-    assert "handle_listening_command(" not in source
+
+def test_backslash_forms_of_the_shared_commands_are_normalised():
+    # The backslash table and the shared handler must agree, or
+    # \help works in the window and not in the terminal.
+    assert normalize_command("\\help") == "/help"
+    assert normalize_command("\\terminal") == "/terminal"
+    assert normalize_command("\\console") == "/console"
+    assert normalize_command("\\interrupt") == "/interrupt"
+    assert normalize_command("\\nothing") == "\\nothing"
