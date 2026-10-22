@@ -43,6 +43,9 @@ attributed to the turn's principal.
   at most one third of the input), labelled when truncated.
 - Per-owner isolation comes with the gateway's authenticated sessions (ADR-017); until
   then the store is single-owner like the memory database.
+- The store is a new store under `data/`, so it is added to `DATA_KINDS`
+  (`storage/placement.py`; a test checks), copied by the backup on close
+  (`storage/backup.py`), and its path comes from `data_dir()` once C-4 is merged.
 
 ### NEW-BF — A record points, it does not copy
 
@@ -59,7 +62,6 @@ memory text or a brief.
   learn "I am bad at summarising" from an Ollama that was not running.
 - A failure that touched personal material (a brief held by screening, a memory the
   owner corrected) is recorded by its code alone, never with what was held.
-
 - Reading the words behind a record is a `conversation.recall` call, policy-checked
   and audited like any other.
 - The record is bounded (one line, under 1,000 bytes) so it can never carry what it
@@ -83,6 +85,12 @@ limits are enforced by code the model cannot argue with.
   request, and what would show that it does? Its reply is parsed into a fixed form
   (`accept`, `retry` with one sentence of reason, or `unsure`), as `compose.parse_plan`
   does; any other field is refused.
+- Unless `FREYA_BACKGROUND_MODEL` names another model, the `background` role is the
+  same model that wrote the answer, so the verify step is that model checking itself,
+  with a fresh context but the same blind spots. That is weaker than a second model
+  and is said so: the *catch* scenario (NEW-BL) measures what it actually catches, and
+  a second, smaller local model for the role is the first thing to try if it
+  catches too little.
 - A retry is told the verify reason and nothing else new. A second failure returns
   the better of the two answers with a note that Freya was not sure; it never loops.
 - The model proposes; the kernel decides whether a step runs. This is the same shape
@@ -171,7 +179,7 @@ that is known before anyone relies on it.
 
 Built: one store with two capabilities and a seed (a day), the loop in the turn engine
 once Phase 0 has made a turn engine (two days), the feedback message and card control
-(half a day), the two scenarios (a day). Each piece is a pull request of its own and
+(half a day), the three scenarios (a day). Each piece is a pull request of its own and
 each runs on the workstation before the next starts.
 
 Not added: any new trust boundary, any new principal, any new way for text to leave
