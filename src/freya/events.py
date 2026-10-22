@@ -1,7 +1,7 @@
 import threading
 import time
 from collections import deque
-from typing import Callable, List
+from typing import Any, Callable, List, Optional
 
 
 # Events that make up the conversation, replayed to a window that opens
@@ -52,18 +52,35 @@ class EventBus:
     def subscribe_with_history(
         self,
         callback: Callable[[dict], None],
-    ) -> List[dict]:
+        snapshot: Optional[Callable[[], Any]] = None,
+    ):
         """
         Subscribe, and return the conversation up to that moment.
 
         The two happen as one step: every event is either in the
         returned history or delivered to the callback, never both and
-        never neither.
+        never neither. A `snapshot` callable is run in the same step,
+        for state kept outside the bus but changed under its lock (the
+        console's lines), and its result is returned beside the
+        history; it must be quick and must not publish.
         """
         with self._lock:
             self._subscribers.append(callback)
+            history = list(self._history)
 
-            return list(self._history)
+            if snapshot is None:
+                return history
+
+            return history, snapshot()
+
+    def locked(self):
+        """
+        The bus's own lock, for a change that must happen in the same
+        step as the event announcing it, so that a window joining in
+        between sees it exactly once. It is re-entrant: `publish` may
+        be called while it is held.
+        """
+        return self._lock
 
     def unsubscribe(self, callback: Callable[[dict], None]) -> None:
         with self._lock:
