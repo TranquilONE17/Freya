@@ -170,6 +170,35 @@ def test_an_answer_too_long_for_the_model_loses_rows_then_details(program, view)
     assert len(json.dumps(answer)) <= world_view.MAX_ANSWER_CHARACTERS
 
 
+def test_every_answer_reaches_the_model_whole_through_the_context(program, view):
+    # The context clips a tool result at 2,400 bytes; a clipped answer
+    # is no longer valid JSON, so the view must stay under it.
+    from freya.kernel.context import ContextAuthority
+
+    program.answers["aircraft_in_area"] = (
+        "400 aircraft.", {"total": 400, "rows": aircraft_rows(400)},
+    )
+    answer = view.aircraft("Testville")
+    fitted = ContextAuthority().fit_tools([
+        {"role": "user", "content": "What is flying over?"},
+        {"role": "tool", "content": json.dumps(answer, default=str)},
+    ])
+    received = json.loads(fitted[-1]["content"])
+
+    assert "excerpt" not in received
+    assert received["_context"]["truncated"] is False
+
+
+def test_details_that_are_not_an_object_are_treated_as_none(program, view):
+    # The program's second text part is untrusted. Valid JSON that is
+    # a list or a number must not crash the tool.
+    program.answers["aircraft_in_area"] = ("Two aircraft.", [1, 2])
+
+    answer = view.aircraft("Testville")
+
+    assert answer["summary"] == "Two aircraft."
+
+
 def test_a_place_is_required_and_bounded(program, view):
     with pytest.raises(WorldViewError, match="which place"):
         view.aircraft("   ")
