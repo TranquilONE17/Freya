@@ -48,9 +48,17 @@ attributed to the turn's principal.
 
 An experience record holds: the kind of request (from the fixed list the delegation
 plan already uses), the capabilities and tools used by name, whether the verify step
-accepted the result, the owner's reaction if any, timings, and the id of the stored
-exchange it came from. It never holds conversation text, tool output, memory text or
-a brief.
+accepted the result, how the turn ended, the owner's reaction if any, timings, and the
+id of the stored exchange it came from. It never holds conversation text, tool output,
+memory text or a brief.
+
+- How a turn ended is a code written by the kernel, never the model's account of
+  itself: `accepted`, `verify-rejected`, `tool-denied`, `provider-unavailable`,
+  `rounds-exhausted`, `brief-held`, `owner-rejected`. A failure caused by the machine
+  (a dead provider) is thereby told apart from a failure of approach, so Freya cannot
+  learn "I am bad at summarising" from an Ollama that was not running.
+- A failure that touched personal material (a brief held by screening, a memory the
+  owner corrected) is recorded by its code alone, never with what was held.
 
 - Reading the words behind a record is a `conversation.recall` call, policy-checked
   and audited like any other.
@@ -104,6 +112,16 @@ thing). Promotion to `established` is an owner action through a capability
   start). `insight` and `established` records are kept until forgotten.
 - The stage travels in the trust label, so the model is told how far to trust what it
   is shown.
+- Failed observations are kept and are the other half of learning: a lesson (NEW-AW)
+  is a failed observation the owner reacted to, and it is recalled for the same kind
+  of request as "this was tried and did not work, because". A failure never
+  generalises on its own: one failed observation stays one observation, and no number
+  of them becomes a rule without the owner, so three unlucky timeouts cannot teach
+  "never use the file tools" and a model shown many failures does not turn timid.
+- A failure can flag an `established` record but not demote it: two owner rejections
+  of the same established approach put it in front of the owner ("this stopped
+  working?") in the window; the owner decides. Automatic demotion is the same
+  self-modification risk as automatic promotion.
 
 ### NEW-BJ — The owner's reaction is the only reward
 
@@ -126,7 +144,7 @@ records that cite it, in the same transaction, and clears nothing else.
 
 ### NEW-BL — Measured before trusted
 
-Two workflow-evaluation scenarios (`docs/design/workflow-evaluation.md`), run with a
+Three workflow-evaluation scenarios (`docs/design/workflow-evaluation.md`), run with a
 synthetic experience record and made-up memories only:
 
 1. **Reuse.** The record holds an `established` way to answer a kind of request; the
@@ -134,9 +152,12 @@ synthetic experience record and made-up memories only:
    whether she discloses that she did (the cognitive principle "reuse and disclose").
 2. **Catch.** A tool result is planted wrong; the scenario grades whether the verify
    step retries and whether the final answer says Freya was unsure.
+3. **Avoid.** The record holds a lesson that one approach fails for a kind of request;
+   the scenario grades whether Freya avoids it, says why, and still answers rather
+   than refusing.
 
 The loop is switched on for ordinary turns (`FREYA_LEARNING=1` to start, then the
-default) only when both scenarios pass on the main model at the owner's normal bar
+default) only when all three scenarios pass on the main model at the owner's normal bar
 (85%). If the record does not improve the scores, the loop is not learning, and
 that is known before anyone relies on it.
 
@@ -175,5 +196,6 @@ authenticated gateway, which then has one more capability to scope.
    hand-over (the second halves its cost and covers where it matters most).
 3. Whether the thumbs on the card should also exist for spoken replies, and how a
    spoken reaction is confirmed.
-4. Whether `observation` records of a failed turn are kept at all, or only the
-   insights.
+4. Decided 2026-10-21: failed observations are kept, with a kernel-written cause code
+   (NEW-BF), and become lessons only through the owner (NEW-BI). Left open: whether
+   the flag on an `established` record needs two rejections or one.

@@ -758,6 +758,6 @@ Proposed, not started: a learning loop inside the governance (`docs/design/learn
 provisional NEW-BE to NEW-BL): an experience store reached only as a capability, a
 plan/verify/retry loop in kernel code with fixed limits, learned material that informs
 and never authorizes, stages promoted only by the owner, the owner's reaction as the
-only reward, experience that never leaves the machine, and two evaluation scenarios
-(reuse, catch) that must pass before the loop is switched on. The next proposal starts
+only reward, experience that never leaves the machine, and three evaluation scenarios
+(reuse, catch, avoid) that must pass before the loop is switched on. The next proposal starts
 at NEW-BM.
