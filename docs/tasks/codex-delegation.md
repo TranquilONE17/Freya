@@ -103,7 +103,7 @@ Acceptance:
 
 ### C-5 · Audit completeness test (UIA-14)
 
-Status: Ready
+Status: In review — PR #35
 
 Write a test-only PR proving every protected invocation leaves a complete audit trail.
 Use the existing fakes in `tests/conftest.py` and a control plane on a temporary

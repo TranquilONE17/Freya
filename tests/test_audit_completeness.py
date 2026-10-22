@@ -74,12 +74,20 @@ def kinds(rows):
 
 
 def latest_operation(plane, capability):
-    row = plane.store.execute(
-        "SELECT operation_id FROM audit_event WHERE capability = ? "
-        "ORDER BY event_id DESC LIMIT 1",
+    """
+    The one operation recorded for a capability. `ModelToolHost.run`
+    returns only the tool's JSON, so the operation id is found from
+    the log; the test insists there is exactly one dispatch for the
+    capability, so a second, unaudited run inside the host could not
+    hide behind the first.
+    """
+    rows = plane.store.execute(
+        "SELECT DISTINCT operation_id FROM audit_event "
+        "WHERE capability = ? AND kind = 'dispatch'",
         (capability,),
-    ).fetchone()
-    return row["operation_id"]
+    ).fetchall()
+    assert len(rows) == 1, f"expected one dispatch for {capability}, found {len(rows)}"
+    return rows[0]["operation_id"]
 
 
 def run_allowed_cases(plane):
