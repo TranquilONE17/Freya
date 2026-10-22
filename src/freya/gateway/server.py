@@ -97,6 +97,18 @@ def _static(name: str) -> bytes:
     )
 
 
+def _same_secret(given, known) -> bool:
+    """
+    A constant-time comparison that accepts whatever text a client
+    sent: `secrets.compare_digest` refuses non-ASCII strings with an
+    error, which would turn a stray character in a key or cookie into
+    a failed request rather than a refused one.
+    """
+    return secrets.compare_digest(
+        str(given).encode("utf-8"), str(known).encode("utf-8")
+    )
+
+
 def content_security_policy() -> str:
     """
     The page may only load its own files and talk to this server.
@@ -364,7 +376,7 @@ class Gateway:
         with self._lock:
             if scheme == PAIR_SCHEME:
                 for key in self._pairing_keys:
-                    if secrets.compare_digest(value, key):
+                    if _same_secret(value, key):
                         self._pairing_keys.discard(key)
                         session = secrets.token_urlsafe(32)
                         self._native_sessions.add(session)
@@ -372,7 +384,7 @@ class Gateway:
                         return session
             elif scheme == SESSION_SCHEME:
                 for session in self._native_sessions:
-                    if secrets.compare_digest(value, session):
+                    if _same_secret(value, session):
                         return session
 
         return None
@@ -394,7 +406,7 @@ class Gateway:
 
         with self._lock:
             return any(
-                secrets.compare_digest(morsel.value, session)
+                _same_secret(morsel.value, session)
                 for session in self._sessions
             )
 
@@ -495,7 +507,7 @@ class Gateway:
 
         with self._lock:
             valid = any(
-                secrets.compare_digest(key, known)
+                _same_secret(key, known)
                 for known in self._keys
             )
 
