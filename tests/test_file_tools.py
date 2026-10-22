@@ -1,6 +1,7 @@
 import json
 import os
 import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -432,6 +433,7 @@ def test_a_folder_that_has_gone_is_no_longer_open(tmp_path):
 
 # Which folders the owner may open.
 
+@pytest.mark.skipif(sys.platform != "win32", reason="the whole-drive and AppData refusals are Windows rules")
 def test_only_a_real_folder_given_in_full_can_be_opened(tree):
     assert check_readable_folder(str(tree)) == tree.resolve()
     assert check_readable_folder(f'"{tree}"') == tree.resolve()

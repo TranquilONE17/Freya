@@ -176,10 +176,16 @@ def test_only_allowed_variables_reach_the_worker(fake, monkeypatch):
     ask_claude_plan("A brief.", fake.program)
 
     environment = {name.upper() for name in fake.seen()["environment"]}
+    # The fake program is Python, and on Linux the interpreter adds
+    # LC_CTYPE to its own environment at start; Freya did not pass it.
+    environment.discard("LC_CTYPE")
     assert environment <= claude_plan.ENVIRONMENT_ALLOWLIST | set(
         claude_plan.WORKER_SETTINGS
     ) | {claude_plan.GIT_BASH_VARIABLE}
-    assert "USERPROFILE" in environment
+    # The program finds its sign-in through the user's folder, which
+    # Windows names USERPROFILE; elsewhere there is none to pass on.
+    if sys.platform == "win32":
+        assert "USERPROFILE" in environment
     assert set(claude_plan.WORKER_SETTINGS) <= environment
 
 
