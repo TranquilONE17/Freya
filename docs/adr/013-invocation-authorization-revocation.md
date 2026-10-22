@@ -24,8 +24,11 @@ acceptance test is passed by it. Baseline: *Freya Foundation v1.1*, section 22.
   on in the Cloud tab is the owner's act that adds its rule. An authorization is
   serial-keyed, single-use, bound to the brief's hash, two minutes long, and void if
   the owner's settings changed.
-- **Owner decision 2026-10-21:** "Always allow" rules cover provider and material
-  only, never the task kind the model claims.
+- **Standing rules:** "Always allow" rules today are keyed on provider, task kind and
+  ask-first material (`delegation/material.py`), and the task kind is the model's own
+  claim. **Owner decision 2026-10-21** (reconciliation plan; comment on #41): drop the
+  task kind, provider and material only. Not yet built; it goes in with the
+  learning-loop work.
 
 ## Validation owed
 

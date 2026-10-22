@@ -12,7 +12,7 @@ acceptance test is passed by it. Baseline: *Freya Foundation v1.1*, section 22.
 Nothing durable: a turn is synchronous, bounded (three tool rounds, twelve tool
 attempts, one delegation) and lost if Freya stops mid-turn. The only work that
 survives a restart is reconciliation: dispatch rows without an outcome are marked
-`unknown-outcome` at the next start (`AuditLog.reconcile_interrupted`), and usage
+`unknown-outcome` at the next start (`SqliteAuditLog.reconcile_interrupted`, run at start), and usage
 reservations left open age out (#41).
 
 ## Departs from the baseline

@@ -9,7 +9,9 @@ acceptance test is passed by it. Baseline: *Freya Foundation v1.1*, section 22.
 
 ## What the code decided
 
-The only external effect is a cloud send, and it follows the baseline:
+The only effect that leaves the machine is a cloud send, and it follows the baseline.
+Local effects exist (`media.delete` and `media.export` on files, `image.generate`
+writing pictures, `world.show` opening the browser) and are not classified yet:
 
 - Every send has a serial, a brief hash, a ledger reservation and an owner's record
   line (`data/sent_briefs.jsonl`, separate from the audit log) whose outcome is

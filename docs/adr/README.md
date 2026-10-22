@@ -13,11 +13,11 @@ authoritative, the spec follows).
 | ADR | Decision | Built? | First validation owed |
 | --- | --- | --- | --- |
 | [ADR-001](001-freya-core-boundary.md) | Core boundary | As a package convention | Import test for `freya.core` |
-| [ADR-002](002-capability-first-integration.md) | Capability-first integration | Mostly; voice and media tabs bypass the broker | Import-graph test |
+| [ADR-002](002-capability-first-integration.md) | Capability-first integration | Mostly; the voice tab bypasses the broker | Import-graph test |
 | [ADR-003](003-provider-lifecycle-isolation.md) | Provider lifecycle | Yes, in-process | A second provider behind one capability |
 | [ADR-004](004-security-domains-federated-sovereignty.md) | Federated sovereignty | No | Not before a second node |
 | [ADR-005](005-context-authority.md) | Context authority | Yes | Clip test for every model tool |
-| [ADR-006](006-memory-vs-knowledge-vs-session.md) | Memory, knowledge, session | Memory and session; no knowledge | Decide the knowledge path |
+| [ADR-006](006-memory-vs-knowledge-vs-session.md) | Memory, knowledge, session | Memory and session; no knowledge; deletion ledger off | Decide the knowledge path |
 | [ADR-007](007-resource-intelligence-vram-management.md) | VRAM management | Evict-on-demand only | See 016 |
 | [ADR-008](008-model-runtime-independence.md) | Model runtime independence | Ollama + the Claude CLI route | A second local runtime |
 | [ADR-009](009-trusted-runtime-vs-untrusted-execution.md) | Untrusted execution | By not executing | Blocked on 014 |

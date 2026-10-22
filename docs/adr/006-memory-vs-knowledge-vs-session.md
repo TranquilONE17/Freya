@@ -15,8 +15,9 @@ acceptance test is passed by it. Baseline: *Freya Foundation v1.1*, section 22.
 - **Session:** one run of Freya is one conversation; every exchange is kept word for
   word (`memory/conversations.py`) with a summary and an FTS5 search, in the same
   database. The live context folds older exchanges into a summary past 40 messages.
-- **Knowledge:** not built. The owner's reference library (`Documents\Freya Library`)
-  and the design documents are not indexed or retrievable by Freya.
+- **Knowledge:** not built. The owner's reference library (kept on the PC under `Documents\Freya Library`;
+  nothing in the repository refers to it) and the design documents are not indexed or
+  retrievable by Freya.
 
 ## Departs from the baseline
 
@@ -28,4 +29,4 @@ fourth kind.
 
 - A knowledge store, or the decision that the file reader over an opened folder is
   the alpha's knowledge path.
-- MEM-008 (restore-safe deletion) is not met; see ADR-015.
+- MEM-008 (restore-safe deletion): built but not switched on; see ADR-015.

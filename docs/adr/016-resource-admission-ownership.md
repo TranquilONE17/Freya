@@ -9,8 +9,9 @@ acceptance test is passed by it. Baseline: *Freya Foundation v1.1*, section 22.
 
 ## What the code decided
 
-- **Cloud usage:** the usage ledger (`core/usage/ledger.py`) is the single admission
-  authority for cloud routes: atomic reservations under `BEGIN IMMEDIATE`, settled
+- **Cloud usage:** the usage ledger (`core/usage/ledger.py`) is the admission
+  authority for cloud allowances (a provider's own limit notice also holds sends, in
+  memory, through `CloudDelegation.note_limit`): atomic reservations under `BEGIN IMMEDIATE`, settled
   with the provider's figure, marked unknown when the outcome is not known, and since
   #41 a reservation a dead send left open ages out after two hours. A route with no
   limit is refused; a zero cap cannot be overridden.

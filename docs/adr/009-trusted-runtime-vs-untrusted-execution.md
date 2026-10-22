@@ -10,7 +10,7 @@ acceptance test is passed by it. Baseline: *Freya Foundation v1.1*, section 22.
 ## What the code decided
 
 No generated code runs anywhere. The delegation benchmark reads replies and never
-executes them; tasks graded by running code are refused by policy in the design.
+executes them; tasks graded by running code are ruled out by the project's rules (CLAUDE.md).
 `freya.sandbox` defines the contract a sandbox must meet (no network, no host files,
 no credentials, nothing kept, bounded text files and a fixed command list) and
 `code.run` is registered by nothing and in no seed. The developer tools under

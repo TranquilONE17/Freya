@@ -12,16 +12,17 @@ acceptance test is passed by it. Baseline: *Freya Foundation v1.1*, section 22.
 `ProviderRegistry` (`core/providers/registry.py`) holds each provider's start, stop
 and health handlers. A capability is available only while its provider is running and
 healthy; Ollama's health is re-checked when a call is unavailable or fails, and a model
-Ollama would run on its own servers makes the provider unhealthy. Providers with no
-work to do (file reader with no folder open, world view with its program off) report
-unhealthy so their tools are not offered. Heavy engines (Chatterbox, Qwen3-TTS) run as
+Ollama would run on its own servers makes the provider unhealthy. The file reader reports unhealthy with no folder open, so its tools are not offered;
+world view stays healthy but its tools are offered only while its program answers (an
+offer condition, `control_plane.py`). Heavy engines (Chatterbox, Qwen3-TTS) run as
 helper processes in their own environments and stop after five idle minutes.
 
 ## Departs from the baseline
 
 "Isolation" in the baseline includes failure containment. In-process providers share
-Freya's process: a crash or hang in one is Freya's. Only the speech helpers, the
-avatar overlay and ComfyUI run as separate processes.
+Freya's process: a crash or hang in one is Freya's. Separate processes: the speech helpers, the avatar overlay, ComfyUI, the media decode
+worker, the Unreal client, Blender conversions and the Claude plan route; every other
+provider is in-process.
 
 ## Validation owed
 

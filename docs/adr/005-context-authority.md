@@ -22,5 +22,6 @@ decisions are a separate background call.
 
 - Read-time trust downgrade (NEW-AV) and situation-tagged context (NEW-AT) are
   proposals, not built.
-- A test that no tool result exceeds the clip (done for file tools and world view in
-  #41; the rest of the model tools are not covered).
+- A test that no tool result exceeds the clip: done for the file tools and world view
+  (#41), `model.record.read` and `work.delegate`; the system tools,
+  `conversation.recall`, `image.generate` and the media tools are not covered.

@@ -18,8 +18,8 @@ pairs with a single-use key passed in its environment.
 
 ## Departs from the baseline
 
-The page is the canonical GUI in practice: the protocol is shaped by it and
-documented only in code. The Unreal pairing is a prototype the code itself says is
+The page is the canonical GUI in practice: the protocol is shaped by it, and
+documented only as a list of message types in CLAUDE.md, with no schema. The Unreal pairing is a prototype the code itself says is
 not the paired, authenticated client the architecture calls for.
 
 ## Validation owed

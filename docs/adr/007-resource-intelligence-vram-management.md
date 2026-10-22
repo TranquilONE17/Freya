@@ -9,16 +9,18 @@ acceptance test is passed by it. Baseline: *Freya Foundation v1.1*, section 22.
 
 ## What the code decided
 
-`gpu/resource_manager.py` reads what Ollama and ComfyUI have loaded and can unload
-either. Image generation and the large speech engines unload the Ollama models first
-when the card is too full, and only one large speech engine is loaded at a time. The
+`gpu/resource_manager.py` reads what Ollama has loaded and whether ComfyUI is
+answering, and can ask either to unload. Image generation always unloads the Ollama
+models first; a large speech engine does so only when free graphics memory is below
+its fixed estimate (5,000 MB for Chatterbox, 7,000 MB for Qwen3-TTS,
+`speech/setup.py`), and only one large speech engine is loaded at a time. The
 policy (who yields to whom) is Freya's; the unloading is each runtime's own API.
 
 ## Departs from the baseline
 
-There is no placement policy beyond "the newcomer evicts the chat model", no
-estimate of what a load needs before it starts, and no accounting of what other
-programs on the PC hold.
+There is no placement policy beyond "the newcomer evicts the chat model"; images
+have no estimate of what they need; nothing is reserved; and nothing accounts for what
+other programs on the PC hold.
 
 ## Validation owed
 
