@@ -210,6 +210,12 @@ def cloud_window_request(
     except Exception:
         answer["error"] = "That change could not be made."
 
-    answer["state"] = cloud_state(cloud)
+    try:
+        answer["state"] = cloud_state(cloud)
+    except Exception:
+        # The tab must still get its answer, so it can say what it
+        # could not show rather than waiting for ever.
+        answer["state"] = None
+        answer.setdefault("error", "The cloud settings could not be read.")
 
     return answer

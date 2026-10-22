@@ -642,3 +642,34 @@ def test_the_settings_revision_rises_with_each_change_and_is_kept(tmp_path):
 
     assert settings.revision == start + 2
     assert CloudSettings(path).revision == start + 2
+
+
+def test_a_record_that_cannot_be_written_still_settles_the_ledger(h, monkeypatch):
+    brief = h.compose()
+    authorization = h.dispatcher.authorize(brief, ROUTE, "task-1", now=NOW)
+
+    def cannot_write(*args, **kwargs):
+        raise OSError("disk full")
+
+    monkeypatch.setattr(h.sent, "record", cannot_write)
+
+    with pytest.raises(OSError):
+        h.dispatcher.send(authorization, brief.text)
+
+    # The brief left, so it counts at the provider's figure, and the
+    # reservation is not left open to count against every later week.
+    assert h.asked == [brief.text]
+    assert h.used() == 120
+    with pytest.raises(KeyError):
+        h.ledger.settle(authorization.event_id, 1)
+
+
+def test_a_damaged_line_in_the_record_hides_only_itself(h):
+    h.sent.record(VENDOR, ROUTE, "first", "answered")
+    with open(h.sent.path, "a", encoding="utf-8") as output:
+        output.write('{"at": "2026-10-11T0')  # cut short by a power loss
+    with open(h.sent.path, "a", encoding="utf-8") as output:
+        output.write("\n")
+    h.sent.record(VENDOR, ROUTE, "second", "answered")
+
+    assert [e["text"] for e in h.sent.entries()] == ["first", "second"]
