@@ -239,6 +239,23 @@ def test_another_refusal_is_passed_on_in_the_programs_words(program, view):
         view.fires("Testville")
 
 
+def test_a_place_called_key_is_not_mistaken_for_a_missing_key(program, view):
+    program.errors["get_active_fires"] = "No fire data for Key West"
+
+    with pytest.raises(WorldViewError, match="Key West"):
+        view.fires("Testville")
+
+
+def test_a_refusal_is_cut_short_and_cleaned_before_it_is_passed_on(program, view):
+    program.errors["get_active_fires"] = "bad\x1b[31m request " + "x" * 500
+
+    with pytest.raises(WorldViewError) as refusal:
+        view.fires("Testville")
+
+    assert "\x1b" not in str(refusal.value)
+    assert len(str(refusal.value)) < 200
+
+
 def test_a_program_that_is_not_running_is_said_plainly(program, opened):
     view = WorldView(program.url, open_url=opened.append)
     program.stop()
