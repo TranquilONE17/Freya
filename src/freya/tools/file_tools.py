@@ -311,6 +311,15 @@ class FileReader:
 
         with os.scandir(folder) as found:
             for entry in sorted(found, key=lambda item: item.name.lower()):
+                # Past what can be shown, entries are only counted:
+                # resolving each one costs several system calls, and a
+                # folder of a hundred thousand files must not hold the
+                # turn. The count is of names, so it includes any that
+                # would have been withheld.
+                if len(entries) >= MAX_LISTED:
+                    left_out += 1
+                    continue
+
                 try:
                     real = Path(entry.path).resolve(strict=True)
                     is_folder = real.is_dir()
@@ -329,10 +338,6 @@ class FileReader:
                     or is_closed_folder_name(entry.name)
                 ):
                     withheld += 1
-                    continue
-
-                if len(entries) >= MAX_LISTED:
-                    left_out += 1
                     continue
 
                 entries.append(
