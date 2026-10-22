@@ -72,6 +72,10 @@ recall experience → act → verify → accept, or retry once → record. Each 
 broker call under the turn's operation id, so the audit shows the loop, and its
 limits are enforced by code the model cannot argue with.
 
+- The verify step runs on turns that used a tool or a hand-over, not on plain
+  conversation (owner decision, 2026-10-21): that is where a wrong answer comes from,
+  a tool result misread or a cloud answer misused, and plain chat stays as fast as
+  today. A `/verify` command for one reply is a later addition, not part of this.
 - Limits for the alpha: one verify call, one retry, and the existing cap of three tool
   rounds and twelve tool attempts a turn, counted across the retry.
 - The verify step is a fresh model call (the `background` role) given the request and
@@ -105,9 +109,10 @@ thing). Promotion to `established` is an owner action through a capability
 (`experience.promote`, seed `alpha-experience-owner`, reached from the window like
 `cloud.settings.change`), never a side effect of a turn.
 
-- At read time an `established` record older than the owner's window (default 90
-  days, per NEW-AV's open question) is treated as `insight`; the downgrade is never
-  stored.
+- At read time an `established` record last confirmed more than 30 days ago (owner
+  decision, 2026-10-21; the same window answers NEW-AV's open question, to be widened
+  once the tools stop changing weekly) is treated as `insight`; the downgrade is never
+  stored, and the owner re-confirms from the window.
 - `observation` records expire under the existing retention targets (30 days to
   start). `insight` and `established` records are kept until forgotten.
 - The stage travels in the trust label, so the model is told how far to trust what it
@@ -119,8 +124,9 @@ thing). Promotion to `established` is an owner action through a capability
   of them becomes a rule without the owner, so three unlucky timeouts cannot teach
   "never use the file tools" and a model shown many failures does not turn timid.
 - A failure can flag an `established` record but not demote it: two owner rejections
-  of the same established approach put it in front of the owner ("this stopped
-  working?") in the window; the owner decides. Automatic demotion is the same
+  of the same established approach (owner decision, 2026-10-21: one is noise, two is a
+  pattern) put it in front of the owner ("this stopped working?") in the window; the
+  owner decides. Automatic demotion is the same
   self-modification risk as automatic promotion.
 
 ### NEW-BJ — The owner's reaction is the only reward
@@ -131,9 +137,9 @@ turn, or a promotion. The verify step's own verdict is recorded, labelled as the
 model's opinion, and never counts toward "this works".
 
 - Same rule as the model record: measured results, never a model's claim.
-- A reaction is one message, for one exchange, from a window; a spoken "that was
-  right" counts only after a click on the device that heard it (the rule for spoken
-  setting changes).
+- A reaction is one message, for one exchange, from a window, for typed and spoken
+  replies alike (owner decision, 2026-10-21). Nothing said aloud moves a record: voice
+  is not authentication, and more than one person is in the room.
 
 ### NEW-BK — Experience is personal data
 
@@ -188,14 +194,16 @@ is deny-by-default, audited and attributed, like the ones before it.
 This comes after the reconciliation (three weeks from 2026-10-21) and before the
 authenticated gateway, which then has one more capability to scope.
 
-## 5. Open questions for the owner
+## 5. Owner decisions, 2026-10-21
 
-1. The window for `established` records (90 days is OpenRig's; a shorter one is safer
-   while the record is young).
-2. Whether a verify step runs on every turn or only on turns that used a tool or a
-   hand-over (the second halves its cost and covers where it matters most).
-3. Whether the thumbs on the card should also exist for spoken replies, and how a
-   spoken reaction is confirmed.
-4. Decided 2026-10-21: failed observations are kept, with a kernel-written cause code
-   (NEW-BF), and become lessons only through the owner (NEW-BI). Left open: whether
-   the flag on an `established` record needs two rejections or one.
+1. **Trust window: 30 days.** An `established` record is read as `insight` once its
+   last confirmation is older than that; widen when the tools stop changing weekly.
+2. **Verify on tool and hand-over turns only.** Plain conversation is not verified.
+3. **Feedback from the window only.** Thumbs on the card for typed and spoken replies;
+   nothing spoken counts.
+4. **Failed observations are kept**, with a kernel-written cause code, and become
+   lessons only through the owner; **two** rejections flag an established record for
+   the owner's decision.
+
+No question is open. The next ones belong to the build: the exact fields of the record
+(NEW-BF) and the wording of the verify prompt, decided in their pull requests.
