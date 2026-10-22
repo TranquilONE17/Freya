@@ -8,7 +8,7 @@ requirement ID. Nothing here can run code yet: the part that is built is a contr
 and a capability with a stand-in sandbox, registered nowhere.
 
 - Requirements in this document carry provisional labels **NEW-AM to NEW-AR**. They
-  continue from NEW-AL (`freya-to-freya-cooperation.md`) and get final IDs only at
+  continue from NEW-AL (then `freya-to-freya-cooperation.md`, since relabelled NEW-BM to NEW-BV) and get final IDs only at
   reconciliation. No existing requirement or ADR ID is reused.
 - Baseline references (ARCH-, SEC-) are to *Freya Foundation v1.1*.
 

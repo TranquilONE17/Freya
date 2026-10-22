@@ -97,7 +97,7 @@ nobody asked for). Lessons are addressable records (NEW-AS) that the model can b
 pointed at by name, so a correction is one reference instead of a new rule.
 
 - Lessons belong to a principal and are never sent off the machine, by their kind,
-  not by content scanning (consistent with NEW-AG).
+  not by content scanning (consistent with NEW-BQ, `freya-to-freya-cooperation.md`).
 
 ### NEW-AX — Asking whoever did the work
 

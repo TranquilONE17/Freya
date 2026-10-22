@@ -152,7 +152,7 @@ model's opinion, and never counts toward "this works".
 ### NEW-BK — Experience is personal data
 
 Experience records never leave the machine, by kind, not by content scanning
-(consistent with NEW-AG). They are never among the inputs Freya's code offers to
+(consistent with NEW-BQ, `freya-to-freya-cooperation.md`). They are never among the inputs Freya's code offers to
 `work.delegate`. Forgetting a memory or deleting an exchange removes the experience
 records that cite it, in the same transaction, and clears nothing else.
 
