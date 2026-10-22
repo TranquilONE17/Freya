@@ -1,6 +1,7 @@
 import contextlib
 import io
 import sys
+import threading
 from dataclasses import dataclass
 from typing import Callable, Optional
 
@@ -53,18 +54,27 @@ class CommandContext:
 
 class _Both(io.TextIOBase):
     """
-    Writes to two streams at once.
+    Writes to two streams at once: everything to the first, and what
+    the thread that made it writes to the second as well.
+
+    `redirect_stdout` swaps the stream for the whole process, so while
+    a command runs, the listener thread's notices (a wake word heard,
+    the microphone muted) would otherwise be captured too and shown in
+    the chat as the command's answer.
     """
 
     def __init__(self, first, second):
         self._streams = (first, second)
+        self._thread = threading.get_ident()
 
     def writable(self):
         return True
 
     def write(self, text):
-        for stream in self._streams:
-            stream.write(text)
+        self._streams[0].write(text)
+
+        if threading.get_ident() == self._thread:
+            self._streams[1].write(text)
 
         return len(text)
 
