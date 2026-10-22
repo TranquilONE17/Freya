@@ -18,12 +18,13 @@ cloud delegation, the model record, file reading and world view all follow this.
 
 ## Departs from the baseline
 
-`assistant.py`, `conversation_memory.py`, `memory_manager.py` and the evaluation
-runner import `freya.memory` directly; `main.py` imports most packages. The window's
-Voice and Media tabs call their services directly and are not policy-checked or
-audited (CLAUDE.md, "Voice studio").
+`assistant.py`, `conversation_memory.py` and the evaluation runner import
+`freya.memory` directly; `main.py` imports most packages. The window's Voice tab calls
+the voice studio directly and is not policy-checked or audited (CLAUDE.md, "Voice
+studio"); the Media tab's requests are broker calls (`media.*`, granted by
+`python -m freya.media.activate`, not by a seed).
 
 ## Validation owed
 
 - An import-graph test listing the allowed direct imports, so new coupling fails.
-- The voice studio and media services behind capabilities before multi-user.
+- The voice studio behind capabilities before multi-user.
