@@ -123,7 +123,9 @@ Acceptance:
 
 ### C-6 · Merge the two command paths
 
-Status: Taken by Claude at the owner's request (2026-10-21); do not start it.
+Status: In review — PR #39. Started by Claude while splitting `main.py`; the owner
+accepted it on review (2026-10-21). Codex: do not start it. #39 is step one: the
+handlers are shared; the command tables are not yet one.
 
 `main.py`'s loop and `window_commands.py` handle the same slash commands in separate
 code. Plan: one command table both use.
