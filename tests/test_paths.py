@@ -45,7 +45,12 @@ REPORT = (
 
 
 def data_dirs_in_a_fresh_process(override=None):
-    env = {k: v for k, v in os.environ.items() if k != DATA_DIR_VARIABLE}
+    # A developer's own overrides must not make the fresh process agree
+    # for the wrong reason.
+    env = {
+        k: v for k, v in os.environ.items()
+        if k != DATA_DIR_VARIABLE and k != "FREYA_BULK_DIR"
+    }
     if override is not None:
         env[DATA_DIR_VARIABLE] = str(override)
 

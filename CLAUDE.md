@@ -77,7 +77,8 @@ Rules for the spec:
   store lives: the six in `BULK_STORES` follow the owner's setting in
   `data/storage_locations.json`, everything else stays in `data/`. Define a bulk
   store's folder with `store_path(name)`, never `DATA_DIR / name`. It imports
-  nothing from Freya. `src/freya/storage/move.py` copies the bulk stores to another
+  nothing from Freya but `freya.paths`, which itself imports nothing from Freya, so
+  the speech workers and the overlay may still import neither. `src/freya/storage/move.py` copies the bulk stores to another
   drive, checks every file, then switches over; it deletes nothing.
 - `src/freya/media/` — the media library, Jellyfin playback and transcripts
   (`docs/design/media-tools.md`). `src/freya/kernel/context/authority.py` — the
@@ -614,8 +615,10 @@ an editable install.
 - Freya's data is in the repository's `data/` unless `FREYA_DATA_DIR` names another
   folder. `freya.paths.data_dir()` is the one place that decides; a module that keeps
   data defines `DATA_DIR = data_dir()`, never a path of its own (`tests/test_paths.py`
-  checks every such module). Other overrides (`FREYA_BULK_DIR`,
-  `FREYA_AUDIT_CHECKPOINT_PATH` and the rest) still apply on top of it.
+  checks every such module). Set it before Freya starts: each module reads it once
+  at import, so a value set afterwards (in a test, say) moves nothing. Other
+  overrides (`FREYA_BULK_DIR`, `FREYA_AUDIT_CHECKPOINT_PATH` and the rest) still
+  apply on top of it.
 - Requires Ollama on `127.0.0.1:11434` with `qwen3.8:27b` and `nomic-embed-text`.
   `FREYA_MODEL` names another installed model (`gpt-oss:20b` was the main model until
   2026-10-09; see `docs/design/model-benchmarks-2026-10-09.md`). `qwen3.8:27b` uses
