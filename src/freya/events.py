@@ -75,7 +75,7 @@ class EventBus:
 
         with self._lock:
             if event_type in CONVERSATION_EVENTS:
-                self._history.append(event)
+                self._remember(event)
 
             for callback in list(self._subscribers):
                 try:
@@ -84,6 +84,29 @@ class EventBus:
                     self.unsubscribe(callback)
 
         return event
+
+    def _remember(self, event: dict) -> None:
+        """
+        Keep an event for windows that open later. A reply arrives as
+        one chunk per token, and the history is bounded by entries, so
+        the pieces of one reply are kept as one entry (the live event
+        is delivered as it came): otherwise a long reply pushed the
+        question and the start of its own answer out of the history,
+        and a window opening later was shown a reply beginning in the
+        middle.
+        """
+        if (
+            event["type"] == "assistant_chunk"
+            and self._history
+            and self._history[-1]["type"] == "assistant_chunk"
+            and isinstance(event.get("text"), str)
+            and isinstance(self._history[-1].get("text"), str)
+        ):
+            joined = dict(self._history[-1])
+            joined["text"] += event["text"]
+            self._history[-1] = joined
+        else:
+            self._history.append(event)
 
     def history(self) -> List[dict]:
         """
