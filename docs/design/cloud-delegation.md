@@ -220,9 +220,11 @@ to think and how much output it was allowed, so each combination of model, think
 setting and allowances is measured and recorded as its own entry, and the router
 chooses among those entries.
 
-A model counts as measured for a kind once it has at least 15 graded attempts on the
-exact version in use. Writing code is not a kind yet: grading it means running what a
-model wrote, which must wait for the isolation the baseline requires (ARCH-017).
+A model counts as measured for a kind once it has at least 15 attempts on the exact
+version in use; an attempt that got no reply (a timeout, a failed route) counts, and
+counts as a failure, because a worker that often fails to answer is not a reliable
+one. Writing code is not a kind yet: grading it means running what a model wrote,
+which must wait for the isolation the baseline requires (ARCH-017).
 
 The tasks are built: `freya.evaluation.delegation_tasks` holds 91 synthetic tasks, 45 of them marked harder
 and 28 of those the hardest (added 2026-10-10, three or four per kind, once the
