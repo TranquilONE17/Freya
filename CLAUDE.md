@@ -21,7 +21,9 @@ Rules for the spec:
   New proposals carry provisional labels (NEW-x) until reconciliation assigns IDs.
 - ADR-001 to ADR-018 are pending completion and approval. Do not describe any ADR as
   approved, the architecture as frozen, or any acceptance test as passed unless the
-  owner says so.
+  owner says so. `docs/adr/` records, for each, what the code has already decided and
+  what validation is owed ("recorded from implementation"); recording is not approval.
+  Change a file there in the same pull request as code that changes its decision.
 - Agreed decisions (change only with an explicit, justified proposal): Hyper-V as the
   preferred Windows alpha isolation profile (untrusted execution disabled until
   validated); SQLite alpha persistence behind replaceable contracts; loopback
