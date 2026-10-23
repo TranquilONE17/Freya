@@ -764,6 +764,15 @@ provisional NEW-BE to NEW-BL): an experience store reached only as a capability,
 plan/verify/retry loop in kernel code with fixed limits, learned material that informs
 and never authorizes, stages promoted only by the owner, the owner's reaction as the
 only reward, experience that never leaves the machine, and three evaluation scenarios
-(reuse, catch, avoid) that must pass before the loop is switched on. The next proposal starts
-at NEW-BW; `docs/labels.md` is the register, and `tests/test_labels.py` fails on a
+(reuse, catch, avoid) that must pass before the loop is switched on. Superseded in mechanism, kept in rules, by `skill-learning.md`.
+
+Proposed, not started: skills, checks and one gate (`docs/design/skill-learning.md`,
+provisional NEW-BW to NEW-CG): a tested, versioned skill file as the unit of learning;
+deterministic checks before any model verdict; an episode log with graded signals
+where weak signals only demote; candidates drafted nightly on the idle GPU; one
+promotion gate (baseline, held-out cases, rollback) for skills, router retrains, prompt
+changes and model swaps; weekly batch approval by the owner; new tools learned in the
+sandbox before ordinary use; self-coding only as pull requests with a protected core.
+The next proposal starts
+at NEW-CH; `docs/labels.md` is the register, and `tests/test_labels.py` fails on a
 label defined twice or not registered.
