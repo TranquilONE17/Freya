@@ -90,7 +90,15 @@ def model_inventory(model, embedding_model, timeout, background_model=None):
     return inventory
 
 
-def run_trial(scenario, folder, model, embedding_model, request_timeout, background_model=None):
+def run_trial(scenario, folder, model, embedding_model, request_timeout, background_model=None,
+              seed=None, hint_addition=""):
+    """
+    One trial of one scenario. `seed`, when given, is sent with every
+    model request so that two runs differing only in a candidate (the
+    promotion gate's baseline and candidate) sample alike.
+    `hint_addition` is extra text for the tool hint: a prompt change
+    under test.
+    """
     # Imports and mutable runtime configuration belong to the worker.
     import ollama
     from freya.core.assistant import FreyaAssistant
@@ -114,6 +122,8 @@ def run_trial(scenario, folder, model, embedding_model, request_timeout, backgro
 
     def observed_chat(*args, **kwargs):
         model_requests.append({"model": kwargs.get("model"), "stream": kwargs.get("stream", False)})
+        if seed is not None:
+            kwargs["options"] = {**(kwargs.get("options") or {}), "seed": seed}
         return original_chat(*args, **kwargs)
 
     try:
@@ -292,6 +302,8 @@ def run_trial(scenario, folder, model, embedding_model, request_timeout, backgro
 
             recorder = RecordingToolHost(ModelToolHost(registry, broker))
             recorder.hint = recorder.hint + delegation_sentence
+            if hint_addition:
+                recorder.hint = recorder.hint + " " + hint_addition
             assistant = FreyaAssistant(tool_host=recorder, broker=broker)
             registry.register(CapabilityDefinition(
                 name="conversation.recall", provider=SYSTEM_TOOLS_PROVIDER,
@@ -398,6 +410,9 @@ def main(argv=None):
     parser.add_argument("--request-timeout", type=positive_float, default=60)
     parser.add_argument("--output", type=Path, help="New JSON report; existing files are never overwritten.")
     parser.add_argument("--worker", action="store_true", help=argparse.SUPPRESS)
+    # Set by the promotion gate (freya.evaluation.gate) for its workers.
+    parser.add_argument("--seed", type=int, help=argparse.SUPPRESS)
+    parser.add_argument("--hint-file", type=Path, help=argparse.SUPPRESS)
     args = parser.parse_args(argv)
     if args.list:
         for scenario in SCENARIOS:
@@ -410,7 +425,9 @@ def main(argv=None):
     if args.worker:
         with tempfile.TemporaryDirectory(prefix="fixtures-", dir=args.output.parent) as scratch:
             try:
-                result = run_trial(get_scenario(args.scenario[0]), Path(scratch), args.model, args.embedding_model, args.request_timeout, args.background_model)
+                hint = args.hint_file.read_text(encoding="utf-8") if args.hint_file else ""
+                result = run_trial(get_scenario(args.scenario[0]), Path(scratch), args.model, args.embedding_model, args.request_timeout, args.background_model,
+                                   seed=args.seed, hint_addition=hint)
             except Exception as exc:
                 result = {"status": "error", "error": str(exc), "elapsed_seconds": 0}
         args.output.write_text(json.dumps(result, indent=2), encoding="utf-8")

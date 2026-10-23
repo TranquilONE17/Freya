@@ -610,7 +610,14 @@ reply that must pass and one that must fail, and a test checks both.
 
 `python -m freya.evaluation.workflow` runs opt-in local-model evaluations with
 synthetic memory and simulated tools; see `docs/design/workflow-evaluation.md`.
-It never uses the owner's data or live hardware tools. Its four `ability-` scenarios
+It never uses the owner's data or live hardware tools. `python -m freya.evaluation.gate`
+is the promotion gate (NEW-CB) built on it: a hint or model change is run without and
+with the change on the same cases, model, fixtures and seed; only held-out cases
+decide, against the owner's bars, and fewer than 15 attempts is unmeasured. It
+measures and switches nothing on. Keep these rules: a candidate file has no field
+beyond the documented ones; training sources are accepted by provenance only, never
+text that came through a tool (NEW-CG); a partial regression run can never pass.
+The workflow runner's four `ability-` scenarios
 give her a made-up model record and check that she reads it before speaking of her
 own ability, calls unmeasured work unmeasured, and never claims to have sent work
 away.
@@ -773,6 +780,8 @@ where weak signals only demote; candidates drafted nightly on the idle GPU; one
 promotion gate (baseline, held-out cases, rollback) for skills, router retrains, prompt
 changes and model swaps; weekly batch approval by the owner; new tools learned in the
 sandbox before ordinary use; self-coding only as pull requests with a protected core.
+Build step 1 is done: the gate (`freya.evaluation.gate`) for hint and model changes.
+Next: step 2, the skill format, loader and matcher with three skills the owner writes.
 The next proposal starts
 at NEW-CH; `docs/labels.md` is the register, and `tests/test_labels.py` fails on a
 label defined twice or not registered.
