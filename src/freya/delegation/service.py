@@ -556,6 +556,19 @@ def build_turn_delegation(
 
         return result.success
 
+    def add_rule(provider: str, task: str, material: List[str]) -> bool:
+        # Through the same audited capability as the owner's other
+        # changes; the Cloud tab itself cannot ask for this one.
+        result = broker.invoke(
+            CLOUD_SETTINGS_CHANGE,
+            {
+                "action": "rule", "provider": provider,
+                "task": task, "material": list(material),
+            },
+        )
+
+        return result.success
+
     delegation = TurnDelegation(
         cloud,
         control_plane.model_runtime.chat,
@@ -564,6 +577,7 @@ def build_turn_delegation(
         mark_not_private,
         accepts_tool_result,
         measured=cloud.delegation_notes,
+        add_rule=add_rule,
     )
     # So that what Freya reads about herself says whether she can
     # hand work over in this turn.

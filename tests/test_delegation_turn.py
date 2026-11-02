@@ -437,13 +437,120 @@ def test_allow_for_the_conversation_is_not_asked_again(open_rig):
 
 def test_an_answer_the_question_did_not_offer_is_a_denial(open_rig):
     open_rig.begin(messages=EARLIER)
-    open_rig.answers = ["always"]            # 'Allow permanently' is not offered
+    open_rig.answers = ["forever"]
 
     with pytest.raises(DelegationRefused):
         open_rig.delegate("reasoning", "request, turn-1")
 
     assert not open_rig.ran()
-    assert "always" not in [c["id"] for c in open_rig.asked[0]["choices"]]
+    assert "forever" not in [c["id"] for c in open_rig.asked[0]["choices"]]
+    assert open_rig.cloud.settings.rules == []
+
+
+def test_always_allow_makes_a_rule_for_exactly_what_was_shown(open_rig):
+    open_rig.begin(messages=EARLIER)
+    open_rig.answers = ["always"]
+    open_rig.delegate("reasoning", "request, turn-1")
+
+    offered = {c["id"]: c["label"] for c in open_rig.asked[0]["choices"]}
+    rules = open_rig.cloud.settings.rules
+
+    assert "reasoning" in offered["always"] and "conversation" in offered["always"]
+    assert [(r["provider"], r["task"], r["material"]) for r in rules] == [
+        (VENDOR, "reasoning", ["conversation"]),
+    ]
+    assert "cloud.settings.change" in open_rig.audit_text()
+
+    # The same kind of task again goes without asking.
+    open_rig.begin(messages=EARLIER)
+    open_rig.delegate("reasoning", "request, turn-1")
+
+    assert open_rig.kinds_asked() == ["approval"]
+    assert "lighthouse cat" in open_rig.seen()["brief"]
+    assert len(open_rig.cloud.sent.entries()) == 2
+
+    # Another kind of task is not covered and asks.
+    open_rig.begin(messages=EARLIER)
+    open_rig.answers = ["deny"]
+
+    with pytest.raises(DelegationRefused):
+        open_rig.delegate("planning", "request, turn-1")
+
+    assert open_rig.kinds_asked() == ["approval", "approval"]
+
+
+def test_a_rule_still_counts_when_something_else_has_to_be_asked(open_rig):
+    # A rule covers the conversation; the tool result is asked about.
+    # Saying yes to that must not lose what the rule already allowed.
+    open_rig.cloud.settings.add_rule(VENDOR, "reasoning", ["conversation"])
+    turn = open_rig.begin(messages=EARLIER)
+    turn._accepts = lambda tool_name: True
+    assert turn.add_tool_result("system_gpu", '{"made_up_reading": 41}') == "tool-1"
+    open_rig.answers = ["once"]
+
+    open_rig.delegate("reasoning", "request, turn-1, tool-1")
+
+    assert open_rig.kinds_asked() == ["approval"]
+    assert "lighthouse cat" in open_rig.seen()["brief"]
+    assert "made_up_reading" in open_rig.seen()["brief"]
+
+
+def test_a_rule_does_not_cover_a_held_brief_or_a_spoken_turn(open_rig):
+    open_rig.cloud.settings.add_rule(VENDOR, "rewriting", ["conversation"])
+
+    # Screening still holds a brief that matches something private.
+    open_rig.begin(request=HELD_REQUEST, messages=EARLIER)
+    open_rig.answers = ["cancel"]
+
+    with pytest.raises(DelegationRefused):
+        open_rig.delegate("rewriting", "request, turn-1")
+
+    assert open_rig.kinds_asked() == ["hold"]
+    assert not open_rig.ran()
+
+    # A spoken turn is still confirmed with a click.
+    open_rig.begin(messages=EARLIER, origin="voice")
+    open_rig.answers = ["cancel"]
+
+    with pytest.raises(DelegationRefused):
+        open_rig.delegate("rewriting", "request, turn-1")
+
+    assert open_rig.kinds_asked() == ["hold", "confirmation"]
+    assert not open_rig.ran()
+
+
+def test_a_removed_rule_or_a_kind_set_to_never_stops_what_the_rule_allowed(open_rig):
+    rule = open_rig.cloud.settings.add_rule(VENDOR, "reasoning", ["conversation"])
+    open_rig.cloud.settings.set_material("conversation", "never")
+    open_rig.begin(messages=EARLIER)
+    open_rig.delegate("reasoning", "request, turn-1")
+
+    assert "lighthouse cat" not in open_rig.seen()["brief"]
+
+    open_rig.cloud.settings.set_material("conversation", "ask")
+    open_rig.cloud.settings.remove_rule(rule["id"])
+    open_rig.begin(messages=EARLIER)
+    open_rig.answers = ["deny"]
+
+    with pytest.raises(DelegationRefused):
+        open_rig.delegate("reasoning", "request, turn-1")
+
+    assert open_rig.kinds_asked() == ["approval"]
+
+
+def test_a_rule_that_cannot_be_recorded_sends_nothing(open_rig):
+    open_rig.plane.policy.add_rule(
+        "local-owner", "cloud.settings.change", "deny", "test",
+    )
+    open_rig.begin(messages=EARLIER)
+    open_rig.answers = ["always"]
+
+    with pytest.raises(DelegationRefused) as refused:
+        open_rig.delegate("reasoning", "request, turn-1")
+
+    assert "Nothing was sent" in str(refused.value)
+    assert not open_rig.ran()
+    assert open_rig.cloud.settings.rules == []
 
 
 def test_material_set_to_never_cannot_be_released_by_an_answer(open_rig):

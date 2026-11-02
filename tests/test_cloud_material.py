@@ -223,3 +223,120 @@ def test_context_sources_map_to_kinds_and_unknown_ones_to_none():
     assert kind_of_source("conversation-passage") == KIND_PAST_CONVERSATION
     assert kind_of_source("media") == KIND_FILE
     assert kind_of_source("a-source-added-later") is None
+
+
+# Standing rules: the owner's "allow permanently"
+
+
+def test_a_rule_covers_one_provider_one_kind_of_task_and_named_material(settings):
+    rule = settings.add_rule(VENDOR, "reasoning", [KIND_CONVERSATION])
+
+    assert settings.rule_kinds(VENDOR, "reasoning") == {KIND_CONVERSATION}
+    assert settings.rule_kinds(VENDOR, "planning") == frozenset()
+    assert settings.rule_kinds("another-provider", "reasoning") == frozenset()
+    assert settings.rules == [rule]
+    assert rule["material"] == [KIND_CONVERSATION] and rule["id"]
+
+
+def test_rules_are_kept_and_making_one_changes_the_revision(settings):
+    before = settings.revision
+    settings.add_rule(VENDOR, "reasoning", [KIND_CODE, KIND_CONVERSATION])
+
+    again = CloudSettings(settings.path)
+
+    assert again.rules == settings.rules
+    assert again.revision > before
+
+    # The same rule a second time is not a second rule or a change.
+    settings.add_rule(VENDOR, "reasoning", [KIND_CONVERSATION, KIND_CODE])
+
+    assert len(settings.rules) == 1
+    assert settings.revision == again.revision
+
+
+@pytest.mark.parametrize("kind", [KIND_MEMORY, KIND_PAST_CONVERSATION, KIND_REQUEST])
+def test_a_rule_can_only_hold_material_set_to_ask_first(settings, kind):
+    with pytest.raises(ValueError):
+        settings.add_rule(VENDOR, "reasoning", [KIND_CONVERSATION, kind])
+
+    assert settings.rules == []
+
+
+@pytest.mark.parametrize("provider, task, material", [
+    ("", "reasoning", [KIND_CONVERSATION]),
+    (VENDOR, "", [KIND_CONVERSATION]),
+    (VENDOR, "x" * 41, [KIND_CONVERSATION]),
+    (VENDOR, "reasoning", []),
+    (VENDOR, "reasoning", KIND_CONVERSATION),
+    (VENDOR, "reasoning", ["no-such-kind"]),
+    (None, "reasoning", [KIND_CONVERSATION]),
+])
+def test_a_rule_that_is_not_one_is_refused(settings, provider, task, material):
+    with pytest.raises(ValueError):
+        settings.add_rule(provider, task, material)
+
+
+def test_a_rule_never_brings_back_material_later_set_to_never(enabled):
+    enabled.add_rule(VENDOR, "reasoning", [KIND_CONVERSATION, KIND_CODE])
+    enabled.set_material(KIND_CONVERSATION, NEVER)
+
+    covered = enabled.rule_kinds(VENDOR, "reasoning")
+    review = review_brief(brief(), VENDOR, enabled, covered)
+
+    assert covered == {KIND_CODE}
+    assert KIND_CONVERSATION not in [part.kind for part in review.send]
+    assert KIND_CODE in [part.kind for part in review.send]
+
+
+def test_a_removed_rule_covers_nothing(settings):
+    rule = settings.add_rule(VENDOR, "reasoning", [KIND_CONVERSATION])
+    settings.remove_rule(rule["id"])
+
+    assert settings.rules == []
+    assert settings.rule_kinds(VENDOR, "reasoning") == frozenset()
+
+    with pytest.raises(ValueError):
+        settings.remove_rule(rule["id"])
+
+
+def test_stored_rules_that_are_not_understood_are_dropped(settings):
+    good = settings.add_rule(VENDOR, "reasoning", [KIND_CONVERSATION])
+    data = json.loads(settings.path.read_text("utf-8"))
+    data["rules"] += [
+        {"id": "a", "provider": VENDOR, "task": "reasoning", "material": [KIND_MEMORY, "everything"]},
+        {"id": "b", "provider": VENDOR, "task": "reasoning", "material": "conversation"},
+        {"id": "c", "provider": VENDOR, "material": [KIND_CODE]},
+        "allow everything",
+    ]
+    settings.path.write_text(json.dumps(data), "utf-8")
+
+    assert CloudSettings(settings.path).rules == [good]
+
+    data["rules"] = "all of them"
+    settings.path.write_text(json.dumps(data), "utf-8")
+
+    assert CloudSettings(settings.path).rules == []
+
+
+def test_a_change_that_could_not_be_saved_is_not_in_force(enabled, monkeypatch):
+    kept = enabled.add_rule(VENDOR, "planning", [KIND_CODE])
+
+    def broken(*args, **kwargs):
+        raise OSError("the disk is full")
+
+    monkeypatch.setattr("freya.delegation.material.os.replace", broken)
+
+    for change in (
+        lambda: enabled.add_rule(VENDOR, "reasoning", [KIND_CONVERSATION]),
+        lambda: enabled.remove_rule(kept["id"]),
+        lambda: enabled.set_material(KIND_CONVERSATION, ALLOWED),
+        lambda: enabled.set_provider("another-provider", True),
+        lambda: enabled.set_provider(VENDOR, False),
+    ):
+        with pytest.raises(OSError):
+            change()
+
+    assert enabled.rules == [kept]
+    assert enabled.rule_kinds(VENDOR, "reasoning") == frozenset()
+    assert enabled.setting_for(KIND_CONVERSATION) == ASK
+    assert enabled.enabled_providers() == [VENDOR]

@@ -1,7 +1,9 @@
 import json
 import os
+import secrets
 import threading
 from dataclasses import dataclass
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Dict, FrozenSet, List, Optional, Tuple
 
@@ -63,6 +65,43 @@ def kind_of_source(source: str) -> Optional[str]:
     return SOURCE_KINDS.get(source)
 
 
+# A standing rule is the owner's "allow permanently": for one provider
+# and one kind of task, these kinds of ask-first material go without
+# asking. It never reaches a kind set to never, and it is made only by
+# the owner's answer to a prompt that showed exactly what it covers.
+MAX_RULES = 50
+MAX_RULE_WORD = 40
+
+
+def _clean_rule(entry) -> Optional[dict]:
+    """A stored rule if every field is what a rule may hold, else None."""
+    if not isinstance(entry, dict):
+        return None
+
+    words = [entry.get("id"), entry.get("provider"), entry.get("task")]
+    material = entry.get("material")
+
+    if not all(
+        isinstance(word, str) and word.strip() and len(word) <= MAX_RULE_WORD
+        for word in words
+    ):
+        return None
+    if not isinstance(material, list) or not material:
+        return None
+    if not all(kind in KINDS for kind in material):
+        return None
+
+    made = entry.get("made")
+
+    return {
+        "id": words[0],
+        "provider": words[1],
+        "task": words[2],
+        "material": sorted(set(material)),
+        "made": made if isinstance(made, str) else "",
+    }
+
+
 class CloudSettings:
     """
     The owner's choices about delegating work: which cloud providers
@@ -81,6 +120,7 @@ class CloudSettings:
         self._material = dict(DEFAULT_MATERIAL)
         self._providers: Dict[str, bool] = {}
         self._bars = dict(DEFAULT_BARS)
+        self._rules: List[dict] = []
         # Goes up with every change, so that a check made under one
         # set of choices cannot be used after they have changed.
         self._revision = 0
@@ -120,6 +160,33 @@ class CloudSettings:
                 if isinstance(name, str) and enabled is True
             }
 
+        rules = data.get("rules")
+
+        if isinstance(rules, list):
+            # A rule that is not understood is dropped, never guessed at.
+            kept = [_clean_rule(entry) for entry in rules[:MAX_RULES]]
+            self._rules = [rule for rule in kept if rule is not None]
+
+    def _held(self):
+        """The choices as they stand, to go back to if saving fails."""
+        return (
+            dict(self._material), dict(self._providers),
+            dict(self._bars), list(self._rules),
+        )
+
+    def _save_or_undo(self, before):
+        """
+        Save, and if that fails put the choices back as they were. A
+        change the owner was told failed must not be in force anyway:
+        a rule or a switch that was never written would otherwise let
+        work leave until Freya closed.
+        """
+        try:
+            self._save()
+        except Exception:
+            self._material, self._providers, self._bars, self._rules = before
+            raise
+
     def _save(self):
         self._revision += 1
         self.path.parent.mkdir(parents=True, exist_ok=True)
@@ -132,6 +199,7 @@ class CloudSettings:
                     "revision": self._revision,
                     "material": self._material,
                     "providers": self._providers,
+                    "rules": self._rules,
                 },
                 indent=2,
                 sort_keys=True,
@@ -157,8 +225,88 @@ class CloudSettings:
 
         with self._lock:
             if self._material[kind] != setting:
+                before = self._held()
                 self._material[kind] = setting
-                self._save()
+                self._save_or_undo(before)
+
+    @property
+    def rules(self) -> List[dict]:
+        with self._lock:
+            return [dict(rule, material=list(rule["material"])) for rule in self._rules]
+
+    def add_rule(self, provider: str, task: str, material) -> dict:
+        """
+        Record the owner's "allow permanently" for one provider, one
+        kind of task and these kinds of material. Only kinds set to
+        ask first can be in a rule: an allowed kind needs none, and
+        no rule may hold a kind set to never.
+        """
+        for word in (provider, task):
+            if not isinstance(word, str) or not word.strip() or len(word) > MAX_RULE_WORD:
+                raise ValueError("A rule needs a provider and a kind of task.")
+
+        if isinstance(material, str) or not material:
+            raise ValueError("A rule needs the kinds of material it covers.")
+
+        material = sorted(set(material))
+
+        with self._lock:
+            for kind in material:
+                if kind not in KINDS:
+                    raise ValueError(f"Unknown kind of material: {kind!r}")
+                if self._material[kind] != ASK:
+                    raise ValueError(
+                        "A rule can only cover material set to ask first."
+                    )
+
+            for rule in self._rules:
+                if (rule["provider"], rule["task"], rule["material"]) == (
+                    provider, task, material,
+                ):
+                    return dict(rule)
+
+            if len(self._rules) >= MAX_RULES:
+                raise ValueError("There are too many rules; remove one first.")
+
+            rule = {
+                "id": secrets.token_hex(4),
+                "provider": provider,
+                "task": task,
+                "material": material,
+                "made": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+            }
+            before = self._held()
+            self._rules.append(rule)
+            self._save_or_undo(before)
+
+            return dict(rule)
+
+    def remove_rule(self, rule_id: str) -> None:
+        with self._lock:
+            kept = [rule for rule in self._rules if rule["id"] != rule_id]
+
+            if len(kept) == len(self._rules):
+                raise ValueError("That rule could not be found.")
+
+            before = self._held()
+            self._rules = kept
+            self._save_or_undo(before)
+
+    def rule_kinds(self, provider: str, task: str) -> FrozenSet[str]:
+        """
+        The kinds of material the owner's rules let a task of this
+        kind send to this provider without asking. A kind whose
+        setting is no longer ask first is left out: the setting
+        decides, and a rule never brings back a kind set to never.
+        """
+        with self._lock:
+            return frozenset(
+                kind
+                for rule in self._rules
+                if rule["provider"] == provider and rule["task"] == task
+                for kind in rule["material"]
+                if self._material.get(kind) == ASK
+            )
 
     @property
     def revision(self) -> int:
@@ -180,8 +328,9 @@ class CloudSettings:
 
         with self._lock:
             if bars != self._bars:
+                before = self._held()
                 self._bars = bars
-                self._save()
+                self._save_or_undo(before)
 
         return dict(bars)
 
@@ -202,11 +351,12 @@ class CloudSettings:
         with self._lock:
             if self._providers.get(provider, False) == enabled:
                 return
+            before = self._held()
             if enabled:
                 self._providers[provider] = True
             else:
                 del self._providers[provider]
-            self._save()
+            self._save_or_undo(before)
 
 
 @dataclass(frozen=True)

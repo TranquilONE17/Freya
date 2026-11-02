@@ -274,15 +274,21 @@ brief; do not rebuild it.
 
 | Prompt | When | Answers |
 |---|---|---|
-| Approval | Some kinds are set to ask first | Allow once · Allow for this conversation · Deny |
+| Approval | Some kinds are set to ask first | Allow once · Allow for this conversation · Always allow for this kind of task · Deny |
 | Confirmation | The turn was spoken | Send · Cancel |
 | Hold | Screening matched the personal store | Send once anyway · This is not private · Cancel |
 | Limit | The ledger says ask | Go over this once · Cancel |
 
 - *Allow for this conversation* is kept in memory until Freya closes and covers only
   the kinds shown, for that provider.
-- *Allow permanently* is in the design but **not in this version**: it needs standing
-  rules, which are not built. Do not show the option.
+- *Always allow* (the design's "allow permanently") makes a standing rule for exactly
+  what the prompt showed: that provider, that kind of task, and the ask-first kinds of
+  material named in the answer's own label. It is recorded through
+  `cloud.settings.change`, so it is audited; the Cloud tab lists rules and can remove
+  one but cannot make one. A rule never covers material set to never, a brief that
+  screening holds, or the click a spoken turn needs. *Not built:* the design gives
+  each rule a usage limit of its own; today a rule is bounded only by the route's
+  weekly allowance and its daily pacing.
 - The hold prompt lists what matched (`ScreeningResult.matches`: the phrase and how it
   matched). If any match is always-private, show no "send anyway" and no "not
   private": only Cancel, with the reason.

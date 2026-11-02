@@ -135,6 +135,34 @@
     });
   }
 
+  function showRules(rules) {
+    const box = byId("rules");
+    box.replaceChildren();
+    if (!rules.length) {
+      box.append(node("li", "panel-note", "Nothing here."));
+      return;
+    }
+    rules.forEach((rule) => {
+      const row = node("li");
+      const about = node("div", "about");
+      about.append(node(
+        "span", "said",
+        rule.task + " tasks may send " + (rule.material || []).join(", ") +
+          " to " + rule.provider,
+      ));
+      about.append(node(
+        "span", "panel-note", String(rule.made || "").slice(0, 10),
+      ));
+      const remove = node("button", "ghost", "Remove");
+      remove.type = "button";
+      remove.addEventListener("click", () => {
+        ask("unrule", {id: rule.id});
+      });
+      row.append(about, remove);
+      box.append(row);
+    });
+  }
+
   function showSent(sent) {
     const box = byId("sent");
     box.replaceChildren();
@@ -161,6 +189,7 @@
     showMaterial(state.material || [], state.settings || []);
     showBars(state.bars || {});
     showCorrections(state.corrections || {});
+    showRules(Array.isArray(state.rules) ? state.rules : []);
     const count = Number(state.sent_count) || 0;
     byId("sent-count").textContent =
       count === 1 ? "1 brief" : count + " briefs";
