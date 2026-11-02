@@ -44,6 +44,16 @@ class LocalCodingAgentTests(unittest.TestCase):
             (root / "data_model.py").write_text("pass", encoding="utf-8")
             self.assertEqual(selected_source(root, "data_model.py"), "pass")
 
+    def test_crlf_source_is_refused_rather_than_silently_normalised(self):
+        # A normalised read would let an LF patch pass the applicability
+        # check against the copy and be marked verified, while failing
+        # on the real CRLF file.
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / "windows.py").write_bytes(b"x = 1\r\ny = 2\r\n")
+            with self.assertRaisesRegex(ValueError, "carriage returns"):
+                selected_source(root, "windows.py")
+
 
 if __name__ == "__main__":
     unittest.main()

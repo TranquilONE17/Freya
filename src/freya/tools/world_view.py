@@ -76,7 +76,10 @@ MAX_ROWS = 10
 MAX_TEXT_CHARACTERS = 300
 MAX_PLACE_CHARACTERS = 200
 
-MAX_ANSWER_CHARACTERS = 6_000
+# The context clips a tool result at 2,400 bytes
+# (`ContextAuthority.fit_tools`), and a clipped answer is no longer
+# valid JSON, so an answer is kept under that as encoded.
+MAX_ANSWER_CHARACTERS = 2_200
 
 # The layers a view can turn on: the word Freya's model uses, and the
 # name God's Eye View knows the layer by.
@@ -158,7 +161,7 @@ def _fit(build):
     for rows in (MAX_ROWS, 5, 2):
         answer = build(rows)
 
-        if len(json.dumps(answer, default=str)) <= MAX_ANSWER_CHARACTERS:
+        if len(json.dumps(answer, default=str).encode("utf-8")) <= MAX_ANSWER_CHARACTERS:
             return answer
 
     answer = build(0)
@@ -307,6 +310,10 @@ class WorldView:
             try:
                 data = json.loads(texts[1]) if len(texts) > 1 else {}
             except ValueError:
+                data = {}
+            # The program's text is untrusted: valid JSON that is not
+            # an object is treated as no details, not as a crash.
+            if not isinstance(data, dict):
                 data = {}
 
         return {"summary": summary, "data": data}

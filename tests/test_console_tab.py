@@ -176,6 +176,35 @@ def test_mute_interrupt_and_window(context, bus):
     assert notices(bus)[-1] == "Freya's window is open."
 
 
+def test_another_threads_output_is_not_shown_as_the_commands_answer(context, bus, capsys):
+    import threading
+
+    # The listener thread prints while a command runs (a wake word
+    # heard, the microphone muted). That line belongs to the console,
+    # not to the chat as the command's answer.
+    started = threading.Event()
+    printed = threading.Event()
+
+    def listener():
+        started.wait(5)
+        print("My window closed, so I have muted the microphone.")
+        printed.set()
+
+    class Voice:
+        def interrupt(self):
+            started.set()
+            printed.wait(5)
+
+    context.voice = Voice()
+    other = threading.Thread(target=listener)
+    other.start()
+    run_window_command("/interrupt", context)
+    other.join(5)
+
+    assert notices(bus) == ["Speech playback interrupted."]
+    assert "muted the microphone" in capsys.readouterr().out
+
+
 def test_image_command_runs_generation_without_a_chat_notice(context, bus):
     run_window_command("/image a red fox in snow", context)
     run_window_command("/image", context)

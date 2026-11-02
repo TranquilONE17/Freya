@@ -115,11 +115,29 @@ class SentBriefs:
                 os.fsync(output.fileno())
 
     def entries(self) -> List[dict]:
+        """
+        The record, oldest first. A line that cannot be read (a write
+        cut short by a power loss leaves a partial last line) is left
+        out rather than hiding the whole record.
+        """
         try:
             lines = self.path.read_text(encoding="utf-8").splitlines()
         except OSError:
             return []
-        return [json.loads(line) for line in lines if line.strip()]
+
+        found = []
+
+        for line in lines:
+            if not line.strip():
+                continue
+            try:
+                entry = json.loads(line)
+            except ValueError:
+                continue
+            if isinstance(entry, dict):
+                found.append(entry)
+
+        return found
 
 
 class Dispatcher:
@@ -398,11 +416,16 @@ class Dispatcher:
             reply = route.ask(text)
         except Exception as exc:
             if getattr(exc, "sent", True):
-                # It may have left, and what it used is not known.
-                self._sent.record(
-                    route.provider, route.route_id, text, "outcome unknown",
-                )
-                self._ledger.mark_unknown(authorization.event_id)
+                # It may have left, and what it used is not known. The
+                # owner's record comes first, but a record that cannot
+                # be written (a full disk) must not leave the
+                # reservation open, so the ledger is settled either way.
+                try:
+                    self._sent.record(
+                        route.provider, route.route_id, text, "outcome unknown",
+                    )
+                finally:
+                    self._ledger.mark_unknown(authorization.event_id)
             else:
                 self._release(authorization)
             raise
@@ -412,16 +435,18 @@ class Dispatcher:
             self.take_permit(text)
 
         # The owner's record comes first: it must exist even if the
-        # accounting below goes wrong.
-        self._sent.record(route.provider, route.route_id, text, "answered")
+        # accounting below goes wrong, and the accounting happens even
+        # if the record cannot be written.
+        try:
+            self._sent.record(route.provider, route.route_id, text, "answered")
+        finally:
+            used = getattr(reply, "tokens", None)
 
-        used = getattr(reply, "tokens", None)
-
-        if isinstance(used, int) and not isinstance(used, bool) and used > 0:
-            self._ledger.settle(authorization.event_id, used)
-        else:
-            # No usable figure came back, so the estimate stands.
-            self._ledger.mark_unknown(authorization.event_id)
+            if isinstance(used, int) and not isinstance(used, bool) and used > 0:
+                self._ledger.settle(authorization.event_id, used)
+            else:
+                # No usable figure came back, so the estimate stands.
+                self._ledger.mark_unknown(authorization.event_id)
 
         if self._on_reply is not None:
             try:
