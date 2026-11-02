@@ -102,10 +102,14 @@ class ControlStore:
     This is deliberately a separate database from the memory store.
     The durability settings (WAL journal, synchronous=FULL) are a
     provisional alpha choice.
+
+    Another small store that wants the same handling passes its own
+    migrations and path; it never shares a file with this one.
     """
 
-    def __init__(self, path=CONTROL_DATABASE_PATH):
+    def __init__(self, path=CONTROL_DATABASE_PATH, migrations=None):
         self.path = Path(path)
+        self._migrations = migrations
         self.path.parent.mkdir(parents=True, exist_ok=True)
 
         self._lock = threading.RLock()
@@ -123,6 +127,12 @@ class ControlStore:
         self._migrate()
 
     def _migrate(self):
+        migrations = (
+            self._migrations
+            if self._migrations is not None
+            else MIGRATIONS
+        )
+
         with self.transaction() as connection:
             connection.execute(
                 "CREATE TABLE IF NOT EXISTS schema_version "
@@ -133,15 +143,15 @@ class ControlStore:
             ).fetchone()
             current = row[0] or 0
 
-            if current > len(MIGRATIONS):
+            if current > len(migrations):
                 raise RuntimeError(
                     "Control database schema version "
                     f"{current} is newer than this code supports."
                 )
 
-            for version in range(current + 1, len(MIGRATIONS) + 1):
+            for version in range(current + 1, len(migrations) + 1):
                 for statement in _split_statements(
-                    MIGRATIONS[version - 1]
+                    migrations[version - 1]
                 ):
                     connection.execute(statement)
                 connection.execute(

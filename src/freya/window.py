@@ -63,6 +63,12 @@ class WindowActions:
     # Returns what the tab should now show.
     memory_request: Callable[[dict], dict] = lambda message: {}
 
+    # The Cloud tab: the owner's choices about cloud models. Returns
+    # what the tab should now show.
+    cloud_request: Callable[[dict], dict] = lambda message: {
+        "error": "Cloud settings are unavailable.",
+    }
+
     # The Avatar tab: its current state, and a request made from it
     # (which returns the new state and an error message, if any).
     media_request: Callable[[dict], dict] = lambda message: {"error": "Media is unavailable."}

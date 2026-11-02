@@ -172,6 +172,10 @@ function showEvent(event) {
       memoryResult(event);
       break;
 
+    case "cloud":
+      window.dispatchEvent(new CustomEvent("freya-cloud", {detail: event}));
+      break;
+
     case "status":
       showStatus(event.status);
       break;

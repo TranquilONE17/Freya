@@ -10,6 +10,7 @@ import threading
 
 from freya.core.assistant import FreyaAssistant
 
+from freya.core.model_runtime import ROLE_BACKGROUND
 from freya.core.model_runtime import ModelRuntimeUnavailable
 
 from freya.gpu.resource_manager import GPUResourceManager
@@ -17,7 +18,10 @@ from freya.gpu.resource_manager import GPUResourceManager
 from freya.image.image_generator import FreyaImageGenerator
 
 from freya.control_plane import build_local_control_plane
+from freya.delegation.service import build_cloud_delegation
+from freya.storage.backup import back_up_on_close
 from freya.config import OPEN_WINDOW, MODEL
+from freya.config import COMFYUI_AT_START
 from freya.hands_free import LISTENING_COMMANDS
 from freya.hands_free import describe_listening
 from freya.hands_free import handle_listening_command
@@ -1031,6 +1035,21 @@ def main(window_only=False):
 
     ).start()
 
+    # ComfyUI is started now, beside the model warm-up, so the first
+    # picture does not wait a minute for it. It loads no image model
+    # until a picture is asked for.
+    if COMFYUI_AT_START:
+
+        threading.Thread(
+
+            target=control_plane.start_image_backend_early,
+
+            name="FreyaImageBackendStart",
+
+            daemon=True,
+
+        ).start()
+
 
 
     freya = FreyaAssistant(
@@ -1040,6 +1059,33 @@ def main(window_only=False):
         broker=control_plane.broker,
 
     )
+
+    # The owner's cloud settings and the one gate a brief could leave
+    # by. Assembling it sends nothing and allows nothing: no provider
+    # is switched on, no policy rule allows a cloud route, and no
+    # route has a usage limit until the owner sets them. Nothing in a
+    # turn uses it yet; this is here so the Cloud tab works.
+    try:
+
+        cloud = build_cloud_delegation(
+
+            control_plane,
+
+            lambda: [
+
+                (row[0], row[3])
+
+                for row in freya.memory.get_all_memories()
+
+            ],
+
+        )
+
+    except Exception as exc:
+
+        cloud = None
+
+        print(f"Cloud settings are unavailable: {exc}")
 
     voice = FreyaVoice()
 
@@ -1469,7 +1515,10 @@ def main(window_only=False):
 
     def media_chat(messages):
         with gate.turn():
-            return control_plane.model_runtime.chat(messages)
+            return control_plane.model_runtime.chat(
+                messages,
+                role=ROLE_BACKGROUND,
+            )
 
     media = None
     try:
@@ -1566,6 +1615,11 @@ def main(window_only=False):
             set_muted=mute_from_window,
 
             memory_request=memory_from_window,
+
+            **(
+                {"cloud_request": cloud.window_request}
+                if cloud is not None else {}
+            ),
 
             client_closed=client_closed,
 
@@ -2243,6 +2297,19 @@ def main(window_only=False):
         console_output.uninstall()
 
         voice.shutdown()
+
+        # Copy the databases and settings to the other drive. It runs
+        # beside the rest of closing and is given a short time: a slow
+        # or missing drive must not keep Freya from closing.
+        backing_up = threading.Thread(target=back_up_on_close, daemon=True)
+
+        backing_up.start()
+
+        backing_up.join(timeout=20)
+
+        if cloud is not None:
+
+            cloud.close()
 
         control_plane.close()
 

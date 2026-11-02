@@ -35,7 +35,12 @@ Rules for the spec:
 - `src/freya/control_plane.py` — assembles providers, capabilities, policy, audit, and
   the broker for the single-workstation alpha.
 - `src/freya/providers/model/ollama.py` — the `ollama-local` provider and its
-  `llm.chat`, `llm.chat_stream`, and `llm.embed` capabilities.
+  `llm.chat`, `llm.chat_stream`, and `llm.embed` capabilities. Every chat request is
+  given the configured context size unless it names its own, because Ollama reloads a
+  model (several seconds) whenever the size differs from the request before. Its client is pinned to
+  `127.0.0.1` and ignores `OLLAMA_HOST` and proxies, and a model that Ollama would run
+  on its own servers makes the provider unhealthy: full context goes here, so "local"
+  must be true.
 - `src/freya/core/` — `assistant.py`, `llm.py` (memory prompts; model calls go through
   `model_runtime.py`, which asks the broker),
   `capabilities/` (CapabilityRegistry, CapabilityBroker), `providers/`
@@ -56,6 +61,30 @@ Rules for the spec:
   seed in `control_plane.py`. Its description is what the model chooses by, so say
   what it returns and when to prefer a neighbouring tool.
 - `src/freya/gpu/resource_manager.py` — Ollama/ComfyUI VRAM handoff.
+- `src/freya/host_checks.py` — read-only checks of this PC whose result is told to the
+  owner at startup. Today: Windows Smart App Control, which when on blocks unsigned
+  libraries (ComfyUI's, PyTorch's, the voice engines') with no exception possible.
+  It only reads the registry; never add code that changes a Windows security setting.
+- `src/freya/storage/placement.py` — lists every store under `data/` with what it
+  needs from a drive and reports where each would best live (SSD or hard disk, by
+  type, not letter). It reads sizes only and moves nothing; see
+  `docs/design/storage-placement.md`. A store added under `data/` must be added to
+  `DATA_KINDS`; a test checks. `src/freya/storage/backup.py` copies the databases
+  (with SQLite's backup) and settings to a dated folder on another drive and refuses
+  the same drive; it never moves or deletes. Freya runs it as she closes, beside the rest of
+  closing and for at most 20 seconds, unless one was made in the last hour
+  (`FREYA_BACKUP=0` turns it off). `src/freya/storage/locations.py` says where a
+  store lives: the six in `BULK_STORES` follow the owner's setting in
+  `data/storage_locations.json`, everything else stays in `data/`. Define a bulk
+  store's folder with `store_path(name)`, never `DATA_DIR / name`. It imports
+  nothing from Freya. `src/freya/storage/move.py` copies the bulk stores to another
+  drive, checks every file, then switches over; it deletes nothing.
+- `src/freya/media/` — the media library, Jellyfin playback and transcripts
+  (`docs/design/media-tools.md`). `src/freya/kernel/context/authority.py` — the
+  context budget and labelled sources every reply is built from
+  (`docs/design/context-system.md`). `src/freya/child_environment.py` — the
+  environment given to programs Freya starts, with credential-named variables removed.
+  `src/freya/unreal_client.py` — pairing and speech relay for the paused Unreal window.
 - `src/freya/voice/` — faster-whisper STT, Kokoro TTS, `wake.py` (deciding whether a
   heard sentence is addressed to Freya), `listener.py` (utterance segmenting, the
   attention window, and the background listener thread).
@@ -87,13 +116,17 @@ Rules for the spec:
   speaks).
   `src/freya/turn_gate.py` — lets one turn run at a time, typed or spoken.
 - `src/freya/image/` — ComfyUI client. `src/freya/providers/image/comfyui.py` — the
-  `comfyui-local` provider. When an image is requested and ComfyUI is not answering,
+  `comfyui-local` provider. As Freya comes online (unless `FREYA_COMFYUI_AT_START=0`),
+  and again whenever an image is requested and ComfyUI is not answering,
   Freya runs the ComfyUI server that Comfy Desktop installed, directly and with no
   window (the Desktop app waits for a click before starting its server), using the
   app's own model-path config and shared input/output folders. Output goes to
   `data/comfyui_server.log`. Freya stops that server when she exits, and a Windows job
   object ends it if her process dies without a normal exit; she never stops a ComfyUI
-  the owner started. `FREYA_COMFYUI_COMMAND` overrides how it is started. The
+  the owner started. `FREYA_COMFYUI_COMMAND` overrides how it is started. Starting it loads no image model; ComfyUI loads one at the first picture. Both
+  starts take `ControlPlane.image_start_lock`, so two servers are never launched. A
+  failed start says why when the server's log does (`failure_reason`), for example
+  when Windows Smart App Control blocks one of ComfyUI's files. The
   paths inside Comfy Desktop's install are discovered, not documented by its vendor, so
   an app update could move them. Image generation itself still calls ComfyUI directly,
   not through the broker.
@@ -110,6 +143,101 @@ the control plane must be built before `FreyaAssistant`. Still calling their bac
 directly: Whisper, Kokoro, ComfyUI, the memory store, the GPU manager's Ollama unload,
 and the startup model warm-up. `CapabilityDefinition` is far smaller than the
 baseline's capability schema; its `destructive`/`requires_gpu` flags are interim.
+
+Model roles: a caller of `ModelRuntime` names a role, not a model. `conversation` is
+Freya's own replies; `background` is the unseen work around a turn (memory decisions,
+comparing and ranking memories, summaries, media summaries). Both use `MODEL` unless
+`FREYA_BACKGROUND_MODEL` names another installed Ollama model. Only then are
+`llm.background.chat` and `llm.background.chat_stream` registered and allowed (policy
+seed `alpha-model-background`), so each model's use is separately audited, and both
+models are checked for health and warmed. There is no cloud route yet: sending anything
+to an outside model is escalation under ESC-001 to ESC-006 and needs its own provider,
+a deny-by-default capability, and an owner decision first.
+
+Usage ledger: `freya.core.usage.UsageLedger` records what each route (one way of
+reaching one model) has used and decides whether more fits: go, ask the owner, wait
+for a reset, or refuse. Limits are per call, per task, or per period; a period longer
+than a day is paced across the days left, counted back from the provider's reset. A
+route with no limit recorded is refused, and a zero cap cannot be overridden. It lives
+in its own database, `data/freya_usage.db`, through `ControlStore(path,
+USAGE_MIGRATIONS)`. Nothing calls it yet; the design it serves is
+`docs/design/cloud-delegation.md`, a proposal that is not adopted.
+
+Cloud material settings: `freya.delegation` holds the owner's choices about cloud
+models in `data/cloud_settings.json` (`CloudSettings`): which providers are switched
+on (all off to start) and, for each kind of material, allowed, ask first, or never.
+`review_brief` sorts a brief's labelled parts by those settings and describes what a
+provider would receive without showing the text. Keep these properties: a damaged
+file means the strict defaults; a part of unknown kind never leaves; an approval
+cannot release a kind set to never; nothing is sendable to a provider that is off.
+Nothing sends a brief yet.
+
+Composing and sending briefs: the main model, which sees memories, never writes a
+cloud brief. It returns a plan in a fixed form (`compose.parse_plan`: a kind and value
+from fixed lists, an urgent flag, ids of inputs Freya's code offered); a plan with any
+other field is refused, so there is no room for prose. `compose_brief` sorts the
+chosen inputs by the owner's settings and shows only the cleared parts to the brief
+writer, a fresh model call; code assembles the final text. `dispatch.Dispatcher` is
+the only place a brief may leave from: `authorize` checks the provider switch, the
+material sorting, screening and the ledger and reserves usage; `send` takes only an
+authorization it issued, for that exact text (by hash), once, within two minutes,
+with unchanged settings, then settles the ledger and appends to the owner's record
+`data/sent_briefs.jsonl` (personal data, never the audit log). `authorize` trusts nothing a composed brief says about itself: it sorts the
+parts again and requires the text to equal what they assemble to. The plan's value
+and urgent flag are suggestions; the caller passes the owner's. Do not add a prose
+field to the plan, do not show the writer anything not cleared to leave, and do not
+call a route's `ask` from anywhere but the dispatcher (the Claude capability must take
+the send's one permit, `Dispatcher.take_permit`). `service.build_cloud_delegation` assembles
+them on a control plane and registers `anthropic-plan`; a brief then goes dispatcher,
+broker, route. Three locks only the owner opens each stop a brief alone: the
+provider's switch, a policy rule for `cloud.anthropic_plan.ask` (never put it in a
+seed), and a usage limit for the route. Freya's startup assembles it so the
+Cloud tab works; no turn uses it. The tab (`gateway/static/cloud.js`, message type
+`cloud`, `delegation/window_requests.py`) changes the owner's cloud settings through
+the `cloud.settings.change` capability (seed `alpha-cloud-settings`), so each change
+is audited without its content; its answers go only to the asking window. Switching a
+provider on in the tab unlocks it (owner decision): the switch, the policy rule for
+its route (reason `SWITCH_REASON`, removed again when switched off) and a starting
+weekly allowance. The tab must never be able to send a brief or write any other
+policy rule.
+
+Brief screening: `freya.delegation.screening.screen_brief` compares a brief bound for
+a cloud model with (id, text) pairs from the personal store and returns what matched;
+any match holds the brief. `Corrections` (`data/screening_corrections.json`) holds the
+owner's "not private" and "always private" phrases and memories. Keep these rules:
+always-private wins over not-private; a not-private entry clears one phrase or one
+memory, never a kind; a damaged file means no corrections; entries are made only by
+the owner. It is a filter, not a guarantee, and a test records a paraphrase that
+passes so nobody claims otherwise. Tests use made-up memories only. Nothing calls it
+yet.
+
+Model record: `freya.delegation.record.ModelRecord` keeps, in
+`data/model_record.json`, what evaluation reports measured for each entry (a route, a
+model and its settings together) by kind of task: counts and timings only. `choose`
+picks the least costly allowed entry whose measured pass rate reaches the owner's bar
+for the task's value (`CloudSettings.bars`, 70/85/95% to start). Keep these rules:
+only measured results count, never a model's own claim; fewer than 15 graded attempts
+is unmeasured; an unmeasured entry is used only when no measured one qualifies and is
+labelled so; when every candidate is measured and none qualifies, nothing is chosen.
+Nothing calls `choose` yet.
+
+Claude plan route: `providers/model/claude_plan.py` sends one brief to Claude by
+running the owner's own signed-in Claude Code program (`claude.exe` from the desktop
+app, found directly, never through the `.cmd` launcher; `FREYA_CLAUDE` overrides) and
+returns the reply as untrusted text with its token counts. Keep these rules: the brief
+goes in on standard input and never as an argument; the fixed arguments ask for a
+worker with no tools, none of the owner's customisations, and no saved session (these
+are requests to the vendor's program, not containment); it runs in an empty temporary
+folder and is given only the variables in `ENVIRONMENT_ALLOWLIST`, never Freya's whole
+environment; before sending it asks the program how it is signed in and refuses
+anything but a Claude subscription served by Anthropic; Freya never reads the
+program's sign-in files; the vendor's error text goes in `PlanRouteError.detail`,
+never in the message, because the message reaches the audit log; never add a
+`--dangerously-` flag. `ask_claude_plan` sends whatever it is given: do not register
+the route in the control plane until one sending boundary checks every brief. The provider
+`anthropic-plan` and capability `cloud.anthropic_plan.ask` exist but are not
+registered by `build_local_control_plane`, are in no policy seed, and are not model
+tools. Nothing calls the route yet. Tests use a fake program.
 
 Model tool calling: `FreyaAssistant.respond_stream` offers the model the capabilities
 whose metadata has `model_tool: True` (never destructive ones) using the model's native
@@ -311,6 +439,14 @@ administrator. SQLite durability settings are provisional pending ADR-015; each 
 invocation currently costs roughly 30–60 ms in synchronous writes. Default policy rules
 are applied once per named seed (`policy_seed` table), so removed rules stay removed.
 
+`python -m freya.evaluation.delegation` measures a model on 63 synthetic delegated
+tasks in eight kinds (`evaluation/delegation_tasks.py`), each with a deterministic
+check. It runs an installed Ollama model, or Claude on the owner's plan with
+`--claude-plan`, which is refused without `--owner-approved-cloud-run` because it
+sends the tasks to the vendor and uses allowance. Replies are read, never executed;
+do not add a task that is graded by running what a model wrote. Every task carries a
+reply that must pass and one that must fail, and a test checks both.
+
 `python -m freya.evaluation.workflow` runs opt-in local-model evaluations with
 synthetic memory and simulated tools; see `docs/design/workflow-evaluation.md`.
 It never uses the owner's data or live hardware tools.
@@ -327,7 +463,10 @@ name matching, the listener, and the listening commands, using a fake Ollama cli
 - `freya` is an installable package (src layout) and imports are absolute
   (e.g. `from freya.core.llm import ...`). It is installed in `.venv` in editable mode;
   run it from any directory with `freya` or `python -m freya`.
-- Requires Ollama on `127.0.0.1:11434` with `gpt-oss:20b` and `nomic-embed-text`.
+- Requires Ollama on `127.0.0.1:11434` with `qwen3.8:27b` and `nomic-embed-text`.
+  `FREYA_MODEL` names another installed model (`gpt-oss:20b` was the main model until
+  2026-10-09; see `docs/design/model-benchmarks-2026-10-09.md`). `qwen3.8:27b` uses
+  about 19 GB of video memory at the 16,384-token context, against about 13 GB.
   Image generation requires ComfyUI on `127.0.0.1:8188`.
 - Direct dependencies are declared in `pyproject.toml`; `uv.lock` pins the full resolved
   set for Windows and Linux (Python 3.12). After changing dependencies, run `uv lock`
@@ -393,6 +532,29 @@ which blocks the network and Claude's settings folder: in the Codex app the owne
 approves that command each time. Do not widen the sandbox to cover `~/.claude` (it
 holds Claude's sign-in) and do not put a bypass flag in a script to avoid the
 approval.
+
+## Working with Antigravity
+
+Google's Antigravity command-line program (`agy`, signed in on the owner's Google
+account; it replaced Gemini CLI, which no longer serves personal accounts) is a second
+helper, called through `scripts/agy.ps1`. It also reads `AGENTS.md`. Codex stays the
+reviewer before a pull request and the helper for coding side tasks. Use Antigravity
+for a second opinion from a different vendor's model, or a read-and-report question
+over many files:
+
+    "<question>" | scripts/agy.ps1 -C <worktree>          (asked to read and advise only)
+    "<task>"     | scripts/agy.ps1 -C <worktree> -Edit    (may edit files there)
+
+Limits: `agy` reads and writes files in the folder it is started in without asking,
+and everything it reads is sent to Google. So it is only ever started in a git
+worktree outside this folder (the script refuses a folder holding `data`), and text
+from `data/` never goes in a prompt. Never pass `--dangerously-skip-permissions`, and
+do not add allow rules to its settings (`~/.gemini/antigravity-cli/settings.json`) to
+let it run commands: those are owner actions. It cannot run shell commands, so it
+cannot run the tests; run them yourself on anything it wrote. Without `-Edit` it is
+only asked not to change files, which is a request, not containment; the script
+reports any file that changed. It does not commit, push, or open pull requests, and
+its answers are advice to verify, as Codex's are.
 
 ## Next planned work (alpha step 1)
 

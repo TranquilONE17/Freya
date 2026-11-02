@@ -1,7 +1,11 @@
 import json
 import re
 
-from freya.core.model_runtime import get_model_runtime
+from freya.core.model_runtime import (
+    ROLE_BACKGROUND,
+    ROLE_CONVERSATION,
+    get_model_runtime,
+)
 
 
 ALLOWED_MEMORY_TYPES = {
@@ -23,9 +27,11 @@ ALLOWED_MEMORY_RELATIONSHIPS = {
 }
 
 
-def chat(messages, options=None):
+def chat(messages, options=None, role=ROLE_CONVERSATION):
     return get_model_runtime().chat(
-        messages, **({"options": options} if options is not None else {})
+        messages,
+        role=role,
+        **({"options": options} if options is not None else {}),
     )
 
 
@@ -101,7 +107,8 @@ What was said after that:
                 "role": "user",
                 "content": prompt,
             }
-        ]
+        ],
+        role=ROLE_BACKGROUND,
     )
 
     return " ".join(str(result or "").split())[:MAX_SUMMARY_CHARACTERS]
@@ -272,6 +279,7 @@ User message:
                 "content": prompt,
             }
         ],
+        role=ROLE_BACKGROUND,
         format="json",
     ).strip()
 
@@ -377,6 +385,7 @@ Original memory:
                 "content": prompt,
             }
         ],
+        role=ROLE_BACKGROUND,
         format="json",
     ).strip()
 
@@ -504,6 +513,7 @@ Content: {memory_b["content"]}
                 "content": prompt,
             }
         ],
+        role=ROLE_BACKGROUND,
         format="json",
     ).strip()
 
@@ -661,6 +671,7 @@ Candidate memories:
                 "content": prompt,
             }
         ],
+        role=ROLE_BACKGROUND,
         format="json",
     ).strip()
 

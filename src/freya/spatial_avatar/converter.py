@@ -6,6 +6,7 @@ import subprocess
 import tempfile
 import zipfile
 from pathlib import Path
+from freya.storage.locations import store_path
 from typing import Callable, List, Optional
 
 import psutil
@@ -19,7 +20,7 @@ from freya.spatial_avatar.sources import (
 
 
 DATA_DIR = Path(__file__).resolve().parents[3] / "data"
-WORK_DIR = DATA_DIR / "avatar_work"
+WORK_DIR = store_path("avatar_work")
 SCRIPTS_DIR = Path(__file__).resolve().parent / "blender"
 
 INSPECT_TIMEOUT_SECONDS = 300

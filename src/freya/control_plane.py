@@ -1,9 +1,13 @@
-from dataclasses import dataclass
+import threading
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import List
 
+from freya import host_checks
 from freya.config import AUDIT_CHECKPOINT_PATH
+from freya.config import BACKGROUND_MODEL
 from freya.config import COMFYUI_COMMAND
+from freya.config import CONTEXT_WINDOW_TOKENS
 from freya.config import EMBEDDING_MODEL
 from freya.config import MODEL
 from freya.core.audit import (
@@ -27,6 +31,8 @@ from freya.core.policy import (
     seed_alpha_policy,
 )
 from freya.core.model_runtime import (
+    LLM_BACKGROUND_CHAT,
+    ROLE_BACKGROUND,
     ModelRuntime,
     configure_model_runtime,
 )
@@ -46,6 +52,7 @@ from freya.providers.image.comfyui import (
     create_comfyui_provider,
 )
 from freya.providers.model.ollama import (
+    OLLAMA_BACKGROUND_CAPABILITIES,
     OLLAMA_CAPABILITIES,
     OLLAMA_PROVIDER,
     create_ollama_provider,
@@ -87,6 +94,47 @@ class ControlPlane:
     audit_startup: AuditStartup
     model_runtime: ModelRuntime
     model_tools: ModelToolHost
+    # ComfyUI is started from more than one place (as Freya comes
+    # online, and when a picture is asked for). Only one may start it
+    # at a time, or two servers would be launched.
+    image_start_lock: threading.Lock = field(
+        default_factory=threading.Lock, repr=False, compare=False,
+    )
+
+    def start_image_backend_early(self, announce=print) -> bool:
+        """
+        Start ComfyUI as Freya comes online, so the first picture
+        does not wait for it. Returns whether it is now running.
+
+        Only a server Freya can start without a window is started
+        this way, and no image model is loaded: ComfyUI loads one
+        when a picture is first asked for. A failure is announced
+        once, with the reason, and is not an error: the next request
+        for a picture tries again.
+        """
+        provider = self.providers.get(COMFYUI_PROVIDER)
+
+        if not (provider.metadata["can_start"] and provider.metadata["headless"]):
+            return False
+
+        with self.image_start_lock:
+            self.providers.check_health(COMFYUI_PROVIDER)
+
+            if self.providers.get(COMFYUI_PROVIDER).health == ProviderHealth.HEALTHY:
+                self.providers.set_state(COMFYUI_PROVIDER, ProviderState.RUNNING)
+                return True
+
+            result = self.providers.start(COMFYUI_PROVIDER)
+
+            if not result.success:
+                announce(
+                    "Freya: I could not start ComfyUI, so I cannot make "
+                    f"pictures yet. {result.error}"
+                )
+                return False
+
+            self.providers.check_health(COMFYUI_PROVIDER)
+            return True
 
     def warm_models(self) -> None:
         """
@@ -97,6 +145,8 @@ class ControlPlane:
         warm_ollama_models(
             metadata["chat_model"],
             metadata["embedding_model"],
+            metadata["background_model"],
+            metadata["context_tokens"],
         )
 
     def register_image_generation(self, generate) -> None:
@@ -277,6 +327,10 @@ class ControlPlane:
         Make sure ComfyUI is running, starting it if needed. Raises
         RuntimeError when it is not running and cannot be started.
         """
+        with self.image_start_lock:
+            self._ensure_image_backend(announce)
+
+    def _ensure_image_backend(self, announce) -> None:
         self.providers.check_health(COMFYUI_PROVIDER)
         provider = self.providers.get(COMFYUI_PROVIDER)
 
@@ -326,7 +380,7 @@ class ControlPlane:
         elif health != ProviderHealth.HEALTHY:
             messages.append(
                 "Ollama is running but a required model is not "
-                "installed. Freya cannot reply until both models "
+                "installed. Freya cannot reply until all her models "
                 "are available."
             )
 
@@ -350,6 +404,11 @@ class ControlPlane:
                 f"Audit: {self.audit_startup.reconciled} interrupted "
                 "operation(s) were recorded as unknown-outcome."
             )
+
+        # Things about this PC that can quietly stop her tools working.
+        messages.extend(
+            host_checks.startup_warnings(host_checks._read_smart_app_control)
+        )
 
         return messages
 
@@ -381,7 +440,11 @@ def build_local_control_plane(
     providers.start(SYSTEM_TOOLS_PROVIDER)
     providers.check_health(SYSTEM_TOOLS_PROVIDER)
 
-    providers.register(create_ollama_provider(MODEL, EMBEDDING_MODEL))
+    providers.register(
+        create_ollama_provider(
+            MODEL, EMBEDDING_MODEL, BACKGROUND_MODEL, CONTEXT_WINDOW_TOKENS,
+        )
+    )
     providers.start(OLLAMA_PROVIDER)
     providers.check_health(OLLAMA_PROVIDER)
 
@@ -395,7 +458,14 @@ def build_local_control_plane(
 
     capabilities = CapabilityRegistry(providers)
     register_system_tools(capabilities)
-    register_ollama_capabilities(capabilities, MODEL, EMBEDDING_MODEL)
+    register_ollama_capabilities(
+        capabilities,
+        MODEL,
+        EMBEDDING_MODEL,
+        BACKGROUND_MODEL,
+        CONTEXT_WINDOW_TOKENS,
+    )
+    own_background = capabilities.get(LLM_BACKGROUND_CHAT) is not None
 
     policy = SqlitePolicyEngine(store)
     seed_alpha_policy(
@@ -424,6 +494,13 @@ def build_local_control_plane(
         LOCAL_OWNER.actor,
         OLLAMA_CAPABILITIES,
     )
+    if own_background:
+        seed_alpha_policy(
+            policy,
+            "alpha-model-background",
+            LOCAL_OWNER.actor,
+            OLLAMA_BACKGROUND_CAPABILITIES,
+        )
 
     sink = (
         FileCheckpointSink(checkpoint_path)
@@ -445,6 +522,11 @@ def build_local_control_plane(
     model_runtime = ModelRuntime(
         broker,
         refresh_health=lambda: providers.check_health(OLLAMA_PROVIDER),
+        routes=(
+            {ROLE_BACKGROUND: tuple(OLLAMA_BACKGROUND_CAPABILITIES)}
+            if own_background
+            else None
+        ),
     )
     configure_model_runtime(model_runtime)
 

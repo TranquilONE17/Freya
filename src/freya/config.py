@@ -1,8 +1,17 @@
 import os
 
 
-MODEL = "gpt-oss:20b"
+# Freya's main model. Chosen on 2026-10-09 from the measurements in
+# docs/design/model-benchmarks-2026-10-09.md. FREYA_MODEL names another
+# installed Ollama model, for example gpt-oss:20b, the model before it.
+MODEL = os.environ.get("FREYA_MODEL") or "qwen3.8:27b"
 EMBEDDING_MODEL = "nomic-embed-text"
+
+# The model for the unseen work around a turn: deciding what to
+# remember, comparing and ranking memories, and writing summaries.
+# Unset means the same model as Freya's replies, so nothing changes
+# until the owner points this role at another installed model.
+BACKGROUND_MODEL = os.environ.get("FREYA_BACKGROUND_MODEL") or MODEL
 
 # Context capacity is an explicit per-request model setting. These do
 # not alter Ollama's system-wide settings or the owner's configuration.
@@ -25,6 +34,12 @@ OPEN_WINDOW = os.environ.get("FREYA_WINDOW", "1") != "0"
 COMFYUI_COMMAND = os.environ.get(
     "FREYA_COMFYUI_COMMAND"
 ) or None
+
+# Whether Freya starts the ComfyUI server as she comes online, so the
+# first image does not wait for it. No image model is loaded until a
+# picture is asked for. Set FREYA_COMFYUI_AT_START=0 to start it only
+# when a picture is first asked for.
+COMFYUI_AT_START = os.environ.get("FREYA_COMFYUI_AT_START", "1") != "0"
 
 # LibreHardwareMonitor's web server on this machine, which supplies
 # temperatures, fan speeds, and other sensor readings.
