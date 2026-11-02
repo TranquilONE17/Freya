@@ -11,6 +11,7 @@ from typing import List, Optional
 
 import psutil
 
+from freya.child_environment import child_environment
 from freya.core.providers import (
     ProviderDefinition,
     ProviderHealth,
@@ -306,6 +307,7 @@ def _launch(plan: LaunchPlan, log_path=None):
             stdin=subprocess.DEVNULL,
             stdout=output,
             stderr=subprocess.STDOUT,
+            env=child_environment(),
             creationflags=flags,
             close_fds=True,
         )

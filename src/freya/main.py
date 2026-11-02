@@ -17,7 +17,7 @@ from freya.gpu.resource_manager import GPUResourceManager
 from freya.image.image_generator import FreyaImageGenerator
 
 from freya.control_plane import build_local_control_plane
-from freya.config import OPEN_WINDOW
+from freya.config import OPEN_WINDOW, MODEL
 from freya.hands_free import LISTENING_COMMANDS
 from freya.hands_free import describe_listening
 from freya.hands_free import handle_listening_command
@@ -30,13 +30,16 @@ from freya.image.gallery import ImageGallery
 from freya.window import WINDOW_COMMAND
 from freya.window import FreyaWindow
 from freya.window import WindowActions
+from freya.media.setup import build_media_service
 from freya.window import build_status
+from freya.unreal_client import UnrealClient, configured_client
 from freya.console_tee import ConsoleOutput
 from freya.window_commands import CommandContext
 from freya.window_commands import run_window_command
 from freya.speech.setup import build_voice_studio
 
 from freya.spatial_avatar.service import AvatarService
+from freya.media.service import MEDIA_CAPABILITIES
 
 from freya.core.capabilities import LOCAL_OWNER
 from freya.single_instance import claim as claim_single_instance
@@ -1034,6 +1037,8 @@ def main(window_only=False):
 
         tool_host=control_plane.model_tools,
 
+        broker=control_plane.broker,
+
     )
 
     voice = FreyaVoice()
@@ -1113,7 +1118,7 @@ def main(window_only=False):
 
     print("Freya online.")
 
-    print("Voice: enabled")
+    print("Voice: enabled" if voice.enabled else "Voice: unavailable (text chat ready)")
 
     print("Streaming: enabled")
 
@@ -1251,6 +1256,8 @@ def main(window_only=False):
 
             control_plane,
 
+            voice=voice,
+
         )
 
 
@@ -1282,6 +1289,32 @@ def main(window_only=False):
 
 
         publish_status()
+
+
+
+    def client_closed(kind):
+
+        # The Unreal window has gone. Freya keeps running, but with
+
+        # the microphone muted, so it is never open with nothing on
+
+        # screen to show it. It stays muted until the owner unmutes.
+
+        if kind == "native" and listener is not None and listener.running:
+
+            if not listener.muted:
+
+                listener.mute()
+
+                print(
+
+                    "\nFreya: My window closed, so I have muted the "
+
+                    "microphone. Use /unmute to turn it back on."
+
+                )
+
+            publish_status()
 
 
 
@@ -1434,6 +1467,37 @@ def main(window_only=False):
     )
 
 
+    def media_chat(messages):
+        with gate.turn():
+            return control_plane.model_runtime.chat(messages)
+
+    media = None
+    try:
+        media = build_media_service(
+            control_plane.broker,
+            chat=media_chat,
+            model_name=MODEL,
+            speech_model=lambda: stt if stt is not None else None,
+            admission=gate.turn,
+            permissions=lambda: {
+                name: control_plane.policy.decide(LOCAL_OWNER.actor, name).allow
+                for name in MEDIA_CAPABILITIES
+            },
+        )
+        control_plane.register_media(media)
+        # Asked only while the owner has enabled it; otherwise every turn
+        # would make a refused request and tell the model about it.
+        freya.media_recall = lambda query: (
+            control_plane.broker.invoke("media.recall", query=query)
+            if control_plane.policy.decide(LOCAL_OWNER.actor, "media.recall").allow
+            else None
+        )
+    except Exception:
+        if media is not None:
+            media.stop()
+            media = None
+        print("Media could not start; chat remains available. See the media setup guide.")
+
     def command_from_window(text):
 
         with gate.turn():
@@ -1503,6 +1567,8 @@ def main(window_only=False):
 
             memory_request=memory_from_window,
 
+            client_closed=client_closed,
+
             set_volume=volume_from_window,
 
             interrupt=voice.interrupt,
@@ -1519,6 +1585,10 @@ def main(window_only=False):
 
             voice_clip=voice_studio.clips.read,
 
+            media_request=media.handle if media else (lambda message: {"error": "Media is unavailable."}),
+            media_stream=media.stream if media else (lambda ticket, header: None),
+            media_download=media.download if media else (lambda identifier, kind: None),
+
             avatar_state=avatar.describe,
 
             avatar_request=avatar.handle,
@@ -1529,7 +1599,31 @@ def main(window_only=False):
 
     )
 
+    unreal = None
+
+
+
     if window.start():
+
+        # A client that asks to may play her voice in her place.
+
+        voice.remote_playback = window.speech
+
+        program = configured_client()
+
+
+
+        if program is not None:
+
+            unreal = UnrealClient(program)
+
+
+
+            if unreal.launch(window.port, window.new_pairing_key()):
+
+                print("Freya's Unreal window is starting.")
+
+
 
         if OPEN_WINDOW or window_only:
 
@@ -2098,6 +2192,8 @@ def main(window_only=False):
 
         finished = window.stop()
 
+        finished = (media.stop() if media else True) and finished
+
         finished = gate.drain(SHUTDOWN_WAIT_SECONDS) and finished
 
         if listener is not None:
@@ -2137,6 +2233,12 @@ def main(window_only=False):
         # remembered, so she comes back next time if she was.
 
         avatar.stop()
+
+        if unreal is not None:
+
+            unreal.stop()
+
+
 
         console_output.uninstall()
 

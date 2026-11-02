@@ -4,6 +4,11 @@ import os
 MODEL = "gpt-oss:20b"
 EMBEDDING_MODEL = "nomic-embed-text"
 
+# Context capacity is an explicit per-request model setting. These do
+# not alter Ollama's system-wide settings or the owner's configuration.
+CONTEXT_WINDOW_TOKENS = int(os.environ.get("FREYA_CONTEXT_WINDOW_TOKENS", "16384"))
+CONTEXT_OUTPUT_TOKENS = int(os.environ.get("FREYA_CONTEXT_OUTPUT_TOKENS", "2048"))
+
 # File that receives audit-log checkpoints. It only makes tampering
 # detectable when it is somewhere this machine cannot rewrite, such as
 # an append-only share on another host. Unset means local checkpoints only.
