@@ -303,7 +303,16 @@ untrusted content (a web page, a file, a tool result) cannot widen what it sends
 
 Voice: a spoken request can propose cloud work, including work a standing rule covers.
 It is held until the owner clicks the confirmation in the window. Speech never
-confirms, changes a rule, changes a setting, or raises a cap.
+confirms, and by itself never changes a rule, changes a setting, or raises a cap.
+
+A spoken request may *ask* for a setting to be changed (owner decision, 2026-10-11).
+A confirmation then appears on the device that recorded the request, and the change is
+made only when the owner chooses it there. Today the only microphone is this PC's, so
+the prompt appears in its window; when other devices can listen, the prompt must go to
+the one that heard the request and to no other. Built so far: a spoken request that
+says "urgent", "high priority" or "low priority" (or "value") offers that choice in the
+confirmation prompt a spoken hand-over always shows. Not built: changing any other
+setting by voice, which needs a tool with its own permission first.
 
 ## Limits and pacing
 

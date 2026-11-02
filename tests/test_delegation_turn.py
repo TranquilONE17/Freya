@@ -1258,3 +1258,153 @@ def test_an_optional_argument_may_be_left_out_or_empty_but_is_still_checked():
         validate_arguments(rules, {"kind": "a", "inputs": "x" * 11})
     with pytest.raises(ToolArgumentError):
         validate_arguments(rules, {"kind": "a", "inputs": 5})
+
+
+# How much the work matters: the owner's to say ---------------------------
+
+
+def passed_on(rig):
+    """Record the value and urgency each brief is authorized with."""
+    seen = []
+    real = rig.cloud.dispatcher.authorize
+
+    def watching(*args, **kwargs):
+        seen.append((kwargs["value"], kwargs["urgent"]))
+        return real(*args, **kwargs)
+
+    rig.cloud.dispatcher.authorize = watching
+
+    return seen
+
+
+def test_the_owners_choice_in_the_window_is_used_for_one_message(open_rig):
+    seen = passed_on(open_rig)
+    open_rig.delegation.set_next("high", True, REQUEST)
+    open_rig.begin(origin="window")
+    open_rig.delegate()
+
+    open_rig.begin(origin="window")
+    open_rig.delegate()
+
+    assert seen == [("high", True), ("normal", False)]
+
+
+def test_a_choice_is_used_only_for_the_message_it_was_made_for(open_rig):
+    # The message it was for never became a turn here (an image
+    # request does not). The next message must not inherit it.
+    seen = passed_on(open_rig)
+    open_rig.delegation.set_next("high", True, "draw a made-up cat")
+    open_rig.begin(origin="window")
+    open_rig.delegate()
+
+    assert seen == [("normal", False)]
+
+
+def test_a_spoken_turn_that_starts_first_leaves_the_choice_for_its_message(open_rig):
+    seen = passed_on(open_rig)
+    open_rig.delegation.set_next("high", False, REQUEST)
+    open_rig.begin(origin="voice")
+    open_rig.answers = ["send"]
+    open_rig.delegate()
+
+    open_rig.begin(origin="window")
+    open_rig.delegate()
+
+    assert seen == [("normal", False), ("high", False)]
+
+
+def test_a_choice_made_in_the_window_is_not_used_by_another_kind_of_turn(open_rig):
+    seen = passed_on(open_rig)
+    open_rig.delegation.set_next("high", True, REQUEST)
+    open_rig.begin(origin="typed")
+    open_rig.delegate()
+
+    assert seen == [("normal", False)]
+
+
+@pytest.mark.parametrize("value, urgent", [
+    ("highest", False), ("", False), (None, False), ("high", "yes"), ("high", 1),
+])
+def test_a_choice_that_is_not_one_is_refused(rig, value, urgent):
+    with pytest.raises(ValueError):
+        rig.delegation.set_next(value, urgent, REQUEST)
+
+    for text in ("", "   ", None, 7):
+        with pytest.raises(ValueError):
+            rig.delegation.set_next("high", False, text)
+
+
+def test_spoken_words_about_urgency_count_only_after_a_click(open_rig):
+    from freya.delegation.turn import SEND_AS_SAID
+
+    seen = passed_on(open_rig)
+    spoken = "This is urgent. " + REQUEST
+
+    open_rig.begin(request=spoken, origin="voice")
+    open_rig.answers = ["send"]
+    open_rig.delegate()
+    choices = {c["id"]: c["label"] for c in open_rig.asked[0]["choices"]}
+
+    assert choices[SEND_AS_SAID] == "Send as urgent"
+    assert choices["send"] == "Send as normal"
+    assert "only counts if you choose it" in open_rig.asked[0]["reason"]
+
+    open_rig.begin(request=spoken, origin="voice")
+    open_rig.answers = [SEND_AS_SAID]
+    open_rig.delegate()
+
+    assert seen == [("normal", False), ("normal", True)]
+
+
+def test_send_as_normal_undoes_an_earlier_click_in_the_same_turn(open_rig):
+    # As if a first attempt had been confirmed as urgent and then
+    # stopped by a later check: the second click, for normal, decides.
+    seen = passed_on(open_rig)
+    turn = open_rig.begin(request="This is urgent. " + REQUEST, origin="voice")
+    turn.value, turn.urgent = turn.said
+    open_rig.answers = ["send"]
+    open_rig.delegate()
+
+    assert seen == [("normal", False)]
+
+
+def test_a_spoken_request_that_asks_for_nothing_is_offered_nothing(open_rig):
+    from freya.delegation.turn import SEND_AS_SAID
+
+    seen = passed_on(open_rig)
+    open_rig.begin(origin="voice")
+    open_rig.answers = [SEND_AS_SAID]        # not offered, so it is a no
+
+    with pytest.raises(DelegationRefused):
+        open_rig.delegate()
+
+    assert [c["id"] for c in open_rig.asked[0]["choices"]] == ["send", "cancel"]
+    assert seen == [] and not open_rig.ran()
+
+
+def test_the_same_words_typed_change_nothing(open_rig):
+    seen = passed_on(open_rig)
+    open_rig.begin(request="This is urgent and top priority. " + REQUEST, origin="window")
+    open_rig.delegate()
+
+    assert seen == [("normal", False)]
+    assert open_rig.asked == []
+
+
+@pytest.mark.parametrize("sentence, expected", [
+    ("Freya, this is urgent, check the sums", ("normal", True)),
+    ("I need this urgently", ("normal", True)),
+    ("Treat this as high priority", ("high", False)),
+    ("This is top-priority and urgent", ("high", True)),
+    ("Low priority, but have a look", ("low", False)),
+    ("a low value task", ("low", False)),
+    ("Is this high priority or low priority?", None),
+    ("What is the most important point here?", None),
+    ("Check the sums", None),
+    ("", None),
+    (None, None),
+])
+def test_only_plain_words_about_value_are_taken_as_asking(sentence, expected):
+    from freya.delegation.turn import said_value
+
+    assert said_value(sentence) == expected

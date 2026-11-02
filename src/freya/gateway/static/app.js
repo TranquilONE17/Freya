@@ -233,6 +233,33 @@ function isQuitWord(text) {
   return word === "exit" || word === "quit";
 }
 
+// How much the next message matters for cloud work, when the owner
+// set it to something other than the usual. It is sent just ahead of
+// the message, on the same connection and naming the message it is
+// for, and the controls go back to normal so that a choice is never
+// carried over by accident.
+let cloudValueRequests = 0;
+
+function sendCloudValue(text) {
+  const value = document.getElementById("chat-value");
+  const urgent = document.getElementById("chat-urgent");
+
+  if (!value || !urgent) return;
+  if (value.value === "normal" && !urgent.checked) return;
+
+  cloudValueRequests += 1;
+  send({
+    type: "cloud",
+    action: "next",
+    request: "v" + cloudValueRequests,
+    value: value.value,
+    urgent: urgent.checked,
+    text,
+  });
+  value.value = "normal";
+  urgent.checked = false;
+}
+
 // Typed text is a message for Freya unless it starts with a slash, in
 // which case it is one of her commands. Opening the Console tab is the
 // one command handled here in the window.
@@ -242,6 +269,7 @@ function submitText(text) {
   }
 
   if (!isCommand(text)) {
+    sendCloudValue(text);
     return send({ type: "say", text });
   }
 

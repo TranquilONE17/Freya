@@ -1,11 +1,12 @@
 import json
+import re
 import threading
 import uuid
 from typing import Callable, Dict, FrozenSet, List, Optional, Sequence, Tuple
 
 from freya.core.model_runtime import ROLE_BACKGROUND
 from freya.core.usage import ASK as VERDICT_ASK
-from freya.core.usage import VALUE_NORMAL
+from freya.core.usage import VALUE_HIGH, VALUE_LOW, VALUE_NORMAL
 from freya.delegation.compose import (
     TASK_KINDS,
     AvailableInput,
@@ -57,6 +58,46 @@ ALLOW_CONVERSATION = "conversation"
 ALLOW_ALWAYS = "always"
 DENY = "deny"
 SEND = "send"
+SEND_AS_SAID = "send_as_said"
+
+# How much a piece of work matters is the owner's to say, never a
+# model's. In the window it is set beside the chat box for the next
+# message. A spoken request can ask for it in these words; that is a
+# request to change a setting, so it counts only after a click on the
+# prompt shown on the device that heard it (owner decision,
+# 2026-10-11). The words are looked for in the owner's own transcribed
+# sentence by this code, not by a model.
+TASK_VALUES = (VALUE_LOW, VALUE_NORMAL, VALUE_HIGH)
+_SAID_URGENT = re.compile(r"(?i)\burgent(?:ly)?\b")
+_SAID_HIGH = re.compile(r"(?i)\b(?:high|top)[- ](?:value|priority)\b")
+_SAID_LOW = re.compile(r"(?i)\blow[- ](?:value|priority)\b")
+
+
+def said_value(text) -> Optional[Tuple[str, bool]]:
+    """The value and urgency a spoken sentence asks for, or None."""
+    if not isinstance(text, str):
+        return None
+
+    urgent = bool(_SAID_URGENT.search(text))
+    high, low = bool(_SAID_HIGH.search(text)), bool(_SAID_LOW.search(text))
+
+    if high and low:
+        # It says both, so it says neither.
+        high = low = False
+
+    if not (urgent or high or low):
+        return None
+
+    return (VALUE_HIGH if high else VALUE_LOW if low else VALUE_NORMAL), urgent
+
+
+def value_words(value: str, urgent: bool) -> str:
+    words = [] if value == VALUE_NORMAL else [f"{value} value"]
+
+    if urgent:
+        words.append("urgent")
+
+    return " and ".join(words) or "normal"
 SEND_ANYWAY = "send_anyway"
 NOT_PRIVATE = "not_private"
 EXCEED = "exceed"
@@ -155,6 +196,11 @@ class DelegationTurn:
         self.declined = False
         # What the record says about the kind of work being handed over.
         self.measured: List[str] = []
+        # How much this work matters, as the owner set it.
+        self.value = VALUE_NORMAL
+        self.urgent = False
+        # What a spoken request asked for, waiting for a click.
+        self.said: Optional[Tuple[str, bool]] = None
 
     @property
     def inputs(self) -> Tuple[AvailableInput, ...]:
@@ -318,8 +364,26 @@ class TurnDelegation:
         # Kinds the owner allowed for the rest of this conversation,
         # by provider. They are kept in memory only.
         self._approved: Dict[str, FrozenSet[str]] = {}
+        self._next: Optional[Tuple[str, bool, str]] = None
 
     # -- the turn --------------------------------------------------
+
+    def set_next(self, value, urgent, text) -> None:
+        """
+        The owner's choice, made in the window, for one message typed
+        there, which is named by its text. It is used for that message
+        and no other: a message that never becomes a turn here (an
+        image request, say) must not pass its choice to the next one.
+        """
+        if value not in TASK_VALUES:
+            raise ValueError("The value is low, normal or high.")
+        if not isinstance(urgent, bool):
+            raise ValueError("Urgent is either on or off.")
+        if not isinstance(text, str) or not text.strip():
+            raise ValueError("The choice needs the message it is for.")
+
+        with self._lock:
+            self._next = (value, urgent, text.strip())
 
     def begin_turn(self, user_input: str, messages, origin: str) -> DelegationTurn:
         turn = DelegationTurn(
@@ -329,7 +393,20 @@ class TurnDelegation:
         )
 
         with self._lock:
+            chosen = None
+
+            if origin == ORIGIN_WINDOW:
+                # Only a window's turn takes the choice or clears it; a
+                # spoken or console turn that starts first leaves it
+                # for the message it was made for.
+                chosen, self._next = self._next, None
+
             self._current = turn
+
+        if chosen is not None and chosen[2] == str(user_input).strip():
+            turn.value, turn.urgent = chosen[0], chosen[1]
+        elif origin == ORIGIN_VOICE:
+            turn.said = said_value(user_input)
 
         return turn
 
@@ -447,12 +524,22 @@ class TurnDelegation:
         # Speech never confirms: a spoken turn is always asked, even
         # when no setting needs an answer.
         if turn.needs_confirmation:
-            self._require(
-                turn,
-                self._confirmation_prompt(provider, brief),
-                SEND,
-                "The user did not confirm sending this, so nothing was sent.",
+            answer = self._ask(
+                self._confirmation_prompt(provider, brief, turn.said)
             )
+
+            if answer == SEND_AS_SAID and turn.said is not None:
+                # The click is what makes the spoken words count.
+                turn.value, turn.urgent = turn.said
+            elif answer == SEND:
+                # The latest click decides, whatever an earlier one
+                # in this turn chose.
+                turn.value, turn.urgent = VALUE_NORMAL, False
+            else:
+                turn.declined = True
+                raise DelegationRefused(
+                    "The user did not confirm sending this, so nothing was sent."
+                )
 
         authorization = self._authorize(turn, provider, route, brief)
         turn.delegated = True
@@ -613,8 +700,9 @@ class TurnDelegation:
     def _authorize(self, turn, provider, route, brief):
         """
         Pass the brief through the dispatcher, putting to the owner
-        each question the checks raise. The value and urgency are
-        fixed here; the model's suggestions are not passed on.
+        each question the checks raise. The value and urgency are the
+        owner's, as set on the turn; the model's suggestions are not
+        passed on.
         """
         released = False
         exceed = False
@@ -626,8 +714,8 @@ class TurnDelegation:
                     brief,
                     route.route_id,
                     task_id,
-                    value=VALUE_NORMAL,
-                    urgent=False,
+                    value=turn.value,
+                    urgent=turn.urgent,
                     owner_released_hold=released,
                     owner_agreed_to_exceed=exceed,
                 )
@@ -756,12 +844,25 @@ class TurnDelegation:
             choices,
         )
 
-    def _confirmation_prompt(self, provider, brief) -> dict:
+    def _confirmation_prompt(self, provider, brief, said=None) -> dict:
+        reason = "You spoke this request, so Freya asks before sending."
+        choices = [(SEND, "Send"), (CANCEL, "Cancel")]
+
+        if said is not None:
+            words = value_words(*said)
+            reason += (
+                f" It sounded as if you asked for this to be treated as {words}. "
+                "That only counts if you choose it here."
+            )
+            choices = [
+                (SEND_AS_SAID, f"Send as {words}"),
+                (SEND, "Send as normal"),
+                (CANCEL, "Cancel"),
+            ]
+
         return self._prompt(
             "confirmation", provider, brief.review, brief.text,
-            self._SENT_LABEL,
-            [(SEND, "Send"), (CANCEL, "Cancel")],
-            reason="You spoke this request, so Freya asks before sending.",
+            self._SENT_LABEL, choices, reason=reason,
         )
 
     def _hold_prompt(self, provider, brief, screening) -> dict:
