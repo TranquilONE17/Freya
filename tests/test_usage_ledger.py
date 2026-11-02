@@ -57,6 +57,8 @@ def weekly(ledger):
 
 
 def spend(ledger, amount, now, task="t", route=PLAN, unit="units", **kwargs):
+    # As the owner would: going past the day's share takes their yes.
+    kwargs.setdefault("owner_agreed_to_exceed", True)
     result = ledger.reserve(route, unit, amount, task, now=now, **kwargs)
     assert result.verdict == GO, result.reason
     ledger.settle(result.event_id, amount)
@@ -175,16 +177,30 @@ def test_low_value_work_waits_unless_allowance_is_plentiful(weekly):
     assert held.verdict == WAIT
 
 
-def test_high_value_and_urgent_work_may_pass_the_share_and_say_so(weekly):
+def test_nothing_passes_todays_share_without_the_owners_yes(weekly):
+    # Owner decision, 2026-10-11: however much the work matters.
     spend(weekly, 100, day(1))
 
-    high = weekly.assess(PLAN, "units", 50, "t", value=VALUE_HIGH, now=day(1))
-    urgent = weekly.assess(PLAN, "units", 50, "t", urgent=True, now=day(1))
-    normal = weekly.assess(PLAN, "units", 50, "t", now=day(1))
+    for more in ({"value": VALUE_HIGH}, {"urgent": True}, {}):
+        asked = weekly.assess(PLAN, "units", 50, "t", now=day(1), **more)
+        held = weekly.reserve(PLAN, "units", 50, "t", now=day(1), **more)
 
-    assert high.verdict == GO and high.over_share
-    assert urgent.verdict == GO and urgent.over_share
-    assert normal.verdict == ASK and not normal.over_share
+        assert asked.verdict == ASK and asked.over_share
+        assert "today's share" in asked.reason
+        assert held.verdict == ASK and held.event_id is None
+
+    agreed = weekly.reserve(
+        PLAN, "units", 50, "t",
+        value=VALUE_HIGH, owner_agreed_to_exceed=True, now=day(1),
+    )
+
+    assert agreed.verdict == GO and agreed.over_share
+
+
+def test_urgent_work_of_low_value_is_not_held_back_at_half_the_share(weekly):
+    assert weekly.assess(
+        PLAN, "units", 60, "t", value=VALUE_LOW, urgent=True, now=day(1)
+    ).verdict == GO
 
 
 def test_nothing_passes_a_hard_allowance_not_even_urgent_work(weekly):

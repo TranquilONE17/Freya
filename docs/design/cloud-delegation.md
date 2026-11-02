@@ -311,8 +311,17 @@ made only when the owner chooses it there. Today the only microphone is this PC'
 the prompt appears in its window; when other devices can listen, the prompt must go to
 the one that heard the request and to no other. Built so far: a spoken request that
 says "urgent", "high priority" or "low priority" (or "value") offers that choice in the
-confirmation prompt a spoken hand-over always shows. Not built: changing any other
-setting by voice, which needs a tool with its own permission first.
+confirmation prompt a spoken hand-over always shows.
+
+Which settings a request may ask to change (owner decision, 2026-10-11): those that
+only tighten. A request, spoken or typed, can ask for a provider to be switched off or
+for a kind of material to be set to never. Freya's model passes the request on with a
+tool of its own (`cloud.settings.tighten`), the owner is shown exactly what would
+change, and only their click makes it. Everything that loosens (switching a provider
+on, allowing a kind of material, raising an allowance, making a standing rule) is done
+by the owner in the Cloud tab and cannot be asked for this way. A typed request is
+asked in the same way as a spoken one, because the model that read it may have been
+steered by something else it read.
 
 ## Limits and pacing
 
@@ -343,6 +352,31 @@ holds amounts and times only, never prompts or replies.
   exceed the day's share, and the owner is told. The level comes from the owner when
   asking, or from the matching standing rule, or is normal. Freya and models never
   raise it.
+- **Priority by default (owner decision, 2026-10-11).** Everything is normal priority
+  unless one action is required before another can complete; that dependency raises
+  the urgency of the action being waited on. The raise comes from the dependency
+  itself, established by Freya's code, never from a model's opinion of its own work.
+  The owner saying so also raises it: the controls beside the chat box, or the words
+  "urgent" or "a priority" in the message itself. Typed words count as they stand;
+  spoken words count after the click every spoken hand-over already needs.
+  What a dependency means (the owner's example): asked to design a system and then
+  told it must include a particular capability, Freya works out that capability and
+  how it would be done before she finishes the design, and she is to recognise
+  similar situations herself. This is about the order of her own work. It is in her
+  standing instructions, and a conversation scenario (`prerequisite-first`) checks
+  that the added requirement is dealt with at the start of her reply.
+  **Going past the day's share (owner decision, 2026-10-11).** Any use beyond the
+  day's share of an allowance is approved by the owner, whatever the work's value and
+  however urgent. Freya may suggest it and never decides it. The owner is asked in
+  the limit prompt, which says when they marked the work urgent or a priority and,
+  when Freya's model said other work is waiting on this hand-over, that she suggests
+  going over and why. Her suggestion is a yes-or-no mark on the tool call, not prose,
+  and changes no limit. This replaces the earlier rule that high-value and urgent
+  work passed the day's share without asking. Value now changes two things only: low
+  value waits once half the day's share is used (unless urgent), and it sets the bar a
+  model must have measured at.
+  *Not built:* ordering across several pieces of work running at once, which waits
+  for Freya to be able to run more than one.
 - **Urgent.** A separate flag the owner sets: the task does not wait for a reset.
   An urgent task may also use more than one cloud route at the same time. The usual
   way is splitting: independent parts go to different providers. Comparing, where two

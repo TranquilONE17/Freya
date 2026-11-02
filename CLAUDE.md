@@ -156,7 +156,10 @@ dispatcher described below.
 
 Usage ledger: `freya.core.usage.UsageLedger` records what each route (one way of
 reaching one model) has used and decides whether more fits: go, ask the owner, wait
-for a reset, or refuse. Limits are per call, per task, or per period; a period longer
+for a reset, or refuse. Going past the day's share of a paced allowance always asks
+the owner, whatever the value or urgency (owner decision, 2026-10-11): never make a
+value, an urgent flag or a model's mark pass it. Freya's model may mark a hand-over as
+waited on (`waited_on`), which only adds her suggestion to that question. Limits are per call, per task, or per period; a period longer
 than a day is paced across the days left, counted back from the provider's reset. A
 route with no limit recorded is refused, and a zero cap cannot be overridden. It lives
 in its own database, `data/freya_usage.db`, through `ControlStore(path,
@@ -212,9 +215,15 @@ and never a model's. In the window it is set beside the chat box and sent just a
 the message (`cloud` request `next`, `TurnDelegation.set_next`); it applies to that one
 message and is not a setting. A spoken request may ask for a setting change, but the
 change is made only by a click on a confirmation shown on the device that recorded the
-request (owner decision, 2026-10-11). So far that covers only value and urgency: words
-found in the owner's transcribed sentence by code (`said_value`) add a choice to the
-prompt a spoken hand-over always shows. Do not let spoken words change anything
+request (owner decision, 2026-10-11). The owner saying "urgent" or "a priority" in a
+message also raises it (`said_value`, code not a model): typed words count as they
+stand, read from the message's opening only; spoken words add a choice to the prompt a
+spoken hand-over always shows and count after that click. Everything else is normal. The model can also ask, with
+`cloud.settings.tighten` (`delegation/tighten.py`, seed `alpha-cloud-tighten`), for a
+provider to be switched off or a kind of material to be set to never; the owner's
+click makes the change through `cloud.settings.change`. That tool must only ever
+tighten: anything that switches on, allows, raises a limit or makes a rule stays in
+the Cloud tab. Do not let spoken words change anything
 without that click, and send the prompt only to the device that heard them once more
 than one can listen.
 The tab must never be able to send a brief or write any other

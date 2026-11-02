@@ -229,9 +229,15 @@ def test_the_models_view_of_value_never_reaches_the_ledger(h):
         h.dispatcher.authorize(h.compose(eager), ROUTE, "t", now=NOW)
 
     assert paced.value.assessment.verdict == "ask"
-    # The owner saying it is urgent is what lets it through.
+
+    # Nor does the owner's own "urgent" pass the day's share: only
+    # their yes to going over does (owner decision, 2026-10-11).
+    with pytest.raises(DispatchRefused) as urgent:
+        h.dispatcher.authorize(h.compose(eager), ROUTE, "t", urgent=True, now=NOW)
+
+    assert urgent.value.assessment.verdict == "ask"
     assert h.dispatcher.authorize(
-        h.compose(eager), ROUTE, "t", urgent=True, now=NOW,
+        h.compose(eager), ROUTE, "t", owner_agreed_to_exceed=True, now=NOW,
     )
 
 

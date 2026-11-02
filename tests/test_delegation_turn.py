@@ -201,8 +201,13 @@ def test_the_tool_takes_a_kind_and_optional_ids_and_nothing_else(open_rig):
 
     schema = definition["parameters"]
 
-    assert set(schema["properties"]) == {"kind", "inputs"}
+    # None of them is a place to write a sentence: a kind from a
+    # list, ids, and a yes of at most three letters.
+    assert set(schema["properties"]) == {"kind", "inputs", "waited_on"}
     assert schema["required"] == ["kind"]
+    from freya.delegation.turn import WORK_DELEGATE_PARAMETERS
+
+    assert WORK_DELEGATE_PARAMETERS["waited_on"]["max_length"] == 3
 
 
 # 2 -- refused plans ----------------------------------------------------
@@ -1382,13 +1387,33 @@ def test_a_spoken_request_that_asks_for_nothing_is_offered_nothing(open_rig):
     assert seen == [] and not open_rig.ran()
 
 
-def test_the_same_words_typed_change_nothing(open_rig):
+@pytest.mark.parametrize("origin", ["window", "typed"])
+def test_the_same_words_typed_count_as_they_stand(open_rig, origin):
     seen = passed_on(open_rig)
-    open_rig.begin(request="This is urgent and top priority. " + REQUEST, origin="window")
+    open_rig.begin(request="This is urgent and a priority. " + REQUEST, origin=origin)
+    open_rig.delegate()
+
+    assert seen == [("high", True)]
+    assert open_rig.asked == []
+
+
+def test_the_controls_decide_over_words_in_the_message(open_rig):
+    seen = passed_on(open_rig)
+    message = "This is urgent. " + REQUEST
+    open_rig.delegation.set_next("low", False, message)
+    open_rig.begin(request=message, origin="window")
+    open_rig.delegate()
+
+    assert seen == [("low", False)]
+
+
+def test_only_the_opening_of_a_typed_message_is_read_for_these_words(open_rig):
+    # As if a pasted letter used the word about something else.
+    seen = passed_on(open_rig)
+    open_rig.begin(request=REQUEST + " " + "x" * 300 + " this is urgent", origin="window")
     open_rig.delegate()
 
     assert seen == [("normal", False)]
-    assert open_rig.asked == []
 
 
 @pytest.mark.parametrize("sentence, expected", [
@@ -1399,6 +1424,12 @@ def test_the_same_words_typed_change_nothing(open_rig):
     ("Low priority, but have a look", ("low", False)),
     ("a low value task", ("low", False)),
     ("Is this high priority or low priority?", None),
+    ("This is a priority", ("high", False)),
+    ("Please prioritise this, it's my priority today", ("high", False)),
+    ("This is not urgent", None),
+    ("It isn't really urgent", None),
+    ("This is not a priority, but it is urgent", ("normal", True)),
+    ("No priority on this one", None),
     ("What is the most important point here?", None),
     ("Check the sums", None),
     ("", None),
@@ -1408,3 +1439,72 @@ def test_only_plain_words_about_value_are_taken_as_asking(sentence, expected):
     from freya.delegation.turn import said_value
 
     assert said_value(sentence) == expected
+
+
+def test_going_past_the_days_share_is_asked_even_for_urgent_work(open_rig):
+    # The week's allowance is ample; today's share of it is not.
+    now = datetime.now(timezone.utc)
+    open_rig.cloud.ledger.set_limit(
+        ANTHROPIC_PLAN_PROVIDER, "week", SCOPE_PERIOD, "tokens", 7_000,
+        period_seconds=7 * 86400, resets_at=now + timedelta(days=7),
+        hard=True, now=now,
+    )
+    seen = passed_on(open_rig)
+    open_rig.begin(request="This is urgent. " + REQUEST, origin="window")
+    open_rig.answers = ["cancel"]
+
+    with pytest.raises(DelegationRefused):
+        open_rig.delegation.delegate("reasoning", "request", "yes")
+
+    prompt = open_rig.asked[0]
+
+    assert open_rig.kinds_asked() == ["limit"]
+    assert "today's share" in prompt["reason"]
+    assert "You marked this as urgent" in prompt["reason"]
+    assert "Freya suggests going over" in prompt["reason"]
+    assert not open_rig.ran()
+    assert seen[0] == ("normal", True)
+
+
+def test_her_suggestion_alone_sends_nothing_and_is_not_shown_unasked(open_rig):
+    open_rig.begin(origin="window")
+    open_rig.delegation.delegate("reasoning", "request", "yes")
+
+    # Within the day's share there is nothing to ask, so nothing to suggest.
+    assert open_rig.asked == []
+    assert open_rig.ran()
+
+
+@pytest.mark.parametrize("message, expected", [
+    ("This is urgent. Check the sums.", ("normal", True)),
+    ("Urgent: check the sums", ("normal", True)),
+    ("I need this done urgently", ("normal", True)),
+    ("Treat this as urgent", ("normal", True)),
+    ("This is a priority", ("high", False)),
+    ("It's my top priority today", ("high", False)),
+    ("Please prioritise this", ("high", False)),
+    ("Make this a priority, it is urgent", ("high", True)),
+    ("This is low priority", ("low", False)),
+    ("This is a low priority", ("low", False)),
+    ("This is urgent and a priority. Check the sums.", ("high", True)),
+    ("This is a top priority and urgent", ("high", True)),
+    ("This is urgent. Make it a priority.", ("high", True)),
+    # Two instructions that disagree say neither.
+    ("This is high priority. This is low priority.", None),
+    ("How urgent and a priority is this, really?", None),
+    # Mentions, not instructions about this task.
+    ("Explain what a priority queue is.", None),
+    ("Summarize this email: URGENT: renew your subscription.", None),
+    ("What makes a task urgent?", None),
+    ("How do hospitals prioritise patients?", None),
+    ('Reply to the note that says "this is urgent" politely', None),
+    ("> this is urgent\nWhat should I answer?", None),
+    ("This is not urgent", None),
+    ("It isn't a priority", None),
+    ("This is not a priority", None),
+    ("", None),
+])
+def test_typed_words_must_be_an_instruction_about_this_task(message, expected):
+    from freya.delegation.turn import said_value
+
+    assert said_value(message, typed=True) == expected
