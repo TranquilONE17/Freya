@@ -82,6 +82,69 @@ tool counts. Small suites do not establish rare-event reliability. Keep boundary
 violations separate from average quality. Use the same model, fixtures, tools and
 budgets for comparisons, and retain unseen tasks as the suite grows.
 
+## Promotion gate
+
+`python -m freya.evaluation.gate` is the gate of `skill-learning.md` (NEW-CB, a
+proposal, not adopted): a change is run against Freya without it before it may take
+effect. It uses this runner's workers, fixtures and checks, so everything above about
+synthetic data and isolation holds for it.
+
+```powershell
+python -m freya.evaluation.gate --candidate work/say-the-unit.json --output work/gate-say-the-unit.json
+```
+
+A candidate is a JSON file with no fields beyond these:
+
+```json
+{
+  "name": "say-the-unit",
+  "kind": "hint",
+  "value": "normal",
+  "change": {"hint": "Give every reading with its unit."},
+  "cases": ["cpu-grounding", "ram-grounding", "sensor-routing", "gpu-grounding"],
+  "held_out": ["gpu-grounding"],
+  "trained_on": []
+}
+```
+
+- `kind` is `hint` (text added to the tool hint: a prompt change) or `model` (a
+  change of conversation model, NEW-CF: `"change": {"model": "<installed model>"}`, no
+  `cases`). `skill` is refused until the skill format exists (build step 2).
+- `cases` are three to ten scenario names. `held_out` is optional; without it the
+  gate takes a third of the cases by a hash of the name and case, so neither the
+  drafter nor the order chooses. Only held-out cases decide; the report lists both.
+- `trained_on` (NEW-CG) lists sources as `{"source", "provenance"}`; provenance must
+  be `owner-turn`, `skill-case` or `gate-report`. Text that came through a tool never
+  trains anything, and a candidate naming any other provenance is refused.
+
+Every regression scenario (by default all of them) and every case runs `--trials`
+times without the candidate, then the same again with it. Trial *i* of a scenario
+uses seed `--seed + i - 1` in both arms, sent with every model request, so the pair
+differs only in the candidate. The two arms run one after the other so a model change
+does not reload models on every trial. The default number of trials is enough for 15
+attempts on the cases that decide, and at least three.
+
+The verdict is `passed` only if: each arm has at least 15 attempts on the regression
+suite and on the held-out cases (fewer is `unmeasured`, as for the model record);
+no more than half of either arm's trials got no reply (more is `unmeasured`: the
+runtime failed, not the change); the regression suite passed at least as often with
+the candidate as without; and, with cases, the held-out cases passed more often with
+it than without and at least as often as the owner's bar for its `value`
+(`CloudSettings.bars`, 70/85/95% to start). Timeouts and errors count as attempts
+not passed. `--regression-scenario` runs part of the suite for a quick look; the
+report marks it and the verdict can then fail but never pass.
+
+The report holds the candidate, both arms' settings, what a promotion would replace
+(`replaces`, for rollback later), every trial, counts per scenario and arm, the
+verdict and its reasons; a short version is printed at the end. Exit codes: 0
+passed, 1 failed or unmeasured, 2 a refused candidate, a failed preflight or invalid
+arguments. The gate measures; it switches nothing on. Approval and rollback are the
+owner's, through `skill.approve` and the rollback actions of NEW-CC, not built yet.
+
+A full run is long: every scenario, twice, several times. Run it when the PC is free.
+The NEW-AY reuse scenario the design names for the regression suite does not exist
+yet; the suite is today's scenarios.
+
 ## Production loop fixes
 
 The assistant retains its three tool-round limit and now permits at most twelve
@@ -99,7 +162,7 @@ actual behavior; prompt wording is not a deterministic guarantee.
 ## Verification
 
 ```powershell
-python -m pytest tests/test_model_tools.py tests/test_workflow_evaluation.py tests/test_conversations.py tests/test_model_runtime.py tests/test_capability_broker.py
+python -m pytest tests/test_model_tools.py tests/test_workflow_evaluation.py tests/test_promotion_gate.py tests/test_conversations.py tests/test_model_runtime.py tests/test_capability_broker.py
 ```
 
 Runner tests cover grading mistakes, alternative tools, injection markers,

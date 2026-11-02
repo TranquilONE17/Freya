@@ -20,7 +20,7 @@ at any defined label.
 | NEW-AS to NEW-BD | `design/openrig-lessons.md` | 2026-10-18, relabelled 2026-10-21 | Proposal, nothing built |
 | NEW-BE to NEW-BL | `design/learning-loop.md` | 2026-10-21 | Proposal with owner decisions, nothing built |
 | NEW-BM to NEW-BV | `design/freya-to-freya-cooperation.md` | 2026-10-09, relabelled 2026-10-21 | Proposal, nothing built |
-| NEW-BW to NEW-CG | `design/skill-learning.md` | 2026-10-22 | Proposal, nothing built; supersedes the mechanism of `learning-loop.md` |
+| NEW-BW to NEW-CG | `design/skill-learning.md` | 2026-10-22 | Proposal, not adopted; supersedes the mechanism of `learning-loop.md`. Built: the NEW-CB gate for hint and model changes (build step 1) |
 | NEW-LC11 | `design/attributed-chat-responses.md` | 2026-10-09 | Built; renumber at adoption |
 
 **Next free range starts at NEW-CH.**
