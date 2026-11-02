@@ -15,6 +15,7 @@ CONVERSATION_EVENTS = {
     # A finished image is part of the conversation: it is shown in the
     # chat where it was asked for, as well as in the gallery.
     "image_ready",
+    "source_response",
 }
 
 
