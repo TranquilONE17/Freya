@@ -49,6 +49,39 @@ def test_tee_passes_text_through_and_announces_whole_lines(bus):
     assert output.history()[-1] == "no newline at the end"
 
 
+def test_a_window_joining_mid_line_sees_each_console_line_once(bus):
+    # The hello's console snapshot and the subscription are one step,
+    # and the tee records and announces a line in that same step, so a
+    # line can be in the snapshot or among the live events, never both.
+    import threading
+
+    output = ConsoleOutput(bus)
+    live = []
+    joined = threading.Event()
+    results = {}
+
+    def announcer():
+        for n in range(200):
+            output.add_line(f"line {n}")
+            if n == 50:
+                joined.set()
+
+    def joiner():
+        joined.wait(5)
+        results["history"], results["console"] = bus.subscribe_with_history(
+            live.append, snapshot=output.history,
+        )
+
+    threads = [threading.Thread(target=announcer), threading.Thread(target=joiner)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join(10)
+
+    seen = results["console"] + [e["text"] for e in live if e["type"] == "console"]
+    assert seen == [f"line {n}" for n in range(200)]
+
+
 def test_tee_works_with_no_underlying_stream(bus):
     output = ConsoleOutput(bus)
     tee = ConsoleTee(None, output)

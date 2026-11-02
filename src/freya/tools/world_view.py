@@ -21,6 +21,7 @@ comes back is untrusted text like any other tool result.
 """
 
 import json
+import re
 import time
 import urllib.error
 import urllib.parse
@@ -108,6 +109,10 @@ SOURCE_NOTE = (
     "Live public data from God's Eye View. Positions and times are as "
     "reported by the feeds and may be late or incomplete."
 )
+
+
+# The program's own words for a feed whose key was never added.
+_MISSING_KEY = re.compile(r"[A-Z0-9_]*API_KEY\b|\bapi[ _-]?key\b", re.I)
 
 
 class WorldViewError(RuntimeError):
@@ -320,16 +325,27 @@ class WorldView:
 
     @staticmethod
     def _reason(text: str) -> str:
-        """The program's refusal, in words for the user."""
-        if "_API_KEY not set" in text or "key" in text.lower():
+        """
+        The program's refusal, in words for the user. A missing key is
+        recognised by the program's own form of words (`X_API_KEY not
+        set`, "API key"), not by the word "key" alone, which a place
+        name can hold. Anything else is passed on, cut short and with
+        control characters removed, because it reaches the model and
+        the audit log's error summary.
+        """
+        if _MISSING_KEY.search(text):
             return (
                 "That information needs a key that has not been added "
                 "to God's Eye View."
             )
 
+        plain = "".join(
+            c if c.isprintable() else " " for c in text
+        ).strip()[:120]
+
         return (
             "God's Eye View could not answer that: "
-            + (text[:MAX_TEXT_CHARACTERS] or "no reason was given")
+            + (plain or "no reason was given")
         )
 
     @staticmethod

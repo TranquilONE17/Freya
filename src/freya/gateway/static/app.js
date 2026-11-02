@@ -1989,9 +1989,13 @@ function wireAvatar() {
 // -- images ----------------------------------------------------------
 
 function addImage(image, newest) {
+  // An image listed in the hello may also arrive as a live event
+  // when it was finished just as the window joined.
+  if (gallery.querySelector(`[data-image-id="${CSS.escape(image.id)}"]`)) return;
   $("gallery-empty").hidden = true;
 
   const card = element("figure", "card");
+  card.dataset.imageId = image.id;
   const picture = element("img");
   picture.src = "/images/" + encodeURIComponent(image.id);
   picture.alt = image.prompt;

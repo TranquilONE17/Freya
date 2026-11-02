@@ -17,6 +17,9 @@ class _Waiting:
         self.choices = frozenset(choices)
         self.answer: Optional[str] = None
         self.done = threading.Event()
+        # The windows the question was shown in. When the last of
+        # them goes, nobody can answer, and waiting on is pointless.
+        self.reached: list = []
 
 
 class OwnerPrompts:
@@ -79,6 +82,9 @@ class OwnerPrompts:
         except Exception:
             reached = []
 
+        with self._lock:
+            waiting.reached = list(reached)
+
         if reached:
             waiting.done.wait(self._seconds if seconds is None else seconds)
 
@@ -118,6 +124,25 @@ class OwnerPrompts:
         waiting.done.set()
 
         return True
+
+    def window_gone(self, window) -> None:
+        """
+        A window has disconnected. A question that was shown only in
+        windows now gone can never be answered, so it ends now, as a
+        denial, instead of holding the turn for the whole time limit.
+        """
+        ended = []
+
+        with self._lock:
+            for prompt_id, waiting in list(self._waiting.items()):
+                waiting.reached = [w for w in waiting.reached if w is not window]
+
+                if not waiting.reached:
+                    del self._waiting[prompt_id]
+                    ended.append(waiting)
+
+        for waiting in ended:
+            waiting.done.set()
 
     def close(self) -> None:
         """

@@ -249,7 +249,8 @@ and the result (`abilities.delegation_notes`); it informs and never refuses. Eve
 (approval for ask-first material, confirmation for a spoken turn, screening hold, usage
 limit) goes through `gateway/prompts.py` (`OwnerPrompts`), never the event bus, whose
 history is replayed to new windows; a question is shown only to windows connected at the
-time, no answer in 120 seconds or when Freya closes is a denial, and an answer counts
+time, no answer in 120 seconds, when Freya closes, or when every window it was shown in
+has disconnected is a denial, and an answer counts
 once and only if it is one the question offered. A refusal's wording is fixed: it reaches
 the model and the audit log, so it must never hold a brief, a match or the vendor's text.
 Out of this version: other providers, several delegations in a turn, file or code inputs,
@@ -469,7 +470,9 @@ gateway's only puts the event on that window's queue, and a thread per window do
 sending. A window joins with `subscribe_with_history`, which is what guarantees it
 gets every event exactly once. The history is bounded by entries (500), and a reply
 arrives one chunk per token, so the bus keeps the chunks of one reply as a single
-entry; the live events are delivered one by one as they came. Memory commands (`/memories`, `/forget`, `/memory-help`
+entry; the live events are delivered one by one as they came. The hello's console lines are taken
+in the same step as the subscription (`subscribe_with_history(..., snapshot=...)`), and
+the tee records and announces a line under the bus's lock, so a line arrives once. Memory commands (`/memories`, `/forget`, `/memory-help`
 and the rest) typed in the window are passed to `FreyaAssistant.memory_command`.
 
 Shutdown order matters, because a turn may be running on the window's worker thread or
@@ -760,4 +763,5 @@ plan/verify/retry loop in kernel code with fixed limits, learned material that i
 and never authorizes, stages promoted only by the owner, the owner's reaction as the
 only reward, experience that never leaves the machine, and three evaluation scenarios
 (reuse, catch, avoid) that must pass before the loop is switched on. The next proposal starts
-at NEW-BM.
+at NEW-BW; `docs/labels.md` is the register, and `tests/test_labels.py` fails on a
+label defined twice or not registered.

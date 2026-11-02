@@ -337,3 +337,42 @@ def test_shutting_down_while_a_question_waits_ends_it_promptly(gateway):
     assert not thread.is_alive()
     assert time.monotonic() - started < 4
     assert found["answer"] is None
+
+
+def test_a_question_ends_when_its_last_window_goes():
+    # The turn that asked must not wait the whole time limit for an
+    # answer that can never come.
+    windows = Windows(2)
+    prompts = OwnerPrompts(windows.deliver, seconds=30)
+    thread, found = ask_in_thread(prompts)
+    first, second = windows.clients
+    shown(first)
+    shown(second)
+
+    started = time.monotonic()
+    prompts.window_gone(first)
+    thread.join(0.5)
+    assert thread.is_alive()  # One window can still answer.
+
+    prompts.window_gone(second)
+    thread.join(5)
+
+    assert not thread.is_alive()
+    assert found["answer"] is None
+    assert time.monotonic() - started < 5
+    assert prompts.answer(shown(first)["id"], "send") is False
+
+
+def test_a_window_that_never_saw_the_question_does_not_end_it():
+    windows = Windows(1)
+    prompts = OwnerPrompts(windows.deliver, seconds=30)
+    thread, found = ask_in_thread(prompts)
+    shown(windows.clients[0])
+
+    prompts.window_gone(object())
+    thread.join(0.5)
+    assert thread.is_alive()
+
+    prompts.close()
+    thread.join(5)
+    assert not thread.is_alive()

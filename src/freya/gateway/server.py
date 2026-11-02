@@ -638,7 +638,9 @@ class Gateway:
             # Subscribing and taking the history are one step, so an
             # event published right now is in exactly one of them.
             # Later events queue up and are sent after the hello.
-            history = self._bus.subscribe_with_history(outbox.put_nowait)
+            history, console = self._bus.subscribe_with_history(
+                outbox.put_nowait, snapshot=self._actions.console_history,
+            )
 
             websocket.send(
                 json.dumps(
@@ -647,7 +649,7 @@ class Gateway:
                         "history": history,
                         "images": self._gallery.list(),
                         "status": self._actions.status(),
-                        "console": self._actions.console_history(),
+                        "console": console,
                         "voice": self._actions.voice_state(),
                         "avatar": self._actions.avatar_state(),
                     }
@@ -667,6 +669,10 @@ class Gateway:
             with self._lock:
                 if client in self._web_clients:
                     self._web_clients.remove(client)
+
+            # A question shown only in this window can no longer be
+            # answered; the turn waiting on it is released now.
+            self._prompts.window_gone(client)
 
             self.speech.release(client["playback"])
             self._bus.unsubscribe(outbox.put_nowait)
