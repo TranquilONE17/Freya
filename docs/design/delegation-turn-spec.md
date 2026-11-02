@@ -1,9 +1,99 @@
 # Specification: delegation inside a turn
 
-Status: a build specification written 2026-10-10 for the next piece of work. Nothing
-in it is built. It applies the owner's decisions in `docs/design/cloud-delegation.md`;
-where the two differ, that note wins and this one is wrong. It adopts no requirement or
-ADR.
+Status: a build specification written 2026-10-10, first built on `feat/delegation-turn`
+(commit `4faee9a`) and revised the same afternoon (see "Revision of 2026-10-10" below,
+which wins over the sections after it where they differ). It applies the owner's
+decisions in `docs/design/cloud-delegation.md`; where the two differ, that note wins and
+this one is wrong. It adopts no requirement or ADR.
+
+## Revision of 2026-10-10
+
+A review of this spec against the other design notes found the gaps below. The
+owner decided the two questions in it (items 1 and 2). Each item says whether the
+code on `feat/delegation-turn` already meets it.
+
+1. **The assisting model answers the owner under its own name (owner decision).**
+   Whatever model does the work, local or cloud, may answer the owner directly. Its
+   answer is shown in the window as a card labelled with its source, and Freya's own
+   reply follows as her interpretation. The owner still addresses only Freya. This
+   is the rule of `docs/design/attributed-chat-responses.md` (NEW-LC11), and it
+   replaces "no other model answers the owner directly" in `cloud-delegation.md`.
+   - After a successful `Dispatcher.send`, the dispatcher's `on_reply` observer
+     publishes the `source_response` card. The label comes from the route, never
+     from the answer's text. A failed send makes no card.
+   - The answer still goes back to the main model as an untrusted tool result, so
+     she can interpret it. Her reply adds to the card; it does not repeat it.
+   - The card shows the answer in full (within the observer's own bound); only the
+     main model's copy is shortened to fit her context (item 5).
+   - The same card is used when delegation to another local model is built.
+   - *Not met yet.* The `on_reply` observer, the `source_response` event and its
+     rendering exist only as uncommitted changes in the owner's working copy on
+     `feat/model-roles`; `feat/delegation-turn` was built without them. Commit them
+     on their own branch, then merge both, then wire the card into the turn.
+   - Open, not a blocker: the card is in the bus history and replayed to any window
+     that connects. On the loopback, single-owner alpha the only viewer is the owner,
+     who approved what left. With authenticated sessions, a card must be shown only
+     to the user whose turn produced it.
+
+2. **On a spoken turn Freya speaks only her own interpretation (owner decision).**
+   The assisting model's answer is never read aloud; it is in the card. A spoken
+   turn needs a window anyway, for the confirmation click (section 3, step 6), so the
+   card always has somewhere to appear. *Not met yet:* speech must skip the
+   `source_response` text.
+
+3. **Tool results: only tools that read this PC.** A tool result is offered only
+   when the capability that produced it belongs to the system-tools provider. The
+   model's own `conversation.recall` and any tool that returns memories, summaries,
+   media records or the model record is never offered, because its output is
+   exactly the material section 2 keeps out. Decide by the capability's provider,
+   never by the tool's name or the text. *Met:* `service.accepts_tool_result`.
+
+4. **Earlier exchanges: only what the owner said.** Freya's own past replies often
+   restate what she recalled from memory, so offering them as "live conversation"
+   would let memory leave under another label. `turn-1` to `turn-3` hold the owner's
+   messages only, not Freya's replies. Screening remains a second safeguard, not the
+   reason this is safe. *Not met:* `turn.build_inputs` joins both sides.
+
+5. **The answer's length must match what the context passes.**
+   `ContextAuthority.fit_tools` clips every tool message to 2,400 bytes, JSON
+   included. A longer result becomes a raw `{"excerpt": ...}` of its first 2,400
+   bytes, marked `truncated`. So the 8,000-character cut never takes effect: the
+   main model sees roughly the first 2,300 characters of the answer, inside a broken
+   JSON fragment. Choose one, deliberately:
+   - cut the answer in the handler so the whole result fits in 2,400 bytes, with
+     `"shortened": true` (simplest; the card carries the full answer), or
+   - give `work.delegate` results a larger clip of their own, within the input
+     budget, in `fit_tools`. That is a change to the context authority and needs
+     its own test that the budget still holds.
+   *Not met.*
+
+6. **The model record is consulted, and says so.** The owner's rule is that one
+   evaluation system decides every choice of model, local first (ESC-001). In this
+   version the handler calls `choose` for the task's kind at value `normal`, with the
+   main local model and the Claude route as candidates, before composing:
+   - If a local entry qualifies, the delegation still goes ahead (the model asked
+     for it and the owner's prompts still apply), but the tool result and the
+     approval prompt state that measurement says local work is good enough for this
+     kind. It does not refuse; it informs.
+   - If Claude is unmeasured, the prompt says so ("Claude has not been measured on
+     this kind of work").
+   - Nothing about this changes what is sent or who decides.
+   Measuring Claude on the plan (`python -m freya.evaluation.delegation
+   --claude-plan --owner-approved-cloud-run`) is the owner's action and should come
+   before the first real delegation, so the record has something to say. *Not met.*
+
+7. **Tests to add** (alongside those in "Tests that must exist and pass"):
+   - A `conversation.recall` result and a media tool result in the turn are never
+     offered; a system-tool result is.
+   - `turn-N` contains the owner's words and none of Freya's reply.
+   - The `work.delegate` result reaches the model as valid JSON after `fit_tools`,
+     and says when it was shortened; the card's text is the full answer.
+   - A successful send publishes exactly one `source_response` with the route's
+     label; a failed send publishes none; an answer whose text claims another
+     source does not change the label.
+   - A spoken turn with a delegation speaks none of the card's text.
+   - With a local entry qualifying, the result and prompt say so and the
+     delegation is not refused.
 
 Read first: `docs/design/cloud-delegation.md` (sections "How a turn flows", "What may
 leave the machine", "Approval", "Limits and pacing"), the "Composing and sending
@@ -72,8 +162,8 @@ entry is a `compose.AvailableInput(input_id, kind, text)`.
 | What | Id | Kind |
 |---|---|---|
 | The owner's present message | `request` | `KIND_REQUEST` |
-| Each of the last three exchanges of the live conversation | `turn-1`, `turn-2`, `turn-3` (most recent first), the two messages joined | `KIND_CONVERSATION` |
-| Each tool result obtained earlier in this turn | `tool-1`, `tool-2`, ... | `KIND_TOOL_RESULT` |
+| What the owner said in each of the last three exchanges (not Freya's replies; see the revision, item 4) | `turn-1`, `turn-2`, `turn-3` (most recent first) | `KIND_CONVERSATION` |
+| Each result obtained earlier in this turn from a tool that reads this PC (not recall, memory or media tools; see the revision, item 3) | `tool-1`, `tool-2`, ... | `KIND_TOOL_RESULT` |
 
 Labelling rules. These are the part most worth reviewing, because a wrong label is the
 one way this wiring could send something it should not.
@@ -122,8 +212,9 @@ origin (`typed`, `voice` or `window`, already passed to `handle_normal_input` as
 8. `Dispatcher.send(authorization, brief.text)`.
 9. Return to the model, as the tool result:
    `{"from": "Claude (Anthropic)", "model": ..., "answer": ...}`. It is a tool result
-   like any other and is treated as untrusted content. Cut the answer to 8,000
-   characters and say so if cut.
+   like any other and is treated as untrusted content. Cut the answer to what the
+   context authority will pass and say so if cut (revision, item 5); the full answer
+   is shown to the owner in the source card (revision, item 1).
 
 Every refusal is returned to the model as a short tool error in plain words, so it
 can tell the owner what happened. Never put a brief's text, a screening match, or the
@@ -131,8 +222,8 @@ vendor's error detail (`PlanRouteError.detail`) in a tool error, an event on the
 a log line or the audit log.
 
 After a turn in which a brief was sent, Freya's reply must say so. Add one sentence to
-the tool hint: when you used delegated work, say that part of the answer came from
-another model and name it.
+the tool hint: when you used delegated work, the other model's answer is already shown
+to the owner under its name; say what you make of it, and do not repeat it.
 
 ### 4. The prompts
 
