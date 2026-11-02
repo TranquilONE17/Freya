@@ -341,7 +341,7 @@ tools, `files.list`, `files.read` and `files.search` (provider `file-reader-loca
 policy seed `alpha-file-read`), over the folders the owner has opened and nowhere
 else. No folder is open to start, and until one is the provider is unhealthy, so the
 tools are not offered at all. Only the owner's `/folders`, `/folder open <path>` and
-`/folder close <path>` (`file_access.py`, in both command paths) change the list,
+`/folder close <path>` (`file_access.py`, through the shared commands) change the list,
 kept as `readable_folders` in `data/freya_settings.json`; nothing the model can call
 does. Keep these rules: a path is resolved to where it really is before it is
 checked, so a link or junction cannot lead out; a refusal uses the same words
@@ -437,8 +437,11 @@ message and run by `window_commands.py`, which handles the same commands as the
 terminal loop (`/names`, `/name add|remove`, `/mute`, `/unmute`, `/interrupt`,
 `/image`, `/help`, and `exit` when there is no terminal). `/talk`, `/listen`,
 `/conversation`, and `/voice-file` need a real keyboard prompt and are explained
-rather than run. The two command paths (the loop in `main.py` and
-`window_commands.py`) are separate code; keep them in step.
+rather than run. The commands both offer (`/help`, `/interrupt`, `/mute`, `/unmute`,
+`/names`, `/name`, `/folders`, `/folder`, `/image`, `/window`) are handled once, by
+`window_commands.run_shared_command`, which the terminal loop in `main.py` and the window
+both call; add a command both should have there. Quitting, the keyboard commands and the
+Console tab stay with their own caller.
 
 The window: Freya opens it at startup (`FREYA_WINDOW=0` disables that; `/window`
 reopens it). The gateway binds `127.0.0.1` only, port 8770 or a free one. A request is
