@@ -11,6 +11,8 @@ from freya.config import COMFYUI_COMMAND
 from freya.config import CONTEXT_WINDOW_TOKENS
 from freya.config import EMBEDDING_MODEL
 from freya.config import MODEL
+from freya.config import WORLD_VIEW_ENABLED
+from freya.config import WORLD_VIEW_URL
 from freya.core.audit import (
     AuditStartup,
     FileCheckpointSink,
@@ -59,6 +61,13 @@ from freya.providers.model.ollama import (
     create_ollama_provider,
     register_ollama_capabilities,
     warm_ollama_models,
+)
+from freya.tools.world_view import (
+    WORLD_VIEW_CAPABILITIES,
+    WORLD_VIEW_PROVIDER,
+    WorldView,
+    create_world_view_provider,
+    register_world_view_capabilities,
 )
 from freya.tools.file_tools import (
     FILE_READER_CAPABILITIES,
@@ -311,6 +320,33 @@ class ControlPlane:
             FILE_READER_CAPABILITIES,
         )
 
+    def register_world_view(self, view) -> None:
+        """
+        Offer the model live public data about the world, read from a
+        God's Eye View program on this machine. Every tool only reads,
+        except the one that opens the globe in the user's browser.
+
+        The tools are offered only while that program answers, which is
+        asked again each time tools are offered, because the owner
+        starts and stops it apart from Freya.
+        """
+        self.providers.register(create_world_view_provider(view))
+        self.providers.start(WORLD_VIEW_PROVIDER)
+        self.providers.check_health(WORLD_VIEW_PROVIDER)
+        register_world_view_capabilities(self.capabilities, view)
+
+        for capability in WORLD_VIEW_CAPABILITIES:
+            self.model_tools.add_offer_condition(
+                capability, view.is_running
+            )
+
+        seed_alpha_policy(
+            self.policy,
+            "alpha-world-view",
+            LOCAL_OWNER.actor,
+            WORLD_VIEW_CAPABILITIES,
+        )
+
     def refresh_file_reader(self) -> None:
         if self.providers.get(FILE_READER_PROVIDER) is not None:
             self.providers.check_health(FILE_READER_PROVIDER)
@@ -462,6 +498,7 @@ class ControlPlane:
 def build_local_control_plane(
     database_path=CONTROL_DATABASE_PATH,
     checkpoint_path=AUDIT_CHECKPOINT_PATH,
+    world_view=None,
 ) -> ControlPlane:
     """
     Assemble the single-workstation control plane: providers,
@@ -564,7 +601,7 @@ def build_local_control_plane(
     )
     configure_model_runtime(model_runtime)
 
-    return ControlPlane(
+    plane = ControlPlane(
         model_runtime=model_runtime,
         model_tools=ModelToolHost(capabilities, broker),
         store=store,
@@ -575,3 +612,13 @@ def build_local_control_plane(
         broker=broker,
         audit_startup=audit_startup,
     )
+
+    # Off unless the owner turned it on: these tools' answers come from
+    # the internet.
+    if world_view is None and WORLD_VIEW_ENABLED:
+        world_view = WorldView(WORLD_VIEW_URL)
+
+    if world_view is not None:
+        plane.register_world_view(world_view)
+
+    return plane
