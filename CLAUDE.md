@@ -41,8 +41,10 @@ Rules for the spec:
   `127.0.0.1` and ignores `OLLAMA_HOST` and proxies, and a model that Ollama would run
   on its own servers makes the provider unhealthy: full context goes here, so "local"
   must be true.
-- `src/freya/core/` — `assistant.py`, `llm.py` (memory prompts; model calls go through
-  `model_runtime.py`, which asks the broker),
+- `src/freya/core/` — `assistant.py` (`FreyaAssistant`: the turn, and nothing else;
+  the memory commands, `/memories`, `/forget`, `/memory-help` and the rest, are
+  `memory_commands.py`, `MemoryCommands`, mixed into it), `llm.py` (memory prompts;
+  model calls go through `model_runtime.py`, which asks the broker),
   `capabilities/` (CapabilityRegistry, CapabilityBroker), `providers/`
   (ProviderRegistry), `policy/` (deny-by-default SQLite policy engine), `audit/`
   (hash-chained SQLite audit log, checkpoint sinks), `persistence/` (ControlStore and
@@ -461,7 +463,8 @@ subscribers in publish order while it is locked, so a subscriber must never bloc
 gateway's only puts the event on that window's queue, and a thread per window does the
 sending. A window joins with `subscribe_with_history`, which is what guarantees it
 gets every event exactly once. Memory commands (`/memories`, `/forget`, `/memory-help`
-and the rest) typed in the window are passed to `FreyaAssistant.memory_command`.
+and the rest) typed in the window are passed to `FreyaAssistant.memory_command`
+(`core/memory_commands.py`).
 
 Shutdown order matters, because a turn may be running on the window's worker thread or
 the listener thread: `TurnGate.close()` (no new turn may begin), then
