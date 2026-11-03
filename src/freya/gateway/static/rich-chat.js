@@ -13,7 +13,8 @@
     if (allowLocal && /^\/(?:images|media\/stream)\/[A-Za-z0-9_-]{1,200}$/.test(raw)) return raw;
     let url;
     try { url = new URL(raw); } catch (_) { return null; }
-    const host = url.hostname.toLowerCase();
+    // A trailing dot names the same host to the browser.
+    const host = url.hostname.toLowerCase().replace(/\.+$/, "");
     if (url.protocol !== "https:" || url.username || url.password || url.port) return null;
     if (!host.includes(".") || /(^|\.)(localhost|local|internal)$/.test(host)) return null;
     // Numeric hosts are not needed for answer context. Block alternate IP spellings too.

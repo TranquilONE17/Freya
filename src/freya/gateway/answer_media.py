@@ -12,7 +12,9 @@ def public_https(value):
         return None
     try:
         parsed = urlsplit(value)
-        host = parsed.hostname or ""
+        # A trailing dot names the same host to a browser; it is
+        # removed before the names below are looked for.
+        host = (parsed.hostname or "").rstrip(".")
         if parsed.scheme != "https" or parsed.username or parsed.password or parsed.port not in (None, 443):
             return None
         if not host or host == "localhost" or host.endswith((".localhost", ".local", ".internal")):
@@ -22,6 +24,11 @@ def public_https(value):
                 return None
         except ValueError:
             if "." not in host or not re.fullmatch(r"[A-Za-z0-9.-]+", host):
+                return None
+            # A name whose every label is a number ("127.1", "10.1",
+            # "0177.0.0.1") is an address in a form browsers accept
+            # and `ip_address` does not, so it is never public.
+            if all(re.fullmatch(r"(0x[0-9a-f]+|[0-9]+)", label, re.I) for label in host.split(".")):
                 return None
         return value
     except ValueError:

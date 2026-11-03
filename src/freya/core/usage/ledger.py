@@ -69,6 +69,14 @@ _SEVERITY = {GO: 0, ASK: 1, WAIT: 2, REFUSE: 3}
 DAY_SECONDS = 86400
 WARNING_FRACTION = 0.8
 
+# A reservation is settled, released or marked unknown within minutes
+# of being made; one older than this was left behind by a Freya that
+# died mid-send. It is counted like an unknown outcome from then on,
+# in the period it was made in, instead of against every period for
+# ever. Far longer than any send can take (the authorization window,
+# the program's sign-in check and its run come to a few minutes).
+STALE_RESERVATION_SECONDS = 2 * 3600
+
 _TIME_FORMAT = "%Y-%m-%dT%H:%M:%S.%fZ"
 
 # What an event counts for: the provider's figure once it is known,
@@ -537,6 +545,12 @@ class UsageLedger:
         # A limit on every route counts every route's use of its unit.
         routes = None if row["route"] == ANY_ROUTE else route
 
+        # A reservation still open counts in every window asked about,
+        # because the send it stands for is happening now. One left
+        # open past STALE_RESERVATION_SECONDS belongs to a send that
+        # died, and counts where it was recorded, like an unknown.
+        stale = _stamp(now - timedelta(seconds=STALE_RESERVATION_SECONDS))
+
         def used(since=None, until=None, task=None):
             clauses, parameters = ["unit = ?"], [row["unit"]]
 
@@ -544,11 +558,15 @@ class UsageLedger:
                 clauses.append("route = ?")
                 parameters.append(routes)
             if since is not None:
-                clauses.append("(recorded_at >= ? OR state = 'reserved')")
-                parameters.append(_stamp(since))
+                clauses.append(
+                    "(recorded_at >= ? OR (state = 'reserved' AND recorded_at >= ?))"
+                )
+                parameters.extend([_stamp(since), stale])
             if until is not None:
-                clauses.append("(recorded_at < ? AND state != 'reserved')")
-                parameters.append(_stamp(until))
+                clauses.append(
+                    "(recorded_at < ? AND (state != 'reserved' OR recorded_at < ?))"
+                )
+                parameters.extend([_stamp(until), stale])
             if task is not None:
                 clauses.append("task_id = ?")
                 parameters.append(task)

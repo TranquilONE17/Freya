@@ -130,7 +130,7 @@ def read_limit_notice(text, now: Optional[datetime] = None) -> Optional[LimitNot
         return None
 
     text = text[:2000]
-    now = (now or datetime.now(timezone.utc)).astimezone()
+    now = now or datetime.now(timezone.utc)
     weekly = "week" in text.lower()
     resets_at = None
     epoch = _RESET_EPOCH.search(text)
@@ -145,10 +145,19 @@ def read_limit_notice(text, now: Optional[datetime] = None) -> Optional[LimitNot
 
             if zone:
                 # An unknown name raises, and the time is then unread.
-                now = now.astimezone(ZoneInfo(zone.group(1)))
+                # A named zone knows its own summer time, so the wall
+                # time can be built in it directly.
+                local_now = now.astimezone(ZoneInfo(zone.group(1)))
+            else:
+                # This machine's zone. `astimezone()` with no argument
+                # would attach today's fixed offset, which is an hour
+                # out for a time on the other side of a clock change,
+                # so the wall time is built naive and converted at the
+                # end, which uses the system's own rules for that day.
+                local_now = now.astimezone().replace(tzinfo=None)
 
             hour = int(hour) % 12 + (12 if half.lower() == "p" else 0)
-            moment = now.replace(
+            moment = local_now.replace(
                 hour=hour, minute=int(minute or 0), second=0, microsecond=0,
             )
 
@@ -156,12 +165,12 @@ def read_limit_notice(text, now: Optional[datetime] = None) -> Optional[LimitNot
                 moment = moment.replace(
                     month=_MONTHS.index(month.lower()) + 1, day=int(day),
                 )
-                if moment <= now:
+                if moment <= local_now:
                     moment = moment.replace(year=moment.year + 1)
-            elif moment <= now:
+            elif moment <= local_now:
                 moment += timedelta(days=1)
 
-            resets_at = moment
+            resets_at = moment if zone else moment.astimezone()
     except (ValueError, OverflowError, OSError, KeyError):
         resets_at = None
 

@@ -87,7 +87,16 @@ def selected_source(repo: Path, relative_path: str) -> str:
         raise ValueError("Source must be a regular file inside the repository")
     if source.stat().st_size > MAX_FILE_BYTES:
         raise ValueError(f"Source too large: {relative_path}")
-    return source.read_text(encoding="utf-8")
+    # Read with the file's own line endings. A universal-newline read
+    # would show the model LF text for a CRLF file; the only patch it
+    # could then write (the validator refuses a carriage return) would
+    # pass the check against the normalised copy and be marked
+    # verified, yet not apply to the real file.
+    with source.open("r", encoding="utf-8", newline="") as handle:
+        text = handle.read()
+    if "\r" in text:
+        raise ValueError(f"Source has carriage returns (CRLF); only LF files are supported: {relative_path}")
+    return text
 
 
 def build_prompt(task: str, files: list[tuple[str, str]]) -> str:

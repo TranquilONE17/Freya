@@ -111,9 +111,66 @@ def test_a_long_file_is_read_a_part_at_a_time(reader, tree):
     second = reader.read("long.txt", str(first["last_line"] + 1))
     last = reader.read("long.txt", "401")
 
-    assert (first["first_line"], first["last_line"], first["more"]) == (1, 200, True)
-    assert second["text"].splitlines()[0] == "line 201"
+    assert (first["first_line"], first["last_line"], first["more"]) == (
+        1, file_tools.MAX_READ_LINES, True,
+    )
+    assert second["text"].splitlines()[0] == f"line {file_tools.MAX_READ_LINES + 1}"
     assert (last["last_line"], last["total_lines"], last["more"]) == (450, 450, False)
+
+
+def through_the_context(answer):
+    """What the model receives of a tool result, as Freya's context passes it."""
+    from freya.kernel.context import ContextAuthority
+
+    fitted = ContextAuthority().fit_tools([
+        {"role": "user", "content": "What is in the file?"},
+        {"role": "tool", "content": json.dumps(answer, ensure_ascii=False)},
+    ])
+
+    return json.loads(fitted[-1]["content"])
+
+
+def test_each_tools_largest_result_reaches_the_model_whole(reader, tree):
+    # The context clips a tool result at 2,400 bytes. A result cut
+    # there would carry line numbers and counts for text the model
+    # never sees, so each tool keeps its own result under the clip.
+    deep = tree / "many"
+    deep.mkdir()
+    for n in range(300):
+        (deep / f"a-rather-long-file-name-number-{n:03}.txt").write_text(
+            "\n".join(f"needle {n} " + "y" * 300 for _ in range(5)), encoding="utf-8",
+        )
+    (tree / "wide.txt").write_text(
+        "\n".join("x" * 1000 for _ in range(300)), encoding="utf-8",
+    )
+    (tree / "long.txt").write_text(
+        "\n".join(f"line {n} " + "z" * 60 for n in range(1, 451)), encoding="utf-8",
+    )
+
+    listed = reader.list("many")
+    wide = reader.read("wide.txt")
+    long = reader.read("long.txt")
+    found = reader.search("many", "needle")
+
+    for result in (listed, wide, long, found):
+        received = through_the_context(result)
+        assert "excerpt" not in received
+        assert received["_context"]["truncated"] is False
+
+    assert listed["not_shown"] + len(listed["entries"]) == 300
+    assert long["last_line"] == len(long["text"].splitlines())
+    assert long["more"] is True
+    assert wide["text"].endswith("[line cut]")
+    assert found["stopped_early"] == "the limit on matches was reached"
+    assert 0 < len(found["matches"]) < file_tools.MAX_MATCHES
+
+
+@pytest.mark.skipif(not hasattr(os, "mkfifo"), reason="needs a named pipe")
+def test_a_file_that_is_not_ordinary_is_refused_rather_than_waited_on(reader, tree):
+    os.mkfifo(tree / "pipe")
+
+    with pytest.raises(FileAccessError, match="not text"):
+        reader.read("pipe")
 
 
 def test_one_call_returns_a_bounded_amount_of_text(reader, tree):

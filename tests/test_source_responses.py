@@ -92,6 +92,11 @@ def test_service_publishes_the_actual_route_name_after_a_fake_provider_reply(tmp
     'https://[::1]/image.png', 'https://example.local/image.png',
     'https://user:password@example.org/image.png', 'https://example.org:8443/image.png',
     'https://example.org/has space', 'https://example.org\\@localhost/image.png',
+    # The same hosts spelt in forms a browser accepts.
+    'https://localhost./image.png', 'https://x.localhost./image.png',
+    'https://example.local./image.png', 'https://127.1/image.png',
+    'https://10.1/image.png', 'https://192.168.1/image.png',
+    'https://0177.0.0.1/image.png', 'https://0x7f.1/image.png',
 ])
 def test_media_rejects_unsafe_urls(url):
     assert public_https(url) is None

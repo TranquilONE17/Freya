@@ -11,6 +11,7 @@ from freya.core.usage import (
     SCOPE_CALL,
     SCOPE_PERIOD,
     SCOPE_TASK,
+    STALE_RESERVATION_SECONDS,
     USAGE_MIGRATIONS,
     VALUE_HIGH,
     VALUE_LOW,
@@ -408,3 +409,21 @@ def test_usage_survives_reopening(tmp_path):
         assert UsageLedger(second).status(PLAN, now=day(1))[0].used == 70
     finally:
         second.close()
+
+
+def test_an_open_reservation_counts_now_and_a_stale_one_only_where_it_was_made(weekly):
+    # A send under way counts in whatever window is asked about.
+    open_now = weekly.reserve(PLAN, "units", 60, "t", now=day(1))
+    assert open_now.verdict == GO
+    assert weekly.status(PLAN, now=day(1, 2))[0].used == 60
+    assert weekly.status(PLAN, now=day(1, 2))[0].used_today == 60
+
+    # Freya died mid-send: nothing ever settles it. After the stale
+    # window it still counts at its full estimate, like an unknown
+    # outcome, but in the period it was made in, not every one after.
+    later = day(1) + timedelta(seconds=STALE_RESERVATION_SECONDS + 1)
+    assert weekly.status(PLAN, now=later)[0].used == 60
+
+    next_week = RESET + timedelta(days=1)
+    assert weekly.status(PLAN, now=next_week)[0].used == 0
+    assert weekly.status(PLAN, now=next_week)[0].used_today == 0

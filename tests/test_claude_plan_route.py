@@ -388,6 +388,31 @@ def test_a_reset_time_is_read_in_the_zone_the_notice_names():
     assert utc.resets_at == datetime(2026, 10, 14, 9, 0, tzinfo=timezone.utc)
 
 
+def test_a_local_reset_time_across_a_clock_change_keeps_the_wall_clock_hour(monkeypatch):
+    import time
+    from datetime import datetime, timezone
+    from zoneinfo import ZoneInfo
+
+    from freya.providers.model.claude_plan import read_limit_notice
+
+    if not hasattr(time, "tzset"):
+        pytest.skip("This platform cannot change the process's zone.")
+
+    monkeypatch.setenv("TZ", "America/New_York")
+    time.tzset()
+    try:
+        # Half past midnight on the night the clocks go back: now is
+        # summer time, 5am that day is standard time, an hour later
+        # in UTC than a fixed offset would say.
+        now = datetime(2026, 11, 1, 0, 30, tzinfo=ZoneInfo("America/New_York"))
+        notice = read_limit_notice("5-hour limit reached - resets 5am", now)
+    finally:
+        monkeypatch.delenv("TZ")
+        time.tzset()
+
+    assert notice.resets_at == datetime(2026, 11, 1, 10, 0, tzinfo=timezone.utc)
+
+
 @pytest.mark.parametrize("said", [
     "Something went wrong.",
     "The reply was limited to 200 words.",

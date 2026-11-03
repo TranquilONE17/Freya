@@ -1,6 +1,8 @@
 import fnmatch
 import functools
+import json
 import os
+import stat
 import time
 from pathlib import Path
 from typing import Callable, Iterable, List, Sequence
@@ -19,9 +21,14 @@ FILES_SEARCH = "files.search"
 FILE_READER_CAPABILITIES = [FILES_LIST, FILES_READ, FILES_SEARCH]
 
 # What one call may return. The model's whole context is small, so a
-# file is read a part at a time.
-MAX_READ_LINES = 200
-MAX_READ_CHARACTERS = 12_000
+# file is read a part at a time. The context clips a tool result at
+# 2,400 bytes (`ContextAuthority.fit_tools`) and the model then sees
+# an excerpt whose counts and line numbers no longer describe it, so
+# every result is kept under MAX_RESULT_BYTES as encoded, and what
+# did not fit is said in the result rather than cut off outside it.
+MAX_RESULT_BYTES = 2_200
+MAX_READ_LINES = 60
+MAX_READ_CHARACTERS = 1_800
 MAX_LINE_CHARACTERS = 400
 MAX_LISTED = 200
 MAX_MATCHES = 30
@@ -36,6 +43,10 @@ MAX_READ_BYTES = 5_000_000
 
 # How much of a file is looked at to decide whether it is text.
 SNIFF_BYTES = 8_192
+
+
+def _encoded_size(result: dict) -> int:
+    return len(json.dumps(result, ensure_ascii=False).encode("utf-8"))
 
 # Files that hold keys and passwords by convention. They are never
 # listed, read or searched, even inside a folder the owner opened.
@@ -331,18 +342,31 @@ class FileReader:
 
         result = {"folder": str(folder), "entries": entries}
 
-        if left_out:
-            result["not_shown"] = left_out
         if withheld:
             result["withheld"] = (
                 f"{withheld} more here are of a kind that is never "
                 "shown or read, such as key and sign-in files."
             )
 
+        # Entries past what fits are counted, not cut off.
+        while entries and _encoded_size(dict(result, not_shown=left_out + 1)) > MAX_RESULT_BYTES:
+            entries.pop()
+            left_out += 1
+
+        if left_out:
+            result["not_shown"] = left_out
+
         return result
 
     @staticmethod
     def _text_of(path: Path) -> str:
+        # Only an ordinary file is read: a pipe or a device has no
+        # end, and opening one would hold the turn for ever.
+        if not stat.S_ISREG(path.stat().st_mode):
+            raise FileAccessError(
+                "That file is not text, so it cannot be read."
+            )
+
         with path.open("rb") as handle:
             start = handle.read(SNIFF_BYTES)
 
@@ -386,16 +410,27 @@ class FileReader:
             chosen.append(line)
             used += len(line) + 1
 
-        last = first + len(chosen) - 1
+        def result():
+            last = first + len(chosen) - 1
+            return {
+                "file": str(file),
+                "first_line": first,
+                "last_line": last,
+                "total_lines": len(lines),
+                "more": last < len(lines),
+                "text": "\n".join(chosen),
+            }
 
-        return {
-            "file": str(file),
-            "first_line": first,
-            "last_line": last,
-            "total_lines": len(lines),
-            "more": last < len(lines),
-            "text": "\n".join(chosen),
-        }
+        # The line numbers must describe what the model is given, so
+        # lines are dropped, not cut, until the whole result fits. One
+        # line is always given, cut if it must be.
+        while len(chosen) > 1 and _encoded_size(result()) > MAX_RESULT_BYTES:
+            chosen.pop()
+        if chosen and _encoded_size(result()) > MAX_RESULT_BYTES:
+            excess = _encoded_size(result()) - MAX_RESULT_BYTES + len(" [line cut]")
+            chosen[0] = chosen[0][:max(0, len(chosen[0]) - excess)] + " [line cut]"
+
+        return result()
 
     @_path_free
     def search(self, folder: str, text: str) -> dict:
@@ -484,6 +519,12 @@ class FileReader:
         if stopped or len(matches) >= MAX_MATCHES:
             result["stopped_early"] = stopped or "the limit on matches was reached"
 
+        # Matches past what fits are dropped and said to be, so a
+        # narrower search can be asked for.
+        while matches and _encoded_size(dict(result, stopped_early="the limit on matches was reached")) > MAX_RESULT_BYTES:
+            matches.pop()
+            result["stopped_early"] = "the limit on matches was reached"
+
         return result
 
 
@@ -530,9 +571,10 @@ def register_file_reader_capabilities(registry, reader: FileReader) -> None:
             name=FILES_READ,
             description=(
                 "Returns the text of one file in a folder the user has "
-                f"opened, {MAX_READ_LINES} lines at a time from "
-                "start_line, with the file's total number of lines and "
-                "whether there is more. Use it whenever the user asks "
+                f"opened, up to {MAX_READ_LINES} lines at a time from "
+                "start_line, with the last line given, the file's total "
+                "number of lines and whether there is more; read on from "
+                "last_line + 1. Use it whenever the user asks "
                 "about a file or its code, and read before you answer "
                 "rather than guessing what a file says."
             ),

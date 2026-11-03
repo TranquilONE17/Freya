@@ -270,8 +270,9 @@ Model record: `freya.delegation.record.ModelRecord` keeps, in
 model and its settings together) by kind of task: counts and timings only. `choose`
 picks the least costly allowed entry whose measured pass rate reaches the owner's bar
 for the task's value (`CloudSettings.bars`, 70/85/95% to start). Keep these rules:
-only measured results count, never a model's own claim; fewer than 15 graded attempts
-is unmeasured; an unmeasured entry is used only when no measured one qualifies and is
+only measured results count, never a model's own claim; fewer than 15 attempts
+(graded replies and attempts that got no reply together, since a worker that often
+fails to answer is not a reliable one) is unmeasured; an unmeasured entry is used only when no measured one qualifies and is
 labelled so; when every candidate is measured and none qualifies, nothing is chosen.
 `python -m freya.evaluation.record_reports <reports>` is what fills the record: it
 grades each report's stored replies again with today's checks (reading them, never
@@ -349,7 +350,11 @@ whether or not anything is there and never names a path, because the message
 reaches the audit log; key and sign-in files and folders, `.git` among them (`SECRET_FILE_PATTERNS`,
 `CLOSED_FOLDER_NAMES`) and Freya's own `data/` stay shut even inside an opened
 folder; a whole drive, the whole user folder and `AppData` cannot be opened; every
-call returns a bounded amount. There is no tool that writes, and adding one is a
+call returns a bounded amount, kept under `MAX_RESULT_BYTES` (2,200) as encoded
+because the context clips a tool result at 2,400 bytes and a clipped result would
+carry line numbers and counts for text the model never sees (a test passes each
+tool's largest result through `fit_tools`); only an ordinary file is read, never a
+pipe or a device. There is no tool that writes, and adding one is a
 separate decision. A spoken request can read an opened file aloud like a typed one;
 voice is not authentication, so open only folders that may be heard.
 
@@ -446,18 +451,25 @@ accepted only with a matching Host header and a session cookie, which is issued 
 exchange for a single-use key in the address Freya opens; the WebSocket also requires
 this server as its Origin. This is a first step, not the authenticated gateway of the
 baseline: there is no pairing, no per-client scope, and window turns are attributed to
-the same fixed `local-owner` principal. The page shows everything with `textContent`
-and a strict Content-Security-Policy, because replies and tool results are untrusted.
-The window can only ask for a chat turn, an image, mute/unmute, stopping speech, a
-voice volume, a Memory tab request, a command, a Voice tab request (with a recording sent as binary messages),
-or an answer to a question Freya put (`cloud.answer`; Freya sends `cloud.prompt` and
-`cloud.prompt.closed` to the windows, never through the bus);
-add new message types deliberately. `main.py` publishes conversation and image events
+the same fixed `local-owner` principal. The page builds everything it shows with
+`textContent` and a strict Content-Security-Policy, because replies and tool results
+are untrusted; the one exception is `rich-chat.js`, a small display-only Markdown
+subset (headings, bullets, bold, code, links and media cards that load only after a
+click) that never parses text as HTML and refuses every URL that is not public
+`https:`. The window can only send `client.hello`, a chat turn (`say`), an image,
+mute/unmute, stopping speech (`interrupt`), a voice volume, `status`, a Memory tab
+request, a command, a Voice tab request (with a recording sent as binary messages)
+and the `speech.*` playback notices, a Media tab request, an Avatar tab request, a
+Cloud tab request, or an answer to a question Freya put (`cloud.answer`; Freya sends
+`cloud.prompt` and `cloud.prompt.closed` to the windows, never through the bus);
+add new message types deliberately, in `Gateway._handle_message`. `main.py` publishes conversation and image events
 on a module-level `EVENTS` bus; the console still prints as before. The bus calls its
 subscribers in publish order while it is locked, so a subscriber must never block: the
 gateway's only puts the event on that window's queue, and a thread per window does the
 sending. A window joins with `subscribe_with_history`, which is what guarantees it
-gets every event exactly once. Memory commands (`/memories`, `/forget`, `/memory-help`
+gets every event exactly once. The history is bounded by entries (500), and a reply
+arrives one chunk per token, so the bus keeps the chunks of one reply as a single
+entry; the live events are delivered one by one as they came. Memory commands (`/memories`, `/forget`, `/memory-help`
 and the rest) typed in the window are passed to `FreyaAssistant.memory_command`.
 
 Shutdown order matters, because a turn may be running on the window's worker thread or
@@ -733,3 +745,11 @@ the authenticated gateway); routing the voice, image, and memory paths through p
 the broker; authenticated sessions to replace the fixed `local-owner` principal; a
 dedicated Windows service identity and ACLs for the control database (owner action); an
 off-host checkpoint sink.
+
+Proposed, not started: lessons from the OpenRig review (`docs/design/openrig-lessons.md`,
+provisional NEW-AS to NEW-BD; `code-sandbox.md` holds NEW-AM to NEW-AR). Adopt
+addressable knowledge, situation-tagged context, a generated map of existing
+capabilities, read-time trust downgrading, lessons, and an evaluation of whether models
+reuse what exists. Rule out reachability as authorization, caller-asserted identity, and
+shared packages that raise privilege; NEW-AZ, NEW-BA and NEW-BC become acceptance
+criteria for the authenticated gateway. First step: the evaluation scenarios (NEW-AY).
